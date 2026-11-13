@@ -1,0 +1,7 @@
+id: fake_separate
+op: [audio.separate]
+impl: dub.providers.fake:FakeSeparator
+impl_version: auto           # re-run when the fake code changes
+fake: true
+params: {bed_gain_db: -20}     # the "bed" is the original mix turned down, not a real separation
+description: Fake source separation for laptop runs and tests.

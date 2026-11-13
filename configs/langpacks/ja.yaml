@@ -1,0 +1,11 @@
+lang: ja
+name: Japanese
+iso639_2: jpn
+speech_unit: char              # rough: kana/kanji characters; morae would be better (M3)
+units_per_s: 6.5
+joiner: ""
+segment: {max_unit_s: 15, target_unit_s: 7, min_unit_s: 1.0, hard_pause_s: 1.5}
+subs: {cpl: 16, cps: 8, max_lines: 2}
+chains:
+  asr.transcribe: [kotoba_whisper_v2, whisper_large_v3]
+  tts.synthesize: [omnivoice]

@@ -1,0 +1,104 @@
+# Configuration
+
+Everything that decides *what* runs lives in `configs/`. The code decides *how*.
+
+```
+configs/
+  dub.yaml                 profiles, timing, mix, translation windows, defaults, routing rules
+  langpacks/<lang>.yaml    one file per language
+  providers/<id>.yaml      one manifest per model / adapter
+  prompts/*.md             LLM prompts (hashed into the cache key)
+```
+
+Set `DUB_CONFIG_DIR` or pass `--config-dir` to use another folder.
+
+## Add a language
+
+Create `configs/langpacks/<lang>.yaml`:
+
+```yaml
+lang: ko
+name: Korean
+iso639_2: kor
+speech_unit: char        # syllable | char | word: what the rate model counts
+units_per_s: 7.0         # prior speaking rate; measured later (E7)
+joiner: " "              # "" for languages written without spaces
+segment: {max_unit_s: 15, target_unit_s: 7, min_unit_s: 1.0, hard_pause_s: 1.5}
+subs: {cpl: 18, cps: 12, max_lines: 2}
+chains:
+  asr.transcribe: [whisper_large_v3]
+  tts.synthesize: [omnivoice]
+```
+
+Languages without a langpack use `langpacks/default.yaml`.
+
+## Add a model
+
+1. Write an adapter class in `src/dub/providers/` with `__init__(self, manifest)` and `run(self, op, req, ctx)`. The request and result types for each op are in `src/dub/contracts/v1.py`. `src/dub/providers/fake.py` is the simplest example.
+2. Add `configs/providers/<id>.yaml`:
+
+```yaml
+id: my_tts
+op: [tts.synthesize]
+impl: dub.providers.my_tts:MyTTS
+impl_version: "1"          # bump when a code change alters the output ("auto" = source hash)
+weights: {hf: org/model, revision: "<commit sha>"}
+params: {steps: 32}        # part of the cache key
+caps:
+  langs: [en, zh, vi]      # or "*"
+  duration_control: exact  # exact | relative | rate | none | preserving
+  max_out_s: 15
+  needs_ref_text: false
+limits: {max_concurrency: 4}
+status: candidate          # candidates are used only in experiments until they win the swap gate
+```
+
+3. Reference it from a langpack chain, a rule, or `--use tts.synthesize=my_tts`.
+
+`dub doctor` shows whether it can run here, and why not.
+
+## Add a routing rule
+
+Rules in `dub.yaml` are checked before the langpack chain; the first match wins.
+
+```yaml
+routes:
+  tts.synthesize:
+    - {id: short-line, when: {unit.slot_ms: {lt: 1300}}, require: {duration_control: exact}}
+    - {id: zh-drama,   when: {tgt_lang: zh, profile: final}, use: [fish_s2_pro, omnivoice]}
+```
+
+`when` facts available today:
+
+- job: `src_lang`, `tgt_lang`, `profile`;
+- unit (for `tts.synthesize`): `unit.slot_ms`, `unit.words`, `unit.asr_conf`.
+
+Conditions:
+
+- a value means equality;
+- a list means membership;
+- a dict uses operators: `{lt, lte, gt, gte, eq, ne, in}`.
+
+`use` replaces the candidates; `require` filters them by capability.
+
+## Profiles
+
+```yaml
+profiles:
+  draft: {tts_chain: incumbent_only, llm_rewrite: false, max_rewrites: 0}
+  final: {tts_chain: langpack,       llm_rewrite: true,  max_rewrites: 2}
+```
+
+A profile only changes what happens after the text layer. Lines you fix in a draft survive the switch to final.
+
+## Timing
+
+See `timing:` in `dub.yaml` and the ladder in [architecture.md](architecture.md#timing-fit-priority-2).
+- `strict: true` halves the borrowing limits, for content that must stay tightly in sync.
+
+## Prompts
+
+`configs/prompts/mt_context.v1.md`, `mt_translate.v1.md` and `mt_rewrite.v1.md` are the system prompts of the `claude_cli` provider.
+
+- Editing a prompt changes the cache key, so the affected calls re-run.
+- Keep the old file and create `v2` if you want to compare the two versions.

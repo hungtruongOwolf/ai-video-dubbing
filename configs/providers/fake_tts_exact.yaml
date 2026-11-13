@@ -1,0 +1,6 @@
+id: fake_tts_exact
+op: [tts.synthesize]
+impl: dub.providers.fake:FakeTTS
+impl_version: auto           # re-run when the fake code changes
+caps: {langs: "*", duration_control: exact, sample_rate: 48000}
+description: Same fake voice, but honours target_ms like OmniVoice. Try --use tts.synthesize=fake_tts_exact.

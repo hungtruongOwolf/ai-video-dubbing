@@ -1,0 +1,47 @@
+# Main configuration. This is the file you will edit most.
+version: 1
+
+profile: draft                 # CLI: --profile draft|final
+
+# A tier only changes what happens AFTER the text layer (TTS chain, rewrites),
+# so lines you fix in a draft survive the promotion to final.
+profiles:
+  draft: {tts_chain: incumbent_only, llm_rewrite: false, max_rewrites: 0}
+  final: {tts_chain: langpack,       llm_rewrite: true,  max_rewrites: 2}
+
+timing:
+  variant_window: 0.08         # a variant predicted within ±8% of the slot "fits"
+  safe_ratio: [0.92, 1.08]     # how much an exact-duration engine may be squeezed (E3 measures it)
+  rate_p95: 1.10               # above this speed-up: rewrite (final) or flag "fast"
+  rate_cap: 1.20               # hard ceiling: beyond it the unit is flagged "overflow"
+  early_start_ms: 200
+  late_end_ms: 500
+  min_pause_ms: 120
+  tail_guard_ms: 150
+  strict: false
+
+mix:
+  bed_gain_db: 0.0
+  loudness_lufs: -16.0
+
+translate:
+  window_units: 12             # units per LLM call
+  context_units: 3             # neighbouring units sent as context
+
+# Used when no rule matches and the langpack has no chain for the op.
+# Real speech models arrive in M1; until then use --fake for those ops.
+defaults:
+  audio.separate: [mel_roformer]
+  asr.transcribe: [whisper_large_v3]
+  audio.diarize:  [pyannote_community1]
+  mt.context:     [claude_cli, llm_api]
+  mt.translate:   [claude_cli, llm_api]
+  mt.rewrite:     [claude_cli, llm_api]
+  tts.synthesize: [omnivoice]
+
+# First match wins; evaluated BEFORE the langpack chain.
+# `use` replaces the candidates; `require` filters them by capability.
+routes:
+  tts.synthesize:
+    - {id: short-line, when: {unit.slot_ms: {lt: 1300}}, require: {duration_control: exact}}
+    - {id: weak-asr,   when: {unit.asr_conf: {lt: 0.6}}, require: {needs_ref_text: false}}

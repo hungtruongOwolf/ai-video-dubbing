@@ -1,0 +1,7 @@
+id: fake_tts
+op: [tts.synthesize]
+impl: dub.providers.fake:FakeTTS
+impl_version: auto           # re-run when the fake code changes
+fake: true
+caps: {langs: "*", duration_control: none, sample_rate: 48000}
+description: Synthetic buzz voice with a natural (unforced) length, like an autoregressive TTS.

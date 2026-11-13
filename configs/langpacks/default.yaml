@@ -1,0 +1,9 @@
+# Fallback for languages without their own langpack.
+lang: default
+name: Generic
+iso639_2: und
+speech_unit: syllable
+units_per_s: 4.5
+joiner: " "
+segment: {max_unit_s: 15, target_unit_s: 7, min_unit_s: 1.0, hard_pause_s: 1.5}
+subs: {cpl: 42, cps: 17, max_lines: 2}

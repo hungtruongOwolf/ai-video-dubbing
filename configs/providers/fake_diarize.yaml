@@ -1,0 +1,6 @@
+id: fake_diarize
+op: [audio.diarize]
+impl: dub.providers.fake:FakeDiarizer
+impl_version: auto           # re-run when the fake code changes
+fake: true
+description: Speakers from the replayed transcript, otherwise a single speaker S1.
