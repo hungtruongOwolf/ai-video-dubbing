@@ -36,27 +36,57 @@ Reference hardware from M1:
 
 **Changed from the original plan:** the pod-side items (worker HTTP SDK, RunPod template, `dub up/down`) moved to M1. They can only be verified against a real pod.
 
-## M1: Walking skeleton on a GPU (next)
+## M1: Walking skeleton on a GPU (done)
 
-- [ ] Worker SDK: an HTTP/JSON server per model family, Unix socket on the pod; executor `http` runtime
-- [ ] Pod image + network volume layout (envs, weights pinned by commit, compile cache)
-- [ ] `dub up/down`:
-  - create the pod in the volume's datacenter, trying GPUs in order A40 → A6000 → L40S;
-  - terminate the pod when idle;
-  - upload the audio, download the results
-- [ ] Real providers:
+- [x] Worker processes: one per model family (env), HTTP/JSON, models preloaded and resident
+- [x] Executor `http` runtime; the router only offers providers whose worker is running
+- [x] `dubd` on the pod:
+  - installs worker envs on the network volume (cached);
+  - supervises the workers;
+  - chunked uploads, jobs with live logs, downloads;
+  - idle self-termination
+- [x] `pod/bootstrap.sh`: uv, static ffmpeg with rubberband, the repo at the laptop's exact commit
+- [x] `dub up` / `dub down` / `dub status`:
+  - GPU list tried in order;
+  - an in-place code update of a running pod (no new rental);
+  - `dub run --remote`
+- [x] Real providers:
   - Mel-Band RoFormer separation;
-  - faster-whisper large-v3, PhoWhisper (vi), word alignment;
-  - OmniVoice with exact duration
-- [ ] Rubberband time stretch on the pod
-- [ ] `CLAUDE_CODE_OAUTH_TOKEN` on the pod
-- [ ] Exit criteria:
-  - one real en→vi video is watchable;
-  - a rerun is 100% cache hits;
-  - a 60-minute draft finishes in ≤ 12 minutes;
-  - the report shows GPU minutes and $ per stage.
+  - Whisper large-v3 and PhoWhisper (faster-whisper, word timestamps);
+  - OmniVoice with exact duration;
+  - one voice reference clip per speaker
+- [x] Claude on the pod through the subscription (`claude_code_oauth_token` Runpod secret)
+- [x] Rubberband time stretch on the pod; AAC output so the download is small
 
-## M2: Edit loop
+**Exit criteria:**
+
+| Criterion | Result |
+|---|---|
+| A real en→vi video is watchable | yes. Whisper transcribed the source almost perfectly, the timing fit needed no flags, and a Whisper back-check of the Vietnamese dub recovered nearly every line. |
+| A rerun is 100% cache hits | yes: 39/39, 17 s end to end including upload, download and mux |
+| 60-minute draft ≤ 12 min | not measured yet. From the stage timings of the test clip, the estimate on an RTX 4090 is ~18–20 min: stages still run one after another and TTS runs one line at a time. Batching and running the LLM alongside TTS are M5. |
+| Report shows GPU minutes and $ per stage | partly: seconds per op (including queue wait). Dollars per stage come with `dub bench` (M5). |
+
+Measured on a 65 s two-voice English clip (RTX 4090, pod warm):
+
+| Stage | Time |
+|---|---|
+| separation (Mel-Band RoFormer) | 5.3 s |
+| ASR (Whisper large-v3, in parallel with separation) | 5.1 s |
+| context pass (Claude, cast sheet) | 17 s |
+| translation, 2 windows in parallel (Claude) | 17 s |
+| TTS 13 lines + fit + stretch | ~10 s wall |
+| mix + AAC | 5 s |
+| **whole job** | **~50 s** |
+
+First boot on an empty volume, from pod creation to all workers ready: about 5 minutes. A restart with everything cached: about 1.5 minutes.
+
+**Changed from the original plan:**
+- word alignment with wav2vec2 moved to M3 (faster-whisper word timestamps are used for now);
+- multi-speaker diarization stays in M4: `single_speaker` gives one cloned voice per video, and Claude's cast sheet flags this itself;
+- the A40 is often out of stock. The volume moved to EU-RO-1, which has more GPU types, and the M1 model set fits a 24 GB card.
+
+## M2: Edit loop (next)
 
 - [ ] Field revisions + locks + `edits.jsonl`
 - [ ] Split/merge units

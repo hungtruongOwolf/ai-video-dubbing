@@ -17,8 +17,8 @@ Any language pair, in any direction.
 | Milestone | What | State |
 |---|---|---|
 | **M0** Foundation | Data contracts, content-addressed cache, routing, fake providers, full pipeline on a laptop, Claude translation, CI | **done** |
-| M1 Walking skeleton | Real models on a RunPod GPU (separation, Whisper/PhoWhisper, OmniVoice), `dub up/down` | next |
-| M2 Edit loop | Per-line edits, review page, partial re-render | planned |
+| **M1** Walking skeleton | Real models on a Runpod GPU (Mel-Band RoFormer, Whisper/PhoWhisper, OmniVoice, Claude), `dub up/down/status`, `dub run --remote` | **done** |
+| M2 Edit loop | Per-line edits, review page, partial re-render | next |
 | M3 Segmentation + timing | Model-based boundaries (SaT), measured speech rates, subtitle layout per script | planned |
 | M4 Speakers + routing | Diarization, voice references, cast sheet checker, second TTS engine | planned |
 | M5 Throughput | Batching across units, parallel LLM + TTS, multi-language fan-out | planned |
@@ -53,6 +53,16 @@ The job folder (`dub-workspace/jobs/<job>/`) holds:
 
 Run the same command again. Every step is served from the cache (`calls: 37, cache hits: 37`).
 
+### On a GPU (Runpod)
+
+```bash
+uv run dub up                                              # rent the pod, load the models
+uv run dub run video.mp4 --to vi --from en --remote        # real separation, ASR, translation, TTS
+uv run dub down                                            # or let it idle out after 10 minutes
+```
+
+One-time setup (API key, network volume, Claude token): [docs/m1-gpu-pod.md](docs/m1-gpu-pod.md).
+
 ### Real translation with your Claude plan
 
 If the [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI is installed and logged in:
@@ -69,6 +79,7 @@ Speech is still faked, but the context pass (summary, glossary, cast sheet) and 
 |---|---|
 | `dub demo` | Build a 1-minute test interview video and its transcript |
 | `dub run VIDEO --to LANG [--fake] [--use OP=PROVIDER] [--profile draft\|final] [--subs-only]` | Dub one video |
+| `dub up` / `dub down` / `dub status` | Rent, terminate and inspect the GPU pod |
 | `dub doctor` | Show which providers can run on this machine and the route matrix |
 | `dub schema` | Export the `/v1` data contracts as JSON Schema |
 | `dub jobs` | List jobs in the workspace |
@@ -81,7 +92,11 @@ src/dub/contracts/  /v1 data contracts between steps (pydantic -> JSON Schema)
 src/dub/core/       thin core: config, router, cache-aware call context, executor, pipeline, trace
 src/dub/store/      CAS (files by content hash), memo (results by call key), SQLite index
 src/dub/ops/        pure CPU steps: ffmpeg, segmentation, timing fit, mixing, subtitles
-src/dub/providers/  model adapters (fake_*, claude_cli; real GPU models from M1)
+src/dub/providers/  model adapters (fake_*, claude_cli, Whisper, RoFormer, OmniVoice)
+src/dub/worker/     worker process: hosts the providers of one env over HTTP/JSON
+src/dub/pod/        dubd, the pipeline server on the GPU pod (envs, jobs, uploads, idle watchdog)
+src/dub/remote.py   laptop side of the pod: Runpod API, dub up/down/status, remote runs
+pod/                pod bootstrap script and per-env requirement files
 src/dub/laptop.py   laptop side: extract the audio track, mux the result back
 tests/              unit tests, end-to-end test, architecture fitness tests
 docs/               architecture, configuration, roadmap, milestone notes
@@ -92,6 +107,7 @@ docs/               architecture, configuration, roadmap, milestone notes
 - [docs/architecture.md](docs/architecture.md): how the system is put together and why
 - [docs/configuration.md](docs/configuration.md): adding a language, a model or a routing rule
 - [docs/m0-foundation.md](docs/m0-foundation.md): what M0 contains and a guided tour
+- [docs/m1-gpu-pod.md](docs/m1-gpu-pod.md): running the real models on a Runpod GPU
 - [docs/claude-subscription.md](docs/claude-subscription.md): translating with `claude -p`
 - [docs/roadmap.md](docs/roadmap.md): milestones and exit criteria
 
