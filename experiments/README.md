@@ -17,6 +17,10 @@ these scripts and to its write-up in `docs/m3-segmentation-timing.md` or
 | `e10_address.py JOB` | E10: speaker swaps and forms of address of a dubbed drama run (en -> vi) | laptop | the address checker, the translation prompt rules |
 | `e6_asr.py prep/run/analyse` | E6: ASR model x mix/vocals on the 11 real videos; Vietnamese numbers and largest differences | laptop + pod | the ASR chain per language, mix vs vocals |
 | `e1_tts.py gen/mos/report` | E1 (+E2): OmniVoice vs VieNeu-TTS for Vietnamese, cloning 5 non-Vietnamese voices: back-check CER, speaker similarity, UTMOS, speed | pod, `core` + `tts` envs + running workers | the vi TTS default |
+| `m6_offload.py` | M6: load vs park-in-CPU-memory times of Whisper and RoFormer | pod, worker envs | parking phase-A models between jobs |
+| `timing_replay.py JOB_DIR` | Replays a finished job's timing fit with other borrowing limits (no GPU, no TTS) | laptop | `late_end_ms`, `early_start_ms` |
+| `tts_silence.py [--ref KEY:TEXT]` | M7: silence OmniVoice leaves inside the requested duration, per reference voice, as is / tight reference / tight + pad | pod, `core` env + running workers | the per-voice silence pad |
+| `sep_quality.py run --long-key KEY` | M7: separation SI-SDR on 6 synthetic mixes (clean speech over public-domain music) and speed on the 60-min speech, per sample rate and precision | pod, `core` env + running workers | `mel_roformer` sample rate and precision |
 
 Data: [NTREX-128](https://github.com/MicrosoftTranslator/NTREX) (CC BY-SA 4.0), downloaded
 on first use into `$DUB_EXP_DATA` (default `experiments/data/`, not committed). Results are

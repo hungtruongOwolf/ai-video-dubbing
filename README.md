@@ -23,6 +23,7 @@ Any language pair, in any direction.
 | **M4** Speakers + routing | Diarization (ECAPA), one cloned voice per speaker, QA gate with takes, forms-of-address checker, cast corrections, second TTS engine (VieNeu) | **done** |
 | **M5** Throughput | Continuous batching on the GPU, LLM in parallel with TTS, 24 GB profile, many languages from one analysis: a 60-min video in 14 min (final) / 8 min (draft) | **done** |
 | **M6** GPU lab | Models parked in CPU memory between jobs (kept), CUDA MPS (−6.5%, opt-in), community cloud (priced, not built) | **done** (optional) |
+| **M7** Quality pass | Ideas from 11 open-source dubbing projects, each measured: separation at 44.1 kHz + autocast, silence compensation (LLM rewrites 140 → 25), per-line loudness, voice audition, worker restarts | **done** |
 
 Details: [docs/roadmap.md](docs/roadmap.md).
 
@@ -147,6 +148,7 @@ docs/               architecture, configuration, roadmap, milestone notes
 - [docs/m4-speakers-routing.md](docs/m4-speakers-routing.md): diarization, voices and the QA gate, forms of address, ASR per language, the second TTS engine
 - [docs/m5-throughput.md](docs/m5-throughput.md): where the time of a 60-minute video goes and what made it faster
 - [docs/m6-gpu-lab.md](docs/m6-gpu-lab.md): GPU experiments (CPU-memory offload, MPS, community cloud)
+- [docs/m7-quality-pass.md](docs/m7-quality-pass.md): ideas from other dubbing projects, measured (separation, silence, loudness, voice audition, segmentation trials)
 - [experiments/README.md](experiments/README.md): how to re-run the measurements
 - [docs/claude-subscription.md](docs/claude-subscription.md): translating with `claude -p`
 - [docs/roadmap.md](docs/roadmap.md): milestones and exit criteria

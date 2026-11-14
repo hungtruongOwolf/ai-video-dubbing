@@ -217,3 +217,20 @@ CUDA graphs vs continuous batching, MPS, pinned-RAM model swapping, local LLM, c
 - [x] Community-cloud profile: priced from measurements, **not built** (no cache between pods; no stock when read)
 - [ ] CUDA graphs: not tried (VieNeu already captures its frame steps; OmniVoice is diffusion over a whole line, few large kernels)
 - [ ] Local LLM: not tried (translation quality is the Claude subscription's job; the GPU is already the bottleneck after phase A)
+
+## M7: Quality pass (done)
+
+The code of eleven open-source dubbing projects was read for ideas; each idea was measured
+before it was kept ([m7-quality-pass.md](m7-quality-pass.md)). Reference hardware is now the
+RTX PRO 4500 Blackwell (32 GB, $0.72/h): a 60-minute draft costs $0.108 there against $0.117
+on the RTX 4090.
+
+- [x] Separation at the model's 44.1 kHz with autocast: vocals SI-SDR +0.6 dB, 40% faster: **kept**
+- [x] M5's RoFormer `batch_size` was ignored by audio-separator: **claim corrected, setting removed**
+- [x] Silence inside OmniVoice's takes compensated per voice: LLM rewrites 140 → 25, speech 4.82 → 4.31 syl/s: **kept**
+- [x] Per-line loudness from the original vocals: **kept**
+- [x] Voice audition (candidate reference clips tried before voicing): see the note
+- [x] Segmentation trials (punctuation transfer for vi, Whisper prompts for zh/ja, minimum sentence length): **inconclusive, defaults kept** (two videos per language)
+- [x] Worker restarts, versioned result keys, single-flight cancellation fix: **kept**
+- [ ] More evaluation videos with human subtitles in vi and zh, to decide the segmentation trials
+- [ ] Subtitle break penalties, rotating reference clips across retakes, rewrite candidates: small expected gains, not done
