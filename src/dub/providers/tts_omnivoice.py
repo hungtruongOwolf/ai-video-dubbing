@@ -126,6 +126,11 @@ class OmniVoiceTTS:
             # each clip by 8 ms anyway.
             "fade_duration": float(p.get("fade_duration", 0.01)),
         }
+        # sampling knobs, only when a manifest or --param sets them (else OmniVoice's defaults)
+        for k in ("guidance_scale", "t_shift", "class_temperature", "position_temperature",
+                  "layer_penalty_factor"):  # fmt: skip
+            if k in p:
+                kwargs[k] = float(p[k])
         if any(pr is not None for pr in prompts):
             if any(pr is None for pr in prompts):  # mixed: run the two groups separately
                 with_p = [i for i, pr in enumerate(prompts) if pr is not None]

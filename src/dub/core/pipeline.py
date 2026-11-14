@@ -1041,6 +1041,8 @@ async def run_job(
         purity,
         addr,
     )
+    # the voice references used (clip key, transcript): review, experiments, re-voicing
+    (job_dir / "refs.json").write_text(refs.model_dump_json(indent=1), encoding="utf-8")
     cx.flush_stats()
     ws.db.upsert_job(
         job_id,

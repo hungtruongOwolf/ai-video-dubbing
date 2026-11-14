@@ -63,6 +63,7 @@ JOB_FILES = {
     "metrics.json",
     "segmentation.json",
     "gpu.csv",
+    "refs.json",
 }
 _ID = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
 _KEY = re.compile(r"^[0-9a-f]{32}(\.[A-Za-z0-9]{1,8})?$")
