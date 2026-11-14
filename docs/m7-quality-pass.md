@@ -17,7 +17,7 @@ en → vi, final profile.
 | Voice audition (4 candidate clips per speaker) | picked another clip (+0.07 on the test sentences), whole-job voice similarity unchanged (0.599 → 0.600) | no: off by default, available |
 | Mix stage: levels per line, export in the background | 72 → 51 s on the 60-min final | yes |
 | Spoken numbers (pronunciation layer) | OmniVoice reads vi numbers right in 10 of 11 lines | not needed |
-| Segmentation trials on 11 Commons + 11 YODAS2 videos | vi punctuation transfer: F1 0.687 → 0.724 on 8 vi videos (7 better); zh prompts and min length: no gain | vi transfer kept |
+| Segmentation trials on 11 Commons + 11 YODAS2 videos | vi punctuation transfer (batched Whisper donor): F1 0.687 → 0.779 on 8 vi videos (7 better), +27% ASR time; zh prompts and min length: no gain | vi transfer kept |
 | Worker restarts, versioned result keys, single-flight fix | robustness, see [below](#robustness) | yes |
 
 ## Reference projects
@@ -206,14 +206,20 @@ Mean F1 (±1 word) over the same videos, baseline → variant:
 
 | Trial | Videos | Mean F1 | Better / worse | Kept? |
 |---|---|---|---|---|
-| vi: Whisper's punctuation on PhoWhisper's words | 8 | 0.687 → **0.724** (+0.037) | **7 / 1** | **yes** |
+| vi: Whisper's punctuation on PhoWhisper's words, sequential Whisper | 8 | 0.687 → 0.724 (+0.037) | 7 / 1 | replaced by ↓ |
+| vi: the same with the punctuation from a **batched** Whisper pass | 8 | 0.687 → **0.779** (+0.092) | **7 / 1** | **yes** |
 | zh: punctuated `hotwords` | 7 | 0.714 → 0.670 (−0.044) | 2 / 5 | no |
 | zh: punctuated `initial_prompt` | 7 | 0.714 → 0.694 (−0.020) | 2 / 3 | no |
 | SaT min sentence length 3 words | 15 (vi, zh) | 0.687 → 0.685 (vi), 0.714 → 0.715 (zh) | 2 / 3 | no |
 
-- **Vietnamese punctuation transfer** (`phowhisper_punct`, now the vi source ASR): per video
-  +0.114 (podcast), +0.077, +0.045, +0.044, +0.035, +0.014, +0.006, and −0.039 on the 1945
-  recording (Whisper hears little of it, so fewer ends are transferred). PhoWhisper's words
+- **Vietnamese punctuation transfer** (`phowhisper_punct`, now the vi source ASR). With a
+  sequential Whisper pass as the donor: per video +0.114 (podcast), +0.077, +0.045, +0.044,
+  +0.035, +0.014, +0.006, and −0.039 on the 1945 recording (Whisper hears little of it, so
+  fewer ends are transferred). With a batched pass (VAD chunks, `punct_batch_size: 16`) the
+  donor punctuates more sentence ends at pauses: 0.779 on average, the spontaneous monk's
+  answer 0.553 → 0.791, the podcast 0.622 → 0.818, the radio essay 0.673 → 0.757; the 1945
+  recording 0.766 → 0.706. Batched is also cheaper: ASR of 10 minutes of Vietnamese takes
+  26.9 s with PhoWhisper alone, 54.3 s with a sequential donor, 34.2 s with a batched one. PhoWhisper's words
   are kept unchanged (checked: 144 of 144 words identical on a 40 s clip, 7 sentence ends
   instead of 2); only Whisper's sentence punctuation is transferred where both models heard
   the same words, so Whisper's invented sentences (E6) never reach the transcript. The

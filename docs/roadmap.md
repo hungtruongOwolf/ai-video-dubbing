@@ -231,7 +231,7 @@ on the RTX 4090.
 - [x] Per-line loudness from the original vocals: **kept**
 - [x] Voice audition (candidate reference clips tried before voicing): whole-job voice similarity unchanged (0.599 → 0.600): **off by default**, available
 - [x] Mix stage off the critical path (levels per line, export while subtitles render): 72 → 51 s: **kept**
-- [x] Segmentation trials, decided on a larger set: Vietnamese punctuation transfer (PhoWhisper's words + Whisper's punctuation) F1 0.687 → 0.724 on 8 videos (7 better): **kept**; zh Whisper prompts (−0.044 / −0.020 on 7 videos) and a minimum sentence length (±0): **rejected**
+- [x] Segmentation trials, decided on a larger set: Vietnamese punctuation transfer (PhoWhisper's words + a batched Whisper pass's punctuation) F1 0.687 → 0.779 on 8 videos (7 better), +27% ASR time: **kept**; zh Whisper prompts (−0.044 / −0.020 on 7 videos) and a minimum sentence length (±0): **rejected**
 - [x] Worker restarts, versioned result keys, single-flight cancellation fix: **kept**
 - [x] More evaluation videos: YODAS2 (CC BY YouTube videos with uploader subtitles), +6 vi and +5 zh after a language and transcript check (`experiments/yodas_videos.py`); Chinese scored in simplified characters
 - [ ] Subtitle break penalties, rotating reference clips across retakes, rewrite candidates: small expected gains, not done
