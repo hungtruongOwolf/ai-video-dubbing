@@ -25,6 +25,11 @@ def test_good_take_passes_and_bad_ones_say_why():
     short = judge(line, _words(line), " ", take, cents["S1"], 0.8, QaLimits(), "S1", cents, 800)
     assert short.passed and short.sim_ratio is None  # too short to judge the voice
     assert ok.score > cut.score and ok.score > other.score
+    # a twin voice (centroids closer than twin_sim) is no competitor: two similar women
+    twins = {"S1": [1.0, 0.0, 0.0], "S2": [0.9, 0.436, 0.0]}
+    near = [0.8, 0.6, 0.0]  # closer to S2, but S2 sounds like S1
+    t = judge(line, _words(line), " ", near, twins["S1"], 0.8, QaLimits(), "S1", twins, 3000)
+    assert t.passed and t.closest == "S1"
 
 
 def test_tail_and_cosine():

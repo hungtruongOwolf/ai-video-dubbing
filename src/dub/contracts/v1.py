@@ -157,6 +157,37 @@ class Diarization(Model):
     voices: list[SpeakerVoice] = Field(default_factory=list)
 
 
+class SpeakerLine(Model):
+    """One phrase of the dialogue for `text.speakers` (M8): a subtitle cue, or a piece of the
+    transcript between pauses. `voice` is the diarizer's speaker under it."""
+
+    start_ms: int
+    end_ms: int
+    text: str
+    voice: str
+    captioned: bool = True  # False: heard by the ASR only (may be a song, a crowd)
+
+
+class SpeakersReq(Model):
+    lang: str
+    lines: list[SpeakerLine]
+    voices: list[SpeakerVoice] = Field(default_factory=list)  # gender of each diarizer voice
+
+
+class Character(Model):
+    id: str
+    who: str  # role or name, as the dialogue shows it
+    gender: Gender = "unknown"
+
+
+class Attribution(Model):
+    """Who says each line: a character id per line of the request, and whether it is sure."""
+
+    characters: list[Character]
+    speaker: list[str]
+    sure: list[bool]
+
+
 class EmbedReq(Model):
     """Speaker embeddings of spans of one audio file (the whole file when `spans` is empty)."""
 
@@ -200,6 +231,9 @@ class SegmentReq(Model):
     params: SegmentParams
     probs: list[float] = Field(default_factory=list)  # boundary probability per word (or rules)
     speech: list[tuple[int, int]] = Field(default_factory=list)  # VAD regions to snap slots to
+    # False when the turns are line-by-line decisions (text.speakers), not acoustic ones:
+    # a one-word answer between two lines of the other person is then real, not a slip
+    smooth: bool = True
 
 
 class Sentence(Model):

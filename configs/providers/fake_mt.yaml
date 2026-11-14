@@ -1,6 +1,7 @@
 id: fake_mt
-op: [mt.context, mt.translate, mt.rewrite]
+op: [mt.context, mt.translate, mt.rewrite, text.speakers]
 impl: dub.providers.fake:FakeMT
 impl_version: auto           # re-run when the fake code changes
 fake: true
-description: Tags the source text with the target language; short/long variants differ in length.
+description: Tags the source text with the target language; short/long variants differ in length;
+  text.speakers gives each diarizer voice one character.

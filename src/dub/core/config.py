@@ -149,6 +149,7 @@ class QaCfg(Cfg):
     cer_max: float = 0.15  # back-check character error rate
     sim_ratio_min: float = 0.5  # voice similarity / the speaker's own similarity
     other_margin: float = 0.05  # fail when another speaker's centroid is closer by this much
+    twin_sim: float = 0.8  # ...unless the two centroids are this close (similar voices)
     voice_min_ms: int = 1200  # shorter takes are not judged on voice
     tail_min: float = 0.6  # share of the line's last quarter that the ASR heard
 

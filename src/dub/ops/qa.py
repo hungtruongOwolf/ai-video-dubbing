@@ -31,6 +31,9 @@ class QaLimits:
     tail_min: float = 0.6
     other_margin: float = 0.05  # fail if another speaker's centroid is closer by this much
     voice_min_ms: int = 1200
+    # Another speaker whose centroid is this close to the line's speaker is a twin voice (two
+    # women of a drama the attribution told apart by the words): no "sounds like" check there.
+    twin_sim: float = 0.8
 
 
 @dataclass
@@ -106,7 +109,11 @@ def judge(
         own = cosine(take_vec, centroid)
         ratio = own / self_sim
         if centroids and speaker:
-            sims = {s: cosine(take_vec, v) for s, v in centroids.items() if v}
+            sims = {
+                s: cosine(take_vec, v)
+                for s, v in centroids.items()
+                if v and (s == speaker or cosine(v, centroid) < limits.twin_sim)
+            }
             closest = max(sims, key=sims.get) if sims else None
             if closest and closest != speaker and sims[closest] > own + limits.other_margin:
                 reasons.append(f"voice: sounds more like {closest} than {speaker}")

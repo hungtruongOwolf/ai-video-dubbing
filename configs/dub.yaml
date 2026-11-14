@@ -26,6 +26,7 @@ qa:
   cer_max: 0.15                # back-check character error rate
   sim_ratio_min: 0.5           # voice similarity, relative to the speaker's own lines (E10: clones ~0.75)
   other_margin: 0.05           # fail when the take sounds more like another speaker
+  twin_sim: 0.8                # ...unless that speaker's voice centroid is this close (similar voices)
   voice_min_ms: 1200           # shorter takes are not judged on voice
   tail_min: 0.6                # share of the line's last quarter the ASR heard (truncation)
 
@@ -64,6 +65,7 @@ defaults:
   mt.context:     [claude_cli, llm_api]
   mt.translate:   [claude_cli, llm_api]
   mt.rewrite:     [claude_cli, llm_api]
+  text.speakers:  [claude_cli]     # M8: who says each line (read from the script)
   tts.synthesize: [omnivoice]
 
 # First match wins; evaluated BEFORE the langpack chain.

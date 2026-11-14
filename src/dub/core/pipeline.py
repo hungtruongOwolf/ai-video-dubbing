@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from dub.contracts.v1 import (
+    Attribution,
     AudioReq,
     AudioRes,
     Boundaries,
@@ -55,6 +56,8 @@ from dub.contracts.v1 import (
     Segmentation,
     SegmentReq,
     SeparateReq,
+    SpeakersReq,
+    SpeakerVoice,
     SpeechRegions,
     Stems,
     StretchReq,
@@ -71,6 +74,7 @@ from dub.contracts.v1 import (
     TranslationBatch,
     TrimReq,
     TrimRes,
+    Turn,
     Unit,
     VadReq,
     VoiceProfileReq,
@@ -97,6 +101,7 @@ from dub.ops import qa as qa_ops
 from dub.ops import refs as refs_ops
 from dub.ops import risk as risk_ops
 from dub.ops import segment as segment_ops
+from dub.ops import speakers as speaker_ops
 from dub.ops import subs as subs_ops
 from dub.ops import vad as vad_ops
 from dub.ops.align import cer
@@ -297,6 +302,15 @@ async def run_job(
                          "hardsub_coverage": fix.coverage}  # fmt: skip
         log(f"      burned-in subtitles: {fix.corrected} characters of the transcript corrected "
             f"(the subtitles cover {fix.coverage:.0%} of the speech)")  # fmt: skip
+    # M8: who says each line, read from the script. The diarizer merges similar voices and
+    # misses quick exchanges; the turns it gave are replaced by one per line of dialogue.
+    speaker_stats: dict[str, Any] = {}
+    if not spec.speakers_hint and not spec.transcript_key:
+        covered = hardsub_stats.get("hardsub_coverage", 0) >= hardsub_ops.CAPTIONED_MIN
+        cues = spec.hardsubs if covered else None
+        diar, speaker_stats = await _attribute_speakers(
+            cx, diar, asr_words, cues, src_lang, src_lp.joiner, vocals16.audio_key, log
+        )
     speech: SpeechRegions = await cx.local(
         "audio.vad",
         vad_ops.speech_regions,
@@ -323,6 +337,7 @@ async def run_job(
             params=src_lp.segment_params(),
             probs=bounds.probs,
             speech=speech.regions,
+            smooth=not speaker_stats.get("applied"),
         ),
         Segmentation,
         with_cas=False,
@@ -411,7 +426,7 @@ async def run_job(
         ContextReq(src_lang=src_lang, tgt_lang=spec.tgt_lang, units=base_units, voices=diar.voices),
     )
     sheet = edits_ops.apply_cast(sheet, edits)  # the user's corrections win
-    finer = _finer_diarization(cx, sheet, spec)
+    finer = None if speaker_stats.get("applied") else _finer_diarization(cx, sheet, spec)
     if finer is not None:  # one voice holds several people: cluster again, finer (once)
         if calib is not None:
             calib.cancel()
@@ -462,6 +477,7 @@ async def run_job(
         sim_ratio_min=q.sim_ratio_min,
         tail_min=q.tail_min,
         other_margin=q.other_margin,
+        twin_sim=q.twin_sim,
         voice_min_ms=q.voice_min_ms,
     )
 
@@ -996,6 +1012,7 @@ async def run_job(
     metrics.update(speaker_metrics(diar, purity, qas, refs))
     metrics.update(level_stats)
     metrics.update(hardsub_stats)
+    metrics.update({f"speakers_{k}": v for k, v in speaker_stats.items() if k != "names"})
     if auditions:  # how much the audition changed the voices (see _audition_voices)
         metrics["audition_switched"] = sum(1 for a in auditions if a.chosen)
         gains = [
@@ -1160,6 +1177,70 @@ CALIB_MAX_PAD_MS = 800
 DIAR_STEP = 0.1
 DIAR_FLOOR = 0.7
 DIAR_FINER_MIN_SHARE = 0.03
+
+
+def _turn_spans(turns: list[Turn], per_speaker: int = 5) -> tuple[list[tuple[int, int]], list[str]]:
+    """The longest turns of each diarizer speaker (1.5-15 s), for the voice hints."""
+    by: dict[str, list[Turn]] = {}
+    for t in turns:
+        if 1500 <= t.end_ms - t.start_ms <= 15000:
+            by.setdefault(t.speaker, []).append(t)
+    spans, speakers = [], []
+    for spk, ts in sorted(by.items()):
+        for t in sorted(ts, key=lambda x: x.start_ms - x.end_ms)[:per_speaker]:
+            spans.append((t.start_ms, t.end_ms))
+            speakers.append(spk)
+    return spans, speakers
+
+
+async def _attribute_speakers(
+    cx: Ctx,
+    diar: Diarization,
+    words: list[Word],
+    cues: list[HardsubCue] | None,
+    src_lang: str,
+    joiner: str,
+    vocals16_key: str,
+    log: Callable[[str], None],
+) -> tuple[Diarization, dict[str, Any]]:
+    """`text.speakers` on the lines of the dialogue, fused with the diarizer's voices
+    (dub.ops.speakers). Returns the diarization to segment with, and stats for the report."""
+    try:
+        cx.router.route("text.speakers", dict(cx.facts))
+    except RoutingError:
+        return diar, {}
+    voices: list[SpeakerVoice] = []
+    spans, span_speakers = _turn_spans(diar.turns)
+    if spans:
+        try:
+            prof: VoiceProfiles = await cx.call(
+                "audio.voice_profile",
+                VoiceProfileReq(audio_key=vocals16_key, spans=spans, speakers=span_speakers),
+            )
+            voices = prof.voices
+        except (RoutingError, ProviderError) as e:
+            log(f"      voice hints for the speakers skipped: {str(e)[:200]}")
+    lines = speaker_ops.lines(words, diar.turns, cues, joiner)
+    if len(lines) < 2:
+        return diar, {}
+    try:
+        attr: Attribution = await cx.call(
+            "text.speakers", SpeakersReq(lang=src_lang, lines=lines, voices=voices)
+        )
+    except (RoutingError, ProviderError) as e:
+        log(f"      who says each line: not read ({str(e)[:200]})")
+        return diar, {}
+    turns, stats = speaker_ops.fuse(lines, attr, voices)
+    if turns is None:
+        n_bad, n = stats.get("gender_conflicts", 0), stats["lines"]
+        log(f"      who says each line: not used ({stats.get('rejected')}: "
+            f"{n_bad} of {n} lines would change gender)")  # fmt: skip
+        return diar, stats
+    people = ", ".join(f"{k} {v}" for k, v in stats["names"].items())
+    log(f"      who says each line: {stats['characters']} people in {stats['lines']} lines, "
+        f"{stats['moved']} lines moved off the voice clusters ({people})")  # fmt: skip
+    speakers = sorted({t.speaker for t in turns}, key=lambda s: int(s[1:]))
+    return Diarization(turns=turns, speakers=speakers), {**stats, "applied": True}
 
 
 def _finer_diarization(cx: Ctx, sheet: ContextSheet, spec: JobSpec) -> float | None:

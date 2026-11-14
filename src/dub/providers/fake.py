@@ -21,8 +21,10 @@ import json
 import numpy as np
 
 from dub.contracts.v1 import (
+    Attribution,
     CastSheet,
     CastSpeaker,
+    Character,
     ContextReq,
     ContextSheet,
     Diarization,
@@ -32,6 +34,7 @@ from dub.contracts.v1 import (
     RewriteReq,
     RewriteRes,
     SeparateReq,
+    SpeakersReq,
     SpeakerVoice,
     Stems,
     SynthReq,
@@ -232,6 +235,17 @@ class FakeMT(_Base):
     def op_mt_rewrite(self, req: RewriteReq, ctx: RunCtx) -> RewriteRes:
         ratio = req.target_units / max(req.current_units, 1)
         return RewriteRes(text=_cut_words(req.text, min(1.0, ratio)))
+
+    def op_text_speakers(self, req: SpeakersReq, ctx: RunCtx) -> Attribution:
+        """One character per diarizer voice: the voices' turns come back unchanged."""
+        ids: dict[str, str] = {}
+        for ln in req.lines:
+            ids.setdefault(ln.voice, f"P{len(ids) + 1}")
+        return Attribution(
+            characters=[Character(id=c, who=f"voice {v}") for v, c in ids.items()],
+            speaker=[ids[ln.voice] for ln in req.lines],
+            sure=[True] * len(req.lines),
+        )
 
 
 # ---------------------------------------------------------------- TTS

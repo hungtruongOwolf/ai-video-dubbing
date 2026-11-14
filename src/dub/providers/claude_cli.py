@@ -34,11 +34,13 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from dub.contracts.v1 import (
     AddressTerms,
+    Attribution,
     Audience,
     Boundaries,
     BoundaryReq,
     CastSheet,
     CastSpeaker,
+    Character,
     ContextReq,
     ContextSheet,
     GlossaryEntry,
@@ -46,6 +48,7 @@ from dub.contracts.v1 import (
     Relation,
     RewriteReq,
     RewriteRes,
+    SpeakersReq,
     TranslateReq,
     Translation,
     TranslationBatch,
@@ -138,6 +141,23 @@ class LLMRewrite(_S):
 
 class LLMBoundaries(_S):
     ends: list[int]
+
+
+class LLMCharacter(_S):
+    id: str
+    who: str
+    gender: Gender
+
+
+class LLMWho(_S):
+    line: int
+    speaker: str
+    sure: bool
+
+
+class LLMSpeakers(_S):
+    characters: list[LLMCharacter]
+    lines: list[LLMWho]
 
 
 def inline_schema(model: type[BaseModel]) -> dict[str, Any]:
@@ -263,6 +283,69 @@ def boundaries_prompt(req: BoundaryReq, lo: int, a: int, b: int, hi: int) -> str
     return "\n\n".join(parts)
 
 
+def _voice_label(speaker: str) -> str:
+    """Diarizer speakers S1, S2... are shown as voices V1, V2... (the answer's ids are P1...)."""
+    return "V" + speaker[1:] if speaker[:1] == "S" else speaker
+
+
+def speakers_prompt(
+    req: SpeakersReq, known: list[Character], lo: int, a: int, b: int, hi: int
+) -> str:
+    def row(i: int) -> str:
+        ln = req.lines[i]
+        mark = "" if ln.captioned else "~ "
+        return f"{i} [{_clock(ln.start_ms)}] {_voice_label(ln.voice)}: {mark}{ln.text}"
+
+    voices = [
+        f"- {_voice_label(v.speaker)}: sounds {v.gender} (confidence {v.gender_conf:.2f}), "
+        f"age band {v.age_band}"
+        for v in req.voices
+    ]
+    chars = [f"- {c.id}: {c.who} ({c.gender})" for c in known]
+    nl = "\n"
+    parts = [
+        f"Language: {req.lang}",
+        "Voices (audio model, weak evidence):" + nl + nl.join(voices or ["- no gender hints"]),
+        "Known characters (keep these ids):" + nl + nl.join(chars or ["- none yet"]),
+    ]
+    if lo < a:
+        parts.append("Context before:" + nl + nl.join(row(i) for i in range(lo, a)))
+    parts.append("[DECIDE]" + nl + nl.join(row(i) for i in range(a, b)) + nl + "[/DECIDE]")
+    if b < hi:
+        parts.append("Context after:" + nl + nl.join(row(i) for i in range(b, hi)))
+    return (nl + nl).join(parts)
+
+
+def merge_speakers(
+    out: LLMSpeakers, req: SpeakersReq, known: list[Character], a: int, b: int,
+    who: list[str | None], sure: list[bool],
+) -> list[Character]:  # fmt: skip
+    """Write one window's answer into `who`/`sure` (lines a..b-1); returns the characters.
+    A line the answer left out takes the speaker of the line before it on the same voice."""
+    chars = {c.id: c for c in known}
+    for c in out.characters:
+        if c.id not in chars:
+            chars[c.id] = Character(id=c.id, who=c.who, gender=c.gender)
+    got = {x.line: x for x in out.lines if a <= x.line < b}
+    missing = [i for i in range(a, b) if i not in got]
+    if len(missing) > max(2, 0.1 * (b - a)):
+        raise ProviderError(
+            f"speakers: {len(missing)} of {b - a} lines left out", kind="bad_output", retryable=True
+        )
+    for i in range(a, b):
+        x = got.get(i)
+        if x is not None:
+            if x.speaker not in chars:
+                chars[x.speaker] = Character(id=x.speaker, who="unnamed")
+            who[i], sure[i] = x.speaker, x.sure
+            continue
+        voice = req.lines[i].voice
+        prev = next((who[j] for j in range(i - 1, -1, -1)
+                     if who[j] and req.lines[j].voice == voice), None)  # fmt: skip
+        who[i], sure[i] = prev, False
+    return list(chars.values())
+
+
 # ---------------------------------------------------------------- conversions
 
 
@@ -380,6 +463,8 @@ class ClaudeCLI:
             return RewriteRes(text=out.text)
         if op == "text.boundaries":
             return self.boundaries(system, req, ctx)
+        if op == "text.speakers":
+            return self.speakers(system, req, ctx)
         raise ProviderError(f"claude_cli does not implement {op}", kind="unsupported")
 
     def boundaries(self, system: str, req: BoundaryReq, ctx: RunCtx) -> Boundaries:
@@ -402,6 +487,25 @@ class ClaudeCLI:
             ends = {i for found in pool.map(one, wins) for i in found}
         ends.add(n - 1)
         return Boundaries(probs=[0.95 if i in ends else 0.05 for i in range(n)])
+
+    def speakers(self, system: str, req: SpeakersReq, ctx: RunCtx) -> Attribution:
+        """Who says each line. Windows go one after the other: each one sees the characters
+        the previous ones named, so a person keeps one id over the whole video."""
+        n = len(req.lines)
+        p = ctx.params
+        who: list[str | None] = [None] * n
+        sure = [False] * n
+        known: list[Character] = []
+        for lo, a, b, hi in boundary_windows(
+            n, int(p.get("window_lines", 300)), int(p.get("context_lines", 15))
+        ):
+            out = self.invoke(system, speakers_prompt(req, known, lo, a, b, hi), LLMSpeakers, ctx)
+            known = merge_speakers(out, req, known, a, b, who, sure)
+        first = next((w for w in who if w), known[0].id if known else "P1")
+        if not known:
+            known = [Character(id=first, who="unnamed")]
+        filled = [w or first for w in who]
+        return Attribution(characters=known, speaker=filled, sure=sure)
 
     # -- one CLI call
     def build_cmd(self, system: str, schema: dict[str, Any], params: dict[str, Any]) -> list[str]:

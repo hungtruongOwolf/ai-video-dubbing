@@ -255,3 +255,44 @@ def test_an_incomplete_translation_is_a_retryable_error(cfg, ctx, calls):
     with pytest.raises(ProviderError) as e:
         ClaudeCLI(cfg.providers["claude_cli"]).run("mt.translate", req, ctx)
     assert e.value.kind == "bad_output" and e.value.retryable and "u2" in str(e.value)
+
+
+def test_speakers_in_windows_keep_character_ids(cfg, ctx, monkeypatch):
+    """Windows go in order and each one sees the characters named before; a line the answer
+    leaves out takes the previous speaker on its voice."""
+    from dub.contracts.v1 import SpeakerLine, SpeakersReq, SpeakerVoice
+
+    texts = ["How many months?", "Three.", "Boy or girl?", "Boy.", "Where's the money from?"]
+    lines = [SpeakerLine(start_ms=i * 1000, end_ms=i * 1000 + 800, text=t,
+                         voice="S2" if i == 4 else "S1") for i, t in enumerate(texts)]  # fmt: skip
+    answers = iter([
+        {"characters": [{"id": "P1", "who": "the employer", "gender": "female"},
+                        {"id": "P2", "who": "the wet nurse", "gender": "female"}],
+         "lines": [{"line": 0, "speaker": "P1", "sure": True},
+                   {"line": 1, "speaker": "P2", "sure": True},
+                   {"line": 2, "speaker": "P1", "sure": True}]},
+        {"characters": [{"id": "P3", "who": "her husband", "gender": "male"}],
+         "lines": [{"line": 4, "speaker": "P3", "sure": True}]},  # line 3 left out
+    ])  # fmt: skip
+    seen = []
+
+    def runner(cmd, stdin, env, timeout):
+        seen.append(stdin)
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(ok(next(answers))), "")
+
+    monkeypatch.setattr(ClaudeCLI, "runner", staticmethod(runner))
+    prm = {**ctx.params, "window_lines": 3, "context_lines": 1}
+    run_ctx = RunCtx(cas=ctx.cas, manifest=ctx.manifest, params=prm,
+                     prompts_dir=ctx.prompts_dir, log=ctx.log)  # fmt: skip
+    req = SpeakersReq(
+        lang="en",
+        lines=lines,
+        voices=[SpeakerVoice(speaker="S1", gender="female", gender_conf=0.9)],
+    )
+    res = ClaudeCLI(cfg.providers["claude_cli"]).run("text.speakers", req, run_ctx)
+    assert res.speaker == ["P1", "P2", "P1", "P1", "P3"]
+    assert res.sure == [True, True, True, False, True]
+    assert [c.id for c in res.characters] == ["P1", "P2", "P3"]
+    assert "0 [00:00.0] V1: How many months?" in seen[0]
+    assert "- V1: sounds female" in seen[0] and "- none yet" in seen[0]
+    assert "- P2: the wet nurse (female)" in seen[1] and "Context before:" in seen[1]

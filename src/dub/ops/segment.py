@@ -380,9 +380,8 @@ def segment(req: SegmentReq) -> Segmentation:
         (i for i, w in enumerate(req.words) if w.w.strip()),
         key=lambda i: (req.words[i].start_ms, req.words[i].end_ms),
     )
-    words = normalize_words(
-        smooth_speakers(assign_speakers([req.words[i] for i in order], req.turns))
-    )
+    worded = assign_speakers([req.words[i] for i in order], req.turns)
+    words = normalize_words(smooth_speakers(worded) if req.smooth else worded)
     if req.probs:
         if len(req.probs) != len(req.words):
             raise ValueError(f"{len(req.probs)} boundary probs for {len(req.words)} words")
