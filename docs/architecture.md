@@ -33,7 +33,7 @@ ffmpeg -c:v copy: mux into the original video
 | A: analysis | decode → separate ∥ ASR → diarize → segment | whole file; GPU-bound |
 | Barrier | `mt.context`: one LLM pass over the whole transcript | summary, glossary, **cast sheet** |
 | B: per unit | translate windows → TTS → timing fit → stretch | units run concurrently |
-| Tail | mix → subtitles → (laptop) mux | |
+| Tail | 30 s mix tiles → subtitles; on export: concat → loudness → AAC → (laptop) mux | tiles are cached one by one |
 
 Granularity: sentence ⊇ dub unit ⊇ subtitle cue.
 
@@ -186,6 +186,15 @@ Evidence ranks, strongest first:
 Gender is never inferred from a name alone.
 
 Each translation window receives only the cast rows of the speakers present (`CastSheet.rows_for`). Its cache key therefore changes only when those rows change. The rule-based address checker and the whole-script consistency pass arrive in M4.
+
+## Human edits
+
+Edits are stored on the laptop and sent with every run. Each kind enters the pipeline where it re-runs the least:
+- split and merge are applied before translation, using windows cut on the unedited units;
+- text replaces a translation;
+- speaker, nudge and seed are applied after translation.
+
+Together with per-tile mixing, a one-line fix redoes one TTS call and one or two tiles. See [m2-edit-loop.md](m2-edit-loop.md).
 
 ## Design rules
 

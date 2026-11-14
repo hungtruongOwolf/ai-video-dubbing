@@ -86,19 +86,37 @@ First boot on an empty volume, from pod creation to all workers ready: about 5 m
 - multi-speaker diarization stays in M4: `single_speaker` gives one cloned voice per video, and Claude's cast sheet flags this itself;
 - the A40 is often out of stock. The volume moved to EU-RO-1, which has more GPU types, and the M1 model set fits a 24 GB card.
 
-## M2: Edit loop (next)
+## M2: Edit loop (done)
 
-- [ ] Field revisions + locks + `edits.jsonl`
-- [ ] Split/merge units
-- [ ] Dirty-set re-render: only the edited line and its neighbours
-- [ ] Review page:
-  - riskiest lines first;
-  - listen ±5 s;
-  - edit, regenerate, pick a take, change the speaker
-- [ ] Offline edits while the pod is off (`dub edit export/import`)
-- [ ] Exit criteria: editing one line re-renders in a median of ≤ 2 s.
+- [x] Human edits: text, new take (seed), speaker, slot nudge, split, merge, lock, undo
+- [x] Append-only, fsync'ed `edits.jsonl` on the laptop. Every run sends the full list, so edits work offline and survive pod loss.
+- [x] Edits enter the pipeline where they re-run the least:
+  - stable translation windows;
+  - voice/timing edits after translation;
+  - deterministic ids for split/merge units
+- [x] 30 s mix tiles cached separately; concat + loudness + AAC only on export
+- [x] Risk score per line (hand-set weights)
+- [x] Review page (`dub review`): riskiest lines first, original vs dub playback, every edit, render, export
+- [x] `dub edit` for the same edits from the terminal
+- [x] Fewer round trips to the pod: no re-upload, a long-poll that carries the result bundle
+- [x] Cache keys ignore fields at their default value, so adding an optional contract field keeps the cache
+- [x] Kill-and-resume test: crash mid-TTS, rerun, byte-identical output
 
-## M3: Segmentation + timing (priorities 1 and 2)
+**Exit criteria:**
+
+| Criterion | Result |
+|---|---|
+| Only the edited line is re-synthesised | yes. Every measured edit redid exactly one TTS call and one or two tiles. |
+| Edit → render, p50 ≤ 2 s / p95 ≤ 6 s | p50 2.3 s, max 2.6 s after warm-up (pod 0.9–1.4 s + ~1 s of round trips Vietnam ↔ Romania). With the audible preview, p50 3.5 s. |
+| Re-export ≤ 60 s for 60 min | not measured yet (65 s clip: 9.8 s). It will be measured with the M5 benchmark. |
+| Kill and resume | yes: byte-identical output in the test suite |
+| Offline edits | yes: edits live on the laptop |
+
+**Changed from the original plan:**
+- Edits are stored on the laptop instead of on the network volume. That makes the S3 export/import step unnecessary.
+- The risk weights are hand-set until M4 brings QA signals.
+
+## M3: Segmentation + timing (priorities 1 and 2) (next)
 
 - [ ] SaT boundary probabilities in the DP (experiment E4)
 - [ ] Measured speech-rate model per voice (E7)

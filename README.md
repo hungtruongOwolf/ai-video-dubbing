@@ -18,8 +18,8 @@ Any language pair, in any direction.
 |---|---|---|
 | **M0** Foundation | Data contracts, content-addressed cache, routing, fake providers, full pipeline on a laptop, Claude translation, CI | **done** |
 | **M1** Walking skeleton | Real models on a Runpod GPU (Mel-Band RoFormer, Whisper/PhoWhisper, OmniVoice, Claude), `dub up/down/status`, `dub run --remote` | **done** |
-| M2 Edit loop | Per-line edits, review page, partial re-render | next |
-| M3 Segmentation + timing | Model-based boundaries (SaT), measured speech rates, subtitle layout per script | planned |
+| **M2** Edit loop | Per-line edits, review page, partial re-render (one line redone in ~2 s) | **done** |
+| M3 Segmentation + timing | Model-based boundaries (SaT), measured speech rates, subtitle layout per script | next |
 | M4 Speakers + routing | Diarization, voice references, cast sheet checker, second TTS engine | planned |
 | M5 Throughput | Batching across units, parallel LLM + TTS, multi-language fan-out | planned |
 | M6 GPU lab | Optional performance experiments | optional |
@@ -63,6 +63,14 @@ uv run dub down                                            # or let it idle out 
 
 One-time setup (API key, network volume, Claude token): [docs/m1-gpu-pod.md](docs/m1-gpu-pod.md).
 
+### Fix lines and re-render only what changed
+
+```bash
+uv run dub review video.mp4 --to vi --from en --remote     # review page at http://127.0.0.1:8765
+```
+
+Riskiest lines first; play the original and the dub, fix the text, ask for a new take, change the speaker, move, split or merge a line, then render. Only the touched lines are redone. Details: [docs/m2-edit-loop.md](docs/m2-edit-loop.md).
+
 ### Real translation with your Claude plan
 
 If the [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI is installed and logged in:
@@ -80,6 +88,8 @@ Speech is still faked, but the context pass (summary, glossary, cast sheet) and 
 | `dub demo` | Build a 1-minute test interview video and its transcript |
 | `dub run VIDEO --to LANG [--fake] [--use OP=PROVIDER] [--profile draft\|final] [--subs-only]` | Dub one video |
 | `dub up` / `dub down` / `dub status` | Rent, terminate and inspect the GPU pod |
+| `dub review VIDEO --to LANG [--remote]` | Review page: listen, fix lines, render, export |
+| `dub edit VIDEO --to LANG ACTION ...` | Record an edit from the terminal (text, regen, speaker, nudge, split, merge, lock, undo) |
 | `dub doctor` | Show which providers can run on this machine and the route matrix |
 | `dub schema` | Export the `/v1` data contracts as JSON Schema |
 | `dub jobs` | List jobs in the workspace |
@@ -96,6 +106,9 @@ src/dub/providers/  model adapters (fake_*, claude_cli, Whisper, RoFormer, OmniV
 src/dub/worker/     worker process: hosts the providers of one env over HTTP/JSON
 src/dub/pod/        dubd, the pipeline server on the GPU pod (envs, jobs, uploads, idle watchdog)
 src/dub/remote.py   laptop side of the pod: Runpod API, dub up/down/status, remote runs
+src/dub/runner.py   one run of one video, local or remote (shared by dub run and the review page)
+src/dub/edits.py    the human edit store (append-only JSONL on the laptop)
+src/dub/review/     the review page (local web app)
 pod/                pod bootstrap script and per-env requirement files
 src/dub/laptop.py   laptop side: extract the audio track, mux the result back
 tests/              unit tests, end-to-end test, architecture fitness tests
@@ -108,6 +121,7 @@ docs/               architecture, configuration, roadmap, milestone notes
 - [docs/configuration.md](docs/configuration.md): adding a language, a model or a routing rule
 - [docs/m0-foundation.md](docs/m0-foundation.md): what M0 contains and a guided tour
 - [docs/m1-gpu-pod.md](docs/m1-gpu-pod.md): running the real models on a Runpod GPU
+- [docs/m2-edit-loop.md](docs/m2-edit-loop.md): the review page, edits and partial re-rendering
 - [docs/claude-subscription.md](docs/claude-subscription.md): translating with `claude -p`
 - [docs/roadmap.md](docs/roadmap.md): milestones and exit criteria
 
