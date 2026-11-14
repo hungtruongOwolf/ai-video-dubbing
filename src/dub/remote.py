@@ -32,6 +32,7 @@ import yaml
 
 API = "https://api.runpod.io/v2"
 PART_BYTES = 32 * 1024 * 1024  # under the proxy's 100 MB request limit
+USER_AGENT = "dub-cli/0.1"  # the Runpod proxy (Cloudflare) blocks Python's default agent
 CAPACITY_HINTS = (
     "no longer any instances",
     "instances available",
@@ -135,7 +136,8 @@ def _request(
     data: bytes | None = None,
     timeout: float = 60,
 ) -> tuple[int, bytes]:
-    req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
+    headers = {"User-Agent": USER_AGENT, **(headers or {})}
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, resp.read()
@@ -184,7 +186,7 @@ class Dubd:
 
     def __init__(self, url: str, token: str):
         self.url = url.rstrip("/")
-        self.headers = {"Authorization": f"Bearer {token}"}
+        self.headers = {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
 
     def health(self) -> dict[str, Any] | None:
         try:
@@ -253,6 +255,10 @@ class Dubd:
 # -------------------------------------------------------------------- up / down / status
 
 
+def pod_status_of(pod: dict[str, Any]) -> str:
+    return str(pod.get("status") or pod.get("desiredStatus") or "UNKNOWN")
+
+
 def git_ref(repo_root: Path) -> str:
     """The commit the pod should run: local HEAD, which must already be on GitHub."""
 
@@ -314,7 +320,7 @@ def pod_up(
 ) -> PodState:
     api = Runpod(runpod_key())
     state = PodState.load(ws_root)
-    if state and (pod := api.get_pod(state.pod_id)) and pod.get("desiredStatus") == "RUNNING":
+    if state and (pod := api.get_pod(state.pod_id)) and pod_status_of(pod) == "RUNNING":
         log(f"[up] reusing pod {state.pod_id} ({state.gpu})")
     else:
         ref = git_ref(repo_root)
@@ -341,7 +347,7 @@ def pod_up(
                 token=token,
                 gpu=gpu,
                 ref=ref,
-                cost_per_hr=pod.get("costPerHr") or pod.get("adjustedCostPerHr"),
+                cost_per_hr=pod.get("cost"),
             )
             state.save(ws_root)
             log(
@@ -409,10 +415,13 @@ def pod_status(ws_root: Path, log: Callable[[str], None] = print) -> None:
         log(f"pod {state.pod_id} no longer exists (idle shutdown?); dub up creates a new one")
         PodState.path(ws_root).unlink(missing_ok=True)
         return
+    if state.cost_per_hr is None and pod.get("cost"):
+        state.cost_per_hr = float(pod["cost"])
+        state.save(ws_root)
     hours = (time.time() - state.created_at) / 3600
     cost = f", ~${hours * state.cost_per_hr:.2f} so far" if state.cost_per_hr else ""
     log(
-        f"pod {state.pod_id} {pod.get('desiredStatus')} on {state.gpu} "
+        f"pod {state.pod_id} {pod_status_of(pod)} on {state.gpu} "
         f"(${state.cost_per_hr}/h, up {hours * 60:.0f} min{cost})"
     )
     h = Dubd(state.url, state.token).health()

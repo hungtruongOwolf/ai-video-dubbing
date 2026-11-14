@@ -191,7 +191,10 @@ class DubServer:
     def watchdog(self, terminate: Callable[[], None]) -> None:
         while True:
             time.sleep(30)
-            if self.jobs.running():
+            # Never idle out while a job runs or while the first boot is still installing envs
+            # and downloading weights (that can take longer than the idle limit).
+            installing = self.envs.started and not self.envs.settled.is_set()
+            if self.jobs.running() or installing:
                 self.touch()
                 continue
             if time.time() - self.last_activity > self.idle_s:

@@ -89,6 +89,7 @@ class EnvManager:
         self.log(f"[env {e.name}] {status} {detail}".rstrip())
 
     def _run_all(self) -> None:
+        waiters: list[threading.Thread] = []
         try:
             for e in self.envs.values():  # sequential installs share the uv cache cleanly
                 try:
@@ -96,9 +97,12 @@ class EnvManager:
                     self._launch(e)
                 except Exception as exc:  # noqa: BLE001 - one broken env must not stop the rest
                     self._set(e, "failed", str(exc)[-500:])
-            for e in self.envs.values():
-                if e.status == "starting":
-                    self._wait_ready(e)
+                    continue
+                t = threading.Thread(target=self._wait_ready, args=(e,), daemon=True)
+                t.start()
+                waiters.append(t)
+            for t in waiters:
+                t.join()
         finally:
             self.settled.set()
 

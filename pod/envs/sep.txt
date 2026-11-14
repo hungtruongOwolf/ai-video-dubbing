@@ -1,3 +1,4 @@
 # Mel-Band RoFormer separation.
 audio-separator[gpu]==0.48.0
+audioread  # imported by audio-separator but not declared as a dependency
 torch==2.8.0
