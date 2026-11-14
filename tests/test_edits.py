@@ -267,3 +267,46 @@ def test_cast_corrections_override_and_lock_the_sheet():
     rel = out.relations[0]
     assert (rel.speaker, rel.listener) == ("S1", "S2") and rel.address["vi"].self_term == "mẹ"
     assert sheet.cast.speakers[0].gender == "male"  # the input is not modified
+
+
+@requires_ffmpeg
+def test_original_keeps_the_source_vocals_of_a_line(demo, tmp_path):
+    """`original UNIT`: the line is not voiced, its slot plays the original vocals (a song in
+    the background); its subtitle keeps the translation. `dub UNIT` voices it again."""
+    import numpy as np
+
+    from dub.ops.audio_io import read_wav
+
+    def placements(out):
+        rows = json.loads((out.job_dir / "units.json").read_text(encoding="utf-8"))
+        return {r["unit"]["id"]: r["placement"] for r in rows}
+
+    ws = Workspace.open(tmp_path / "ws")
+    opts = RunOptions(video=demo, tgt="vi", fake=True)
+    first = run_video(opts, ws, log=lambda m: None)
+    rows = json.loads((first.job_dir / "units.json").read_text(encoding="utf-8"))
+    target = rows[2]
+    uid = target["unit"]["id"]
+    before = placements(first)
+    key = json.loads((ws.root / "sources.json").read_text(encoding="utf-8"))
+    store = EditStore.for_job(ws.root, key[str(demo.resolve())]["audio_key"], "vi")
+
+    store.add(uid, "original", True)
+    second = run_video(opts, ws, log=lambda m: None)
+    assert "tts.synthesize" not in second.redone  # nothing new voiced
+    after = placements(second)
+    p = after[uid]
+    assert p["variant"] == "original" and p["flags"] == ["original"] and p["rate"] == 1.0
+    assert p["start_ms"] == target["unit"]["start_ms"]
+    assert p["text"] == target["placement"]["text"]  # the subtitle keeps the translation
+    clip, sr = read_wav(ws.cas.path(p["audio_key"]))
+    assert sr == 48000 and abs(len(clip) / sr * 1000 - (p["end_ms"] - p["start_ms"])) <= 2
+    assert np.abs(clip).max() > 0  # the original voice, not silence
+    assert {k: v["audio_key"] for k, v in after.items() if k != uid} == {
+        k: v["audio_key"] for k, v in before.items() if k != uid
+    }  # the other lines are untouched
+
+    store.add(uid, "original", False)  # dub it again: the cached take is back
+    third = placements(run_video(opts, ws, log=lambda m: None))
+    assert third[uid]["variant"] != "original"
+    assert third[uid]["audio_key"] == before[uid]["audio_key"]

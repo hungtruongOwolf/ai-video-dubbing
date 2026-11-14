@@ -456,6 +456,14 @@ class AudioReq(Model):
     audio_key: str
 
 
+class CutReq(Model):
+    """[start_ms, end_ms) of a 48 kHz WAV (the original vocals of a line kept as is)."""
+
+    audio_key: str
+    start_ms: int
+    end_ms: int
+
+
 class TrimReq(Model):
     """Cut the silence before and after the voice in a TTS clip."""
 
@@ -547,7 +555,7 @@ class SubtitleTrack(Model):
 # ---------------------------------------------------------------- human edits
 
 EditField = Literal[
-    "text", "seed", "speaker", "nudge", "lock", "split", "merge_next", "undo", "cast"
+    "text", "seed", "speaker", "nudge", "lock", "original", "split", "merge_next", "undo", "cast"
 ]
 
 
@@ -559,6 +567,7 @@ class Edit(Model):
     speaker     value: str           who says the line (picks the cloned voice)
     nudge       value: {start_ms, end_ms}  offsets added to the line's time slot
     lock        value: bool          protect the line from automatic rewrites
+    original    value: bool          keep the line's original vocals instead of voicing it
     split       value: {at_ms} | None  split the unit at the word boundary nearest at_ms
     merge_next  value: None          merge the unit with the next one (same speaker)
     undo        value: edit id       cancel an earlier edit

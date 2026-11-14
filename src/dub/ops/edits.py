@@ -8,6 +8,8 @@ Where each kind of edit enters the pipeline decides what it re-runs:
     speaker, nudge,     after translation: they change the voice or the time slot, so only
     seed                that unit's TTS and the fit of its neighbours re-run
     lock                keeps the line away from automatic rewrites
+    original            the line is not voiced: its slot plays the original (separated)
+                        vocals, e.g. a song in the background or a laugh; its subtitle stays
     undo                cancels an earlier edit
 
 Unit ids stay deterministic: a split turns `u0012345-S1` into `u0012345-S1.a` and
@@ -114,6 +116,7 @@ class UnitEdits:
     speaker: dict[str, str] = field(default_factory=dict)
     nudge: dict[str, tuple[int, int]] = field(default_factory=dict)
     locked: set[str] = field(default_factory=set)
+    original: set[str] = field(default_factory=set)  # keep the original vocals, no voice
 
     @classmethod
     def from_edits(cls, edits: list[Edit]) -> UnitEdits:
@@ -130,6 +133,8 @@ class UnitEdits:
                 ue.nudge[e.unit_id] = (int(v.get("start_ms", 0)), int(v.get("end_ms", 0)))
             elif e.field == "lock":
                 (ue.locked.add if e.value else ue.locked.discard)(e.unit_id)
+            elif e.field == "original":
+                (ue.original.add if e.value else ue.original.discard)(e.unit_id)
         return ue
 
     def is_protected(self, unit_id: str) -> bool:

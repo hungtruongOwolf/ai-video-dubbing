@@ -10,6 +10,7 @@ import functools
 import json
 import shutil
 import subprocess
+import wave
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,7 @@ import numpy as np
 from dub.contracts.v1 import (
     AudioReq,
     AudioRes,
+    CutReq,
     DecodeReq,
     EncodeReq,
     MediaInfo,
@@ -156,6 +158,21 @@ def _integer_ratio(src: int, dst: int) -> tuple[int, int] | None:
             if src * up == dst * down:
                 return up, down
     return None
+
+
+def cut(req: CutReq, cas: CAS) -> AudioRes:
+    """A slice of a 16-bit WAV, same format (a line's original vocals, mixed as they are)."""
+    from dub.ops.audio_io import read_wav_range
+
+    src = cas.path(req.audio_key)
+    with wave.open(str(src), "rb") as w:
+        sr = w.getframerate()
+    a = int(req.start_ms * sr / 1000)
+    audio, sr = read_wav_range(src, a, max(0, int(req.end_ms * sr / 1000) - a))
+    out = cas.tmp_path(".wav")
+    write_wav(out, audio, sr)
+    dur = duration_ms(out)
+    return AudioRes(audio_key=cas.put_file(out, move=True), dur_ms=dur)
 
 
 def to_mono16k(req: AudioReq, cas: CAS) -> AudioRes:

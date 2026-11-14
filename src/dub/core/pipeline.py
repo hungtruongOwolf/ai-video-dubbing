@@ -33,6 +33,7 @@ from dub.contracts.v1 import (
     ConcatReq,
     ContextReq,
     ContextSheet,
+    CutReq,
     DecodeReq,
     Diarization,
     DiarizeReq,
@@ -525,7 +526,7 @@ async def run_job(
         async with prefetch_sem:
             try:
                 _variant, text, pred = choose(u, ue.apply_to_translation(tr))
-                if will_rewrite(u, pred):
+                if will_rewrite(u, pred) or u.id in ue.original:
                     return
                 seed = ue.seed.get(u.id, 0)
                 take: SynthRes = await cx.call(
@@ -627,7 +628,7 @@ async def run_job(
 
     async def dub_and_check(i: int) -> Placement:
         p = await dub_unit(i)
-        if profile.backcheck and p.unit_id not in qas:
+        if profile.backcheck and p.unit_id not in qas and p.variant != "original":
             backchecks.append(asyncio.create_task(backcheck(p)))
         return p
 
@@ -653,6 +654,18 @@ async def run_job(
                 else None
             )
             variant, text, pred = choices[u.id]
+            if u.id in ue.original:  # not voiced: the original vocals of the slot, as they are
+                orig: AudioRes = await cx.local(
+                    "audio.cut", media_ops.cut,
+                    CutReq(audio_key=stems.vocals_key, start_ms=u.start_ms, end_ms=u.end_ms),
+                    AudioRes, subject=u.id,
+                )  # fmt: skip
+                return Placement(
+                    unit_id=u.id, speaker=u.speaker, slot_start_ms=u.start_ms,
+                    slot_end_ms=u.end_ms, start_ms=u.start_ms, end_ms=u.start_ms + orig.dur_ms,
+                    natural_ms=orig.dur_ms, clip_ms=orig.dur_ms, rate=1.0, variant="original",
+                    text=text, flags=["original"], audio_key=orig.audio_key,
+                )  # fmt: skip
             facts = unit_facts(u)
             rewrites = 0
             tr_u = translations.get(u.id)

@@ -284,6 +284,7 @@ EDIT_HELP = """actions:
   split UNIT [AT_MS]        split at the word boundary nearest AT_MS (default: middle)
   merge UNIT                merge with the next unit (same speaker)
   lock UNIT / unlock UNIT   protect the line from automatic rewrites
+  original UNIT / dub UNIT  keep the original audio of the line (a song, a laugh) / dub it again
   undo [EDIT_ID]            cancel the latest edit (or the given one)
 Then run `dub run ...` (or the review page) again: only what changed is redone.
   cast S2 gender=female name=Linda          correct a speaker in the cast sheet
@@ -330,6 +331,8 @@ def cmd_edit(a) -> int:
         e = store.add(unit, "merge_next")
     elif act in ("lock", "unlock"):
         e = store.add(unit, "lock", act == "lock")
+    elif act in ("original", "dub"):
+        e = store.add(unit, "original", act == "original")
     elif act == "cast":
         # cast S2 gender=female name=Linda      |   cast S1>S2 self_term=mẹ other_term=con
         value: dict = {}
