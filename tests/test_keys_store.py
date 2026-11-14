@@ -63,3 +63,17 @@ def test_memo_roundtrip_and_corruption(tmp_path: Path):
     assert memo.get("ffff") is None
     (tmp_path / "memo" / "ab" / "abcd.json").write_text("{broken", encoding="utf-8")
     assert memo.get("abcd") is None
+
+
+def test_new_default_fields_keep_old_keys():
+    from pydantic import BaseModel
+
+    class V1(BaseModel):
+        a: int
+
+    class V2(BaseModel):
+        a: int
+        b: list[str] = []
+
+    assert canonical_json(V1(a=1)) == canonical_json(V2(a=1))
+    assert canonical_json(V2(a=1)) != canonical_json(V2(a=1, b=["x"]))

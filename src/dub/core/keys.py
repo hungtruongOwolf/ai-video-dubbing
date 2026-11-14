@@ -20,7 +20,9 @@ KEY_BYTES = 16  # 128 bits: collisions are not a practical concern for this proj
 
 def to_jsonable(obj: Any) -> Any:
     if isinstance(obj, BaseModel):
-        return obj.model_dump(mode="json")
+        # Fields at their default value are left out, so adding a new optional field to a
+        # contract does not invalidate every cached result.
+        return to_jsonable(obj.model_dump(mode="json", exclude_defaults=True))
     if isinstance(obj, dict):
         return {str(k): to_jsonable(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
