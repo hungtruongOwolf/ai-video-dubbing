@@ -209,7 +209,7 @@ Mean F1 (±1 word) over the same videos, baseline → variant:
 | vi: Whisper's punctuation on PhoWhisper's words, sequential Whisper | 8 | 0.687 → 0.724 (+0.037) | 7 / 1 | replaced by ↓ |
 | vi: the same with the punctuation from a **batched** Whisper pass | 8 | 0.687 → **0.779** (+0.092) | **7 / 1** | **yes** |
 | zh: punctuated `hotwords` | 7 | 0.714 → 0.670 (−0.044) | 2 / 5 | no |
-| en, es, zh, ja: Whisper's words + a batched Whisper pass's punctuation (`whisper_punct`) | 14 | en −0.051, es −0.018, ja ±0, zh 0.714 → 0.724 | 3 / 6 | no |
+| en, es, zh, ja: Whisper's words + a batched Whisper pass's punctuation (`whisper_punct`) | 14 | en −0.051, es −0.018, ja ±0, zh 0.714 → 0.724 | 2 / 6 | no |
 | zh: punctuated `initial_prompt` | 7 | 0.714 → 0.694 (−0.020) | 2 / 3 | no |
 | SaT min sentence length 3 words | 15 (vi, zh) | 0.687 → 0.685 (vi), 0.714 → 0.715 (zh) | 2 / 3 | no |
 
