@@ -1,7 +1,7 @@
 # Translation with your Claude subscription through the Claude Code CLI (`claude -p`).
 # Personal use only. See docs/claude-subscription.md.
 id: claude_cli
-op: [mt.context, mt.translate, mt.rewrite]
+op: [mt.context, mt.translate, mt.rewrite, text.boundaries]
 runtime: inproc
 impl: dub.providers.claude_cli:ClaudeCLI
 requires_bin: [claude]
@@ -10,10 +10,13 @@ params:
   model: sonnet                # alias of the current Sonnet model
   max_turns: 2                 # structured output counts as an extra turn
   timeout_s: 600
+  reads_pauses: true           # text.boundaries: the request carries the pause after each word
+  window_words: 400            # text.boundaries: words decided per call (plus 40 of context)
 prompt_files:                  # prompt text is hashed into the cache key
   mt.context: mt_context.v1.md
   mt.translate: mt_translate.v1.md
   mt.rewrite: mt_rewrite.v1.md
+  text.boundaries: text_boundaries.v1.md
 limits: {max_concurrency: 8}   # M5: rewrites of a 60-min final queue behind translation
 on_error:
   usage_limit: pause_then_retry

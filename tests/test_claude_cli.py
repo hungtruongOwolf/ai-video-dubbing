@@ -220,3 +220,22 @@ def test_errors_are_classified(cfg, ctx, calls, stdout, kind):
     with pytest.raises(ProviderError) as e:
         ClaudeCLI(cfg.providers["claude_cli"]).run("mt.context", req, ctx)
     assert e.value.kind == kind
+
+
+def test_llm_sentence_boundaries_in_windows(cfg, ctx, calls):
+    from dub.contracts.v1 import BoundaryReq
+    from dub.providers.claude_cli import boundary_windows
+
+    assert boundary_windows(10, core=4, context=1) == [(0, 0, 4, 5), (3, 4, 8, 9), (7, 8, 10, 10)]
+    words = [f"w{i}" for i in range(10)]
+    seen = calls(ok({"ends": [1, 3, 5, 9]}))  # every window answers the same: out-of-window
+    prm = {**ctx.params, "window_words": 4, "context_words": 1, "parallel_windows": 1}
+    run_ctx = RunCtx(cas=ctx.cas, manifest=ctx.manifest, params=prm, prompts_dir=ctx.prompts_dir,
+                     log=ctx.log)  # fmt: skip
+    req = BoundaryReq(lang="en", words=words, pauses_ms=[0, 900] + [0] * 8)
+    res = ClaudeCLI(cfg.providers["claude_cli"]).run("text.boundaries", req, run_ctx)
+    ends = [i for i, p in enumerate(res.probs) if p > 0.5]
+    assert ends == [1, 3, 5, 9]  # indices outside a window's core are ignored there
+    assert len(seen) == 3
+    first = seen[0]["stdin"]
+    assert "w1{1} <pause 0.9 s>" in first and "[DECIDE]" in first and "Context after:" in first

@@ -88,6 +88,7 @@ class BoundaryReq(Model):
     words: list[str]  # word texts in time order
     space_before: list[bool] = Field(default_factory=list)  # for scripts without spaces
     joiner: str = " "
+    pauses_ms: list[int] = Field(default_factory=list)  # silence after word i (LLM boundaries)
 
 
 class Boundaries(Model):

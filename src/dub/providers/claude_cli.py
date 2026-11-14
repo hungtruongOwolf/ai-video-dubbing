@@ -35,6 +35,8 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from dub.contracts.v1 import (
     AddressTerms,
     Audience,
+    Boundaries,
+    BoundaryReq,
     CastSheet,
     CastSpeaker,
     ContextReq,
@@ -133,6 +135,10 @@ class LLMRewrite(_S):
     text: str
 
 
+class LLMBoundaries(_S):
+    ends: list[int]
+
+
 def inline_schema(model: type[BaseModel]) -> dict[str, Any]:
     """JSON Schema with every $ref inlined (no $defs), for the --json-schema flag."""
     schema = model.model_json_schema()
@@ -227,6 +233,33 @@ def translate_prompt(req: TranslateReq) -> str:
 
 def rewrite_prompt(req: RewriteReq) -> str:
     return json.dumps(req.model_dump(), ensure_ascii=False, indent=1)
+
+
+def boundary_windows(n: int, core: int, context: int) -> list[tuple[int, int, int, int]]:
+    """(lo, a, b, hi): decide for words a..b-1, show lo..hi-1 (context on both sides)."""
+    out = []
+    for a in range(0, n, core):
+        b = min(n, a + core)
+        out.append((max(0, a - context), a, b, min(n, b + context)))
+    return out
+
+
+def boundaries_prompt(req: BoundaryReq, lo: int, a: int, b: int, hi: int) -> str:
+    def tok(i: int) -> str:
+        p = req.pauses_ms[i] if i < len(req.pauses_ms) else 0
+        pause = f" <pause {p / 1000:.1f} s>" if p >= 500 else ""
+        return f"{req.words[i].strip()}{{{i}}}{pause}"
+
+    def run(i: int, j: int) -> str:
+        return " ".join(tok(k) for k in range(i, j))
+
+    parts = [f"Language: {req.lang}"]
+    if lo < a:
+        parts.append("Context before:\n" + run(lo, a))
+    parts.append("[DECIDE]\n" + run(a, b) + "\n[/DECIDE]")
+    if b < hi:
+        parts.append("Context after:\n" + run(b, hi))
+    return "\n\n".join(parts)
 
 
 # ---------------------------------------------------------------- conversions
@@ -332,7 +365,30 @@ class ClaudeCLI:
         if op == "mt.rewrite":
             out = self.invoke(system, rewrite_prompt(req), LLMRewrite, ctx)
             return RewriteRes(text=out.text)
+        if op == "text.boundaries":
+            return self.boundaries(system, req, ctx)
         raise ProviderError(f"claude_cli does not implement {op}", kind="unsupported")
+
+    def boundaries(self, system: str, req: BoundaryReq, ctx: RunCtx) -> Boundaries:
+        """Sentence ends chosen by the LLM, as boundary probabilities (0.95 / 0.05). Long
+        transcripts go in windows (core words decided, context shown), several at a time."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        n = len(req.words)
+        if n == 0:
+            return Boundaries(probs=[])
+        p = ctx.params
+        wins = boundary_windows(n, int(p.get("window_words", 400)), int(p.get("context_words", 40)))
+
+        def one(w: tuple[int, int, int, int]) -> list[int]:
+            lo, a, b, hi = w
+            out = self.invoke(system, boundaries_prompt(req, lo, a, b, hi), LLMBoundaries, ctx)
+            return [i for i in out.ends if a <= i < b]
+
+        with ThreadPoolExecutor(max_workers=int(p.get("parallel_windows", 4))) as pool:
+            ends = {i for found in pool.map(one, wins) for i in found}
+        ends.add(n - 1)
+        return Boundaries(probs=[0.95 if i in ends else 0.05 for i in range(n)])
 
     # -- one CLI call
     def build_cmd(self, system: str, schema: dict[str, Any], params: dict[str, Any]) -> list[str]:

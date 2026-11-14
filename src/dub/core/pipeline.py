@@ -260,6 +260,7 @@ async def run_job(
             words=[w.w for w in asr_words],
             space_before=[w.space_before for w in asr_words] if not src_lp.joiner else [],
             joiner=src_lp.joiner,
+            pauses_ms=_pauses(asr_words) if _wants_pauses(cx, "text.boundaries") else [],
         ),
     )
     seg: Segmentation = await cx.local(
@@ -965,6 +966,20 @@ def _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, units, src_lang, 
         metrics=metrics, redone=dict(Counter(st.op for st in cx.stats if not st.hit)),
         calls=len(cx.stats), cache_hits=sum(1 for s in cx.stats if s.hit),
     )  # fmt: skip
+
+
+def _pauses(words: list[Word]) -> list[int]:
+    """Silence after each word, up to the next one (0 after the last)."""
+    return [max(0, b.start_ms - a.end_ms) for a, b in zip(words, words[1:], strict=False)] + [0]
+
+
+def _wants_pauses(cx: Ctx, op: str) -> bool:
+    """Only providers that read pauses get them: SaT's call keys (and cache) stay as they were."""
+    try:
+        pid = cx.router.route(op, dict(cx.facts)).chain[0]
+    except Exception:  # noqa: BLE001 - routing errors surface at the call itself
+        return False
+    return bool(cx.cfg.providers[pid].params.get("reads_pauses"))
 
 
 def _free_phase_a(cfg: Config) -> bool:
