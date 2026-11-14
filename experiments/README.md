@@ -21,6 +21,7 @@ these scripts and to its write-up in `docs/m3-segmentation-timing.md` or
 | `timing_replay.py JOB_DIR` | Replays a finished job's timing fit with other borrowing limits (no GPU, no TTS) | laptop | `late_end_ms`, `early_start_ms` |
 | `tts_silence.py [--ref KEY:TEXT]` | M7: silence OmniVoice leaves inside the requested duration, per reference voice, as is / tight reference / tight + pad | pod, `core` env + running workers | the per-voice silence pad |
 | `sep_quality.py run --long-key KEY` | M7: separation SI-SDR on 6 synthetic mixes (clean speech over public-domain music) and speed on the 60-min speech, per sample rate and precision | pod, `core` env + running workers | `mel_roformer` sample rate and precision |
+| `yodas_videos.py fetch/run [--param P.K=V --use OP=P --tag T]` | M7: segmentation F1 on more vi and zh videos (YODAS2, CC BY YouTube videos with uploader subtitles); each video checked: Whisper hears the language, pipeline transcript vs subtitles CER <= 0.35 | pod, `core` env + running workers (`pod/busy.sh`) | the segmentation trials of M7 |
 
 Data: [NTREX-128](https://github.com/MicrosoftTranslator/NTREX) (CC BY-SA 4.0), downloaded
 on first use into `$DUB_EXP_DATA` (default `experiments/data/`, not committed). Results are
