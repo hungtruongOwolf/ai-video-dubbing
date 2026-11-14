@@ -12,15 +12,22 @@
 
 Because everything is memoized, re-running a job only executes what is missing. That gives
 resume-after-crash, cheap edits and "what changed?" for free.
+
+Single flight (M5): when two calls with the same key are in flight at once (two jobs on the
+pod dubbing the same video into two languages, or a line voiced ahead and then voiced for
+real), the second waits for the first and reads its stored result instead of computing it
+again.
 """
 
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import functools
 import importlib
 import inspect
 import sys
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -54,6 +61,18 @@ LANES = {
     "mt.rewrite": "llm",
     "tts.synthesize": "gpu · tts",
 }
+
+
+# Calls in flight in this process, by key: jobs run in their own threads and event loops.
+_INFLIGHT: dict[str, concurrent.futures.Future] = {}
+_INFLIGHT_LOCK = threading.Lock()
+
+
+def _release(key: str) -> None:
+    with _INFLIGHT_LOCK:
+        f = _INFLIGHT.pop(key, None)
+    if f is not None:
+        f.set_result(None)
 
 
 @dataclass
@@ -135,6 +154,24 @@ class Ctx:
             return None  # a referenced file was deleted: recompute
         return cached
 
+    async def _lookup_or_claim(self, key: str) -> dict[str, Any] | None:
+        """The stored result, or None when this caller now owns computing it (it must call
+        `_release(key)` when done, stored or not)."""
+        while True:
+            cached = self._lookup(key)
+            if cached is not None:
+                return cached
+            with _INFLIGHT_LOCK:
+                pending = _INFLIGHT.get(key)
+                if pending is None:
+                    _INFLIGHT[key] = concurrent.futures.Future()
+                    return None
+            await asyncio.wrap_future(pending)
+            done = self.ws.memo.get(key)  # stored by the other caller (even in a fresh run)
+            if done is not None and all(self.ws.cas.exists(k) for k in cas_keys(done["result"])):
+                return done
+            # the other caller failed: claim it and try ourselves
+
     def _record(self, op, provider, subject, key, hit, started_at, dur_ms) -> None:
         self.stats.append(CallStat(op, provider, subject, key, hit, started_at, dur_ms))
 
@@ -177,60 +214,60 @@ class Ctx:
                 seed=seed,
                 request=req_m,
             )
-            cached = self._lookup(key)
+            cached = await self._lookup_or_claim(key)
             if cached is not None:
                 self.tracer.instant(f"{op} (cache)", lane, {"provider": pid, "subject": subject})
                 self._record(op, pid, subject, key, True, time.time(), 0.0)
                 return res_type.model_validate(cached["result"])
-
-            waits = (
-                list(m.on_error.retry_wait_s)
-                if m.on_error.usage_limit == "pause_then_retry"
-                else []
-            )
-            res = None
-            retries = [2.0, 8.0]  # transient failures (GPU memory shared by workers, network)
-            while True:
-                started, t0 = time.time(), time.perf_counter()
-                try:
-                    with self.tracer.span(op, lane, {"provider": pid, "subject": subject}):
-                        res = await self.executor.run(m, op, req_m, params)
-                    break
-                except ProviderError as e:
-                    if e.kind == "usage_limit" and waits:
-                        wait = waits.pop(0)
-                        self.log(f"[{pid}] usage limit reached, pausing {wait:.0f}s then retrying")
-                        await asyncio.sleep(wait)
-                        continue
-                    if e.retryable and e.kind != "usage_limit" and retries:
-                        wait = retries.pop(0)
-                        self.log(f"[{pid}] {op} failed ({e.kind}), retrying in {wait:.0f}s")
-                        await asyncio.sleep(wait)
-                        continue
-                    errors.append(f"{pid}: [{e.kind}] {e}")
-                    self.log(f"[{pid}] {op} failed ({e.kind}): {e}")
-                    break
-            if res is None:
-                continue
-            dur_ms = (time.perf_counter() - t0) * 1000
-            if not isinstance(res, res_type):
-                res = res_type.model_validate(res.model_dump())
-            self.ws.memo.put(
-                key,
-                {
-                    "op": op,
-                    "provider": pid,
-                    "subject": subject,
-                    "result": res.model_dump(mode="json"),
-                },
-            )
-            self._record(op, pid, subject, key, False, started, dur_ms)
-            return res
+            try:
+                res = await self._compute(m, op, req_m, params, lane, pid, subject, key, errors)
+            finally:
+                _release(key)  # after the result is stored, or after the provider gave up
+            if res is not None:
+                return res
 
         raise ProviderError(
             f"All providers failed for {op} ({subject or 'job'}): " + " | ".join(errors),
             kind="crash",
         )
+
+    async def _compute(self, m, op, req_m, params, lane, pid, subject, key, errors):
+        """Run one provider (retries, usage-limit pauses) and store the result; None when it
+        failed (the error is appended to `errors`)."""
+        res_type = OP_RESULT[op]
+        waits = (
+            list(m.on_error.retry_wait_s) if m.on_error.usage_limit == "pause_then_retry" else []
+        )
+        retries = [2.0, 8.0]  # transient failures (GPU memory shared by workers, network)
+        while True:
+            started, t0 = time.time(), time.perf_counter()
+            try:
+                with self.tracer.span(op, lane, {"provider": pid, "subject": subject}):
+                    res = await self.executor.run(m, op, req_m, params)
+                break
+            except ProviderError as e:
+                if e.kind == "usage_limit" and waits:
+                    wait = waits.pop(0)
+                    self.log(f"[{pid}] usage limit reached, pausing {wait:.0f}s then retrying")
+                    await asyncio.sleep(wait)
+                    continue
+                if e.retryable and e.kind != "usage_limit" and retries:
+                    wait = retries.pop(0)
+                    self.log(f"[{pid}] {op} failed ({e.kind}), retrying in {wait:.0f}s")
+                    await asyncio.sleep(wait)
+                    continue
+                errors.append(f"{pid}: [{e.kind}] {e}")
+                self.log(f"[{pid}] {op} failed ({e.kind}): {e}")
+                return None
+        dur_ms = (time.perf_counter() - t0) * 1000
+        if not isinstance(res, res_type):
+            res = res_type.model_validate(res.model_dump())
+        self.ws.memo.put(
+            key,
+            {"op": op, "provider": pid, "subject": subject, "result": res.model_dump(mode="json")},
+        )
+        self._record(op, pid, subject, key, False, started, dur_ms)
+        return res
 
     async def free_models(self, ops: list[str], keep_ops: list[str]) -> list[str]:
         """Unload the providers that served `ops` in this job, unless one of `keep_ops` would
@@ -238,7 +275,7 @@ class Ctx:
         keep: set[str] = set()
         for op in keep_ops:
             try:
-                keep.update(self.router.route(op, dict(self.facts)).chain)
+                keep.update(self.router.route(op, dict(self.facts)).chain[:1])  # first choice
             except Exception:  # noqa: BLE001 - an op without providers keeps nothing
                 pass
         used = {st.provider for st in self.stats if st.op in ops} - keep
@@ -272,25 +309,28 @@ class Ctx:
             seed=0,
             request=req,
         )
-        cached = self._lookup(key)
+        cached = await self._lookup_or_claim(key)
         if cached is not None:
             self.tracer.instant(f"{op} (cache)", "cpu", {"subject": subject})
             self._record(op, provider, subject, key, True, time.time(), 0.0)
             return res_type.model_validate(cached["result"])
-        started, t0 = time.time(), time.perf_counter()
-        args = (req, self.ws.cas) if with_cas else (req,)
-        with self.tracer.span(op, "cpu", {"subject": subject}):
-            res = await asyncio.to_thread(fn, *args)
-        dur_ms = (time.perf_counter() - t0) * 1000
-        self.ws.memo.put(
-            key,
-            {
-                "op": op,
-                "provider": provider,
-                "subject": subject,
-                "result": res.model_dump(mode="json"),
-            },
-        )
+        try:
+            started, t0 = time.time(), time.perf_counter()
+            args = (req, self.ws.cas) if with_cas else (req,)
+            with self.tracer.span(op, "cpu", {"subject": subject}):
+                res = await asyncio.to_thread(fn, *args)
+            dur_ms = (time.perf_counter() - t0) * 1000
+            self.ws.memo.put(
+                key,
+                {
+                    "op": op,
+                    "provider": provider,
+                    "subject": subject,
+                    "result": res.model_dump(mode="json"),
+                },
+            )
+        finally:
+            _release(key)
         self._record(op, provider, subject, key, False, started, dur_ms)
         return res
 

@@ -46,7 +46,10 @@ def _common(p: argparse.ArgumentParser) -> None:
 
 def _video_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("video", type=Path)
-    p.add_argument("--to", dest="tgt", required=True, help="target language, e.g. vi, en, ja")
+    p.add_argument(
+        "--to", dest="tgt", required=True,
+        help="target language, e.g. vi; several for run: vi,es,ja (the analysis runs once)",
+    )  # fmt: skip
     p.add_argument("--from", dest="src", default="auto", help="source language (default: auto)")
     p.add_argument("--profile", default=None, help="draft | final (default from dub.yaml)")
     p.add_argument(
@@ -184,10 +187,52 @@ def _opts(a, **over) -> RunOptions:
     )  # fmt: skip
 
 
+def cmd_run_many(a, targets: list[str]) -> int:
+    """One source, several target languages: the jobs run at the same time and share the
+    analysis (phase A runs once: the pod computes each identical call once, single flight)."""
+    import copy
+    import threading
+
+    ws = Workspace.open(a.workspace.resolve())
+    audio_key_for(ws, a.video.resolve())  # extract once, before the jobs start
+    results: dict[str, int] = {}
+    lock = threading.Lock()
+
+    def one(lang: str) -> None:
+        b = copy.copy(a)
+        b.tgt = lang
+
+        def log(msg: str) -> None:
+            with lock:
+                print(f"[{lang}] {msg}", flush=True)
+
+        try:
+            opts = _opts(b)
+            out = run_video(opts, Workspace.open(a.workspace.resolve()), log=log)
+            finish(opts, out, a.out_dir, log=log)
+            results[lang] = 0
+        except Exception as e:  # noqa: BLE001 - report per language, keep the others
+            log(f"error: {e}")
+            results[lang] = 3
+
+    threads = [threading.Thread(target=one, args=(lang,)) for lang in targets]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return max(results.values(), default=0)
+
+
 def cmd_run(a) -> int:
     if not a.video.exists():
         print(f"error: {a.video} does not exist", file=sys.stderr)
         return 2
+    targets = [t.strip() for t in a.tgt.split(",") if t.strip()]
+    if len(targets) > 1:
+        if a.confirm_cast:
+            print("error: --confirm-cast takes one target language", file=sys.stderr)
+            return 2
+        return cmd_run_many(a, targets)
     ws = Workspace.open(a.workspace.resolve())
     opts = _opts(a)
     try:

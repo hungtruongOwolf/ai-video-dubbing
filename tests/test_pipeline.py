@@ -160,3 +160,15 @@ def test_bench_speed_reports_stages_lanes_and_ops(demo, tmp_path, capsys):
     job = next((tmp_path / "ws" / "jobs").iterdir())
     names = [e["name"] for e in json.loads((job / "trace.json").read_text())["traceEvents"]]
     assert "tts.synthesize" in names and not any(n.endswith("(cache)") for n in names)
+
+
+def test_one_source_many_targets_shares_the_analysis(demo, tmp_path, capsys):
+    ws = tmp_path / "ws"
+    out_dir = tmp_path / "multi"
+    args = ["run", str(demo), "--to", "vi,es", "--fake", "--workspace", str(ws)]
+    assert main([*args, "--out-dir", str(out_dir)]) == 0
+    out = capsys.readouterr().out
+    assert "[vi] " in out and "[es] " in out
+    assert (out_dir / "interview.vi.mp4").exists() and (out_dir / "interview.es.mp4").exists()
+    jobs = sorted(p.name for p in (ws / "jobs").iterdir())
+    assert any("-vi-" in j for j in jobs) and any("-es-" in j for j in jobs)
