@@ -2,7 +2,7 @@
 id: sat_12l_sm
 op: [text.boundaries]
 runtime: http
-env: text
+env: tts                     # shares torch with OmniVoice (see pod/envs/tts.txt)
 impl: dub.providers.boundaries_sat:SaTBoundaries
 impl_version: "1"
 weights: {hf: segment-any-text/sat-12l-sm, revision: d70c72a9331b2d5a9e82baad00c64964a23a09bb}

@@ -45,7 +45,7 @@ LANES = {
     "audio.separate": "gpu · separate",
     "asr.transcribe": "gpu · asr",
     "asr.backcheck": "gpu · asr",
-    "text.boundaries": "gpu · text",
+    "text.boundaries": "gpu · tts",
     "audio.diarize": "gpu · diarize",
     "mt.context": "llm",
     "mt.translate": "llm",

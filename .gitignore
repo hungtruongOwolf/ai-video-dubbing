@@ -12,3 +12,4 @@ demo/
 *.dub/
 schemas/
 pod.local.yaml
+experiments/data/

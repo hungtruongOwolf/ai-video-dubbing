@@ -2,7 +2,7 @@
 
 Two arms.
 
-text (in the pod's `text` env, needs wtpsplit + GPU):
+text (in the pod's `tts` env, which has wtpsplit + torch):
     All 1997 NTREX sentences in en, vi, th, zh, ja, es, document by document, turned into the
     token stream an ASR would give, with punctuation (Whisper-like) and without (PhoWhisper-
     like). Boundary F1 (+-1 word) for the rules and for SaT at a sweep of thresholds.
@@ -15,7 +15,7 @@ speech (in the pod's `core` env, through the running dubd workers):
     known start of each synthesized chunk.
 
 Usage (on the pod):
-    envs/text/bin/python experiments/e4_segmentation.py text
+    envs/tts/bin/python experiments/e4_segmentation.py text
     envs/core/bin/python experiments/e4_segmentation.py speech --threshold 0.25
 """
 
@@ -197,7 +197,7 @@ def run_speech(threshold: float, langs: list[str]) -> dict:
                 joiner=lp.joiner,
             )
             sat_p = run_worker(
-                "text",
+                "tts",
                 "sat_12l_sm",
                 "text.boundaries",
                 breq.model_dump(mode="json"),

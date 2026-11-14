@@ -5,7 +5,7 @@ process, so their models share one Python environment and one GPU lock:
 
     asr  faster-whisper (Whisper large-v3, PhoWhisper)        pod/envs/asr.txt
     sep  audio-separator (Mel-Band RoFormer)                  pod/envs/sep.txt
-    tts  OmniVoice                                            pod/envs/tts.txt
+    tts  OmniVoice + SaT (sentence boundaries)                pod/envs/tts.txt
 
 Installing is `pod/setup_env.sh <env>`: a uv venv under /workspace/dub/envs/<env>, skipped when
 the requirements file has not changed since the last install. Workers start as soon as their

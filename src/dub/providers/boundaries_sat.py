@@ -11,7 +11,9 @@ probability per word: the probability at its last character, or at the space aft
 Calibration: the manifest's `threshold` (chosen by experiment E4) is mapped to 0.5, so the
 segmenter can use one threshold for every provider:  p' = sigmoid(logit(p) - logit(t)).
 
-Runs in the `text` worker env on the GPU pod (fp16 on the GPU: ~0.6 GB of VRAM).
+Runs in the `tts` worker env on the GPU pod, next to OmniVoice (one torch install for both;
+fp16 on the GPU: ~0.6 GB of VRAM). It is called once per job, before any TTS, so the two never
+wait for each other's GPU lock.
 """
 
 from __future__ import annotations

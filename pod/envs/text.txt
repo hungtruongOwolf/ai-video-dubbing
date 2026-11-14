@@ -1,3 +1,0 @@
-# Worker env "text": sentence-boundary model SaT (wtpsplit). torch is an implicit dependency.
-wtpsplit==2.2.2
-torch==2.8.0
