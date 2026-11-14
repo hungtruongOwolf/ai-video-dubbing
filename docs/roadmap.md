@@ -183,16 +183,30 @@ Details: [m3-segmentation-timing.md](m3-segmentation-timing.md).
 
 Details: [m4-speakers-routing.md](m4-speakers-routing.md).
 
-## M5: Throughput (next)
+## M5: Throughput (done)
 
-- [ ] Batching across units
-- [ ] LLM in parallel with TTS
-- [ ] `dub bench`
-- [ ] 24 GB GPU profile (two phases)
-- [ ] One source → many target languages (Phase A runs once)
-- [ ] Exit criteria:
-  - a 60-minute final finishes in ≤ 25 minutes;
-  - the GPU is busy ≥ 70% of billed time
+- [x] Batching across units: continuous batching in the workers (OmniVoice, Whisper back-checks, ECAPA); OmniVoice 0.84 → 0.22 s per line
+- [x] LLM in parallel with TTS: translated windows are voiced while the rest is translated; final rewrites happen before voicing on exact-duration engines
+- [x] `dub bench speed` (stages, lanes, ops, GPU utilisation from dubd's `nvidia-smi` samples); `--fresh`; `--param` overrides
+- [x] 24 GB GPU profile: phase-A models unloaded after phase A, cached GPU memory handed back, out-of-memory errors retried (18 failures → 0)
+- [x] One source → many target languages: `dub run --to vi,es`; single flight shares the analysis between the jobs
+- [x] Long-video fixes: ECAPA batches by length (out of memory at 60 min), master 114 → 43 s, subtitle layout 5× faster, units capped at 15 s after snapping
+
+**Exit criteria** (60.1-minute speech, en → vi, RTX 4090):
+
+| Criterion | Result |
+|---|---|
+| A 60-minute final finishes in ≤ 25 minutes | **14.1 min** (draft 7.8 min; draft before M5 13.4 min) |
+| The GPU is busy ≥ 70% of billed time | **81% during the job**; 68% if a warm pod start is counted too. The idle timeout and pod boots are outside the job: several videos or languages per session amortise them. |
+
+**Changed from the original plan:**
+- "Two phases" became unloading phase-A models on GPUs under 40 GB, rather than separate
+  phase-A and phase-B worker sets: everything still fits a 24 GB card that way.
+- Batched OmniVoice is not bit-reproducible against the same line alone (see
+  [m5-throughput.md](m5-throughput.md#reproducibility)); every take is cached, so reruns and
+  edits are unaffected.
+
+Details: [m5-throughput.md](m5-throughput.md).
 
 ## M6: GPU lab (optional, never blocks the product)
 

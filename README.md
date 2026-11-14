@@ -21,7 +21,7 @@ Any language pair, in any direction.
 | **M2** Edit loop | Per-line edits, review page, partial re-render (one line redone in ~2 s) | **done** |
 | **M3** Segmentation + timing | SaT sentence boundaries, VAD-snapped slots (onset error 10 ms), measured speech rates, subtitles per script and timed on the dub | **done** |
 | **M4** Speakers + routing | Diarization (ECAPA), one cloned voice per speaker, QA gate with takes, forms-of-address checker, cast corrections, second TTS engine (VieNeu) | **done** |
-| M5 Throughput | Batching across units, parallel LLM + TTS, multi-language fan-out | next |
+| **M5** Throughput | Continuous batching on the GPU, LLM in parallel with TTS, 24 GB profile, many languages from one analysis: a 60-min video in 14 min (final) / 8 min (draft) | **done** |
 | M6 GPU lab | Optional performance experiments | optional |
 
 Details: [docs/roadmap.md](docs/roadmap.md).
@@ -145,6 +145,7 @@ docs/               architecture, configuration, roadmap, milestone notes
 - [docs/m2-edit-loop.md](docs/m2-edit-loop.md): the review page, edits and partial re-rendering
 - [docs/m3-segmentation-timing.md](docs/m3-segmentation-timing.md): sentence boundaries, slot snapping, speaking rates, subtitles per script; the experiments behind them
 - [docs/m4-speakers-routing.md](docs/m4-speakers-routing.md): diarization, voices and the QA gate, forms of address, ASR per language, the second TTS engine
+- [docs/m5-throughput.md](docs/m5-throughput.md): where the time of a 60-minute video goes and what made it faster
 - [experiments/README.md](experiments/README.md): how to re-run the measurements
 - [docs/claude-subscription.md](docs/claude-subscription.md): translating with `claude -p`
 - [docs/roadmap.md](docs/roadmap.md): milestones and exit criteria
