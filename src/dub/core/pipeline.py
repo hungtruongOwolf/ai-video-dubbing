@@ -14,6 +14,7 @@ Phases (from the design):
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import os
 import re
@@ -159,6 +160,23 @@ def parse_params(items: list[str]) -> dict[str, dict[str, Any]]:
     return out
 
 
+def with_settings(cfg: Config, settings: dict[str, Any]) -> Config:
+    """dub.yaml settings overridden for one run: --param dub.voice.audition=1 gives
+    {"voice.audition": 1}. Unknown keys are an error, like in dub.yaml."""
+    data = cfg.dub.model_dump()
+    for path, value in settings.items():
+        *parents, leaf = path.split(".")
+        node = data
+        for k in parents:
+            if not isinstance(node.get(k), dict):
+                raise ValueError(f"--param dub.{path}: no section {k!r} in dub.yaml")
+            node = node[k]
+        if leaf not in node:
+            raise ValueError(f"--param dub.{path}: no setting {leaf!r} in dub.yaml")
+        node[leaf] = value
+    return Config(cfg.root, type(cfg.dub).model_validate(data), cfg.langpacks, cfg.providers)
+
+
 def job_id_for(spec: JobSpec, profile: str) -> str:
     stem = re.sub(r"[^A-Za-z0-9]+", "-", Path(spec.source_name).stem).strip("-").lower() or "job"
     return f"{stem[:40]}-{spec.tgt_lang}-{profile}-{spec.audio_key[:8]}"
@@ -172,6 +190,11 @@ async def run_job(
     overrides: list[tuple[str, list[str]]] | None = None,
     log: Callable[[str], None] = print,
 ) -> JobResult:
+    if "dub" in spec.params:  # --param dub.SECTION.KEY=VALUE: a dub.yaml setting, this run only
+        cfg = with_settings(cfg, spec.params["dub"])
+        spec = dataclasses.replace(
+            spec, params={k: v for k, v in spec.params.items() if k != "dub"}
+        )
     profile_name = spec.profile or cfg.dub.profile
     profile = cfg.profile(profile_name)
     t = cfg.dub.timing

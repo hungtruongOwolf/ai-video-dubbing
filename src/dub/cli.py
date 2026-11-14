@@ -67,7 +67,8 @@ def _video_args(p: argparse.ArgumentParser) -> None:
         action="append",
         default=[],
         metavar="PROVIDER.KEY=VALUE",
-        help="override a provider parameter for this run, e.g. whisper_large_v3.batch_size=16",
+        help="override a provider parameter for this run, e.g. whisper_large_v3.batch_size=16; "
+        "dub.SECTION.KEY=VALUE overrides a dub.yaml setting, e.g. dub.voice.audition=1",
     )
     p.add_argument(
         "--remote",
@@ -178,7 +179,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="PROVIDER.KEY=VALUE",
-        help="override a provider parameter for this run, e.g. whisper_large_v3.batch_size=16",
+        help="override a provider parameter for this run, e.g. whisper_large_v3.batch_size=16; "
+        "dub.SECTION.KEY=VALUE overrides a dub.yaml setting, e.g. dub.voice.audition=1",
     )
     _common(b)
     return ap

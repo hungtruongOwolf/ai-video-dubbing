@@ -189,3 +189,18 @@ def test_param_overrides_reach_the_call_keys():
     }
     with pytest.raises(ValueError):
         parse_params(["batch_size=16"])
+
+
+def test_dub_settings_can_be_overridden_for_one_run(cfg):
+    import pytest
+
+    from dub.core.pipeline import parse_params, with_settings
+
+    params = parse_params(["dub.voice.audition=1", "dub.mix.match_level=false"])
+    new = with_settings(cfg, params["dub"])
+    assert new.dub.voice.audition == 1 and new.dub.mix.match_level is False
+    assert cfg.dub.voice.audition != 1  # the loaded config is untouched
+    with pytest.raises(ValueError, match="no setting"):
+        with_settings(cfg, {"voice.auditon": 1})
+    with pytest.raises(ValueError, match="no section"):
+        with_settings(cfg, {"vocie.audition": 1})
