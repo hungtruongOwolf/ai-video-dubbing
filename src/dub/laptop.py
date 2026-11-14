@@ -79,8 +79,12 @@ def mux(
     tgt_lang: str,
     src_lang: str,
     subs: list[tuple[Path, str]],
+    keep_original: bool = False,
 ) -> Path:
-    """subs: [(srt path, language)], the first one is the default track."""
+    """subs: [(srt path, language)], the first one is the default track.
+
+    The dub is the only audio track unless `keep_original`: many players (phones, the Windows
+    app, messaging apps) ignore the default flag and played the original language."""
     has_video = any(s.get("codec_type") == "video" for s in probe(video).get("streams", []))
     mp4 = out.suffix.lower() == ".mp4"
     args = ["-i", str(video), "-i", str(dub_audio)]
@@ -88,28 +92,21 @@ def mux(
         args += ["-i", str(path)]
     if has_video:
         args += ["-map", "0:v:0"]
-    args += ["-map", "1:a:0", "-map", "0:a:0?"]
+    args += ["-map", "1:a:0"] + (["-map", "0:a:0?"] if keep_original else [])
     for i in range(len(subs)):
         args += ["-map", str(i + 2)]
     # The dub track is already AAC when it comes from the pipeline (.m4a): copy it as is.
     dub_codec = "copy" if dub_audio.suffix.lower() in (".m4a", ".aac") else "aac"
-    args += ["-c:v", "copy", "-c:a:0", dub_codec, "-c:a:1", "aac", "-b:a", "192k"]
+    args += ["-c:v", "copy", "-c:a:0", dub_codec]
+    if keep_original:
+        args += ["-c:a:1", "aac", "-b:a:1", "192k"]
     if subs:
         args += ["-c:s", "mov_text" if mp4 else "srt"]
-    args += [
-        "-metadata:s:a:0",
-        f"language={lang3(tgt_lang)}",
-        "-metadata:s:a:0",
-        f"title=Dub ({tgt_lang})",
-        "-metadata:s:a:1",
-        f"language={lang3(src_lang)}",
-        "-metadata:s:a:1",
-        "title=Original",
-        "-disposition:a:0",
-        "default",
-        "-disposition:a:1",
-        "0",
-    ]
+    args += ["-metadata:s:a:0", f"language={lang3(tgt_lang)}", "-metadata:s:a:0",
+             f"title=Dub ({tgt_lang})", "-disposition:a:0", "default"]  # fmt: skip
+    if keep_original:
+        args += ["-metadata:s:a:1", f"language={lang3(src_lang)}",
+                 "-metadata:s:a:1", "title=Original", "-disposition:a:1", "0"]  # fmt: skip
     for i, (_, lang) in enumerate(subs):
         args += [f"-metadata:s:s:{i}", f"language={lang3(lang)}"]
         args += [f"-disposition:s:{i}", "default" if i == 0 else "0"]

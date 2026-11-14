@@ -37,6 +37,7 @@ class RunOptions:
     analysis_only: bool = False  # stop after segmentation (dub bench seg)
     confirm_cast: bool = False  # stop after the cast sheet (dub run --confirm-cast)
     fresh: bool = False  # ignore the cache (benchmarks)
+    keep_original_audio: bool = False  # the original language as a second audio track
     config_dir: Path | None = None
 
 
@@ -210,7 +211,8 @@ def finish(opts: RunOptions, out: RunOutput, out_dir: Path | None,
         log("[laptop] muxing into the original video (video stream copied, not re-encoded)")
         out_video = out_dir / f"{video.stem}.{out.tgt_lang}{laptop.output_container(video)}"
         laptop.mux(video, out.dub_audio, out_video, tgt_lang=out.tgt_lang, src_lang=out.src_lang,
-                   subs=[(tgt_srt, out.tgt_lang), (src_srt, out.src_lang)])  # fmt: skip
+                   subs=[(tgt_srt, out.tgt_lang), (src_srt, out.src_lang)],
+                   keep_original=opts.keep_original_audio)  # fmt: skip
         log(f"\nvideo:     {out_video}")
     log(f"subtitles: {tgt_srt}\n           {src_srt}")
     log(f"report:    {out.job_dir / 'report.md'}")

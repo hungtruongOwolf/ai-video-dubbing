@@ -98,6 +98,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="stop after the cast sheet (who is who, forms of address) so you can correct it",
     )
     r.add_argument("--out-dir", type=Path, default=None, help="default: <video folder>/<name>.dub")
+    r.add_argument(
+        "--keep-original-audio",
+        action="store_true",
+        help="also keep the original language as a second audio track (default: the dub only; "
+        "many players ignore the default track and play the original)",
+    )
     _common(r)
 
     e = sub.add_parser(
@@ -204,7 +210,8 @@ def _opts(a, **over) -> RunOptions:
         video=a.video, tgt=a.tgt, src=a.src, profile=a.profile, remote=a.remote, fake=a.fake,
         use=a.use, params=getattr(a, "param", []), transcript=getattr(a, "transcript", None),
         speakers=getattr(a, "speakers", None), subs_only=getattr(a, "subs_only", False),
-        confirm_cast=getattr(a, "confirm_cast", False), config_dir=a.config_dir, **over,
+        confirm_cast=getattr(a, "confirm_cast", False), config_dir=a.config_dir,
+        keep_original_audio=getattr(a, "keep_original_audio", False), **over,
     )  # fmt: skip
 
 

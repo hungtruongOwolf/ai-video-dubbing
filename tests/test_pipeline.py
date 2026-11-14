@@ -41,9 +41,11 @@ def test_fake_dub_produces_a_valid_video_and_reruns_from_cache(demo, tmp_path, c
 
     streams = probe(out)["streams"]
     kinds = [s["codec_type"] for s in streams]
-    assert kinds.count("video") == 1 and kinds.count("audio") == 2 and kinds.count("subtitle") == 2
+    # the dub is the only audio track: players that ignore the default flag cannot pick the
+    # original language by mistake
+    assert kinds.count("video") == 1 and kinds.count("audio") == 1 and kinds.count("subtitle") == 2
     langs = [s.get("tags", {}).get("language") for s in streams if s["codec_type"] == "audio"]
-    assert langs == ["vie", "eng"]
+    assert langs == ["vie"]
     src_dur = float(probe(demo)["format"]["duration"])
     assert abs(float(probe(out)["format"]["duration"]) - src_dur) < 0.5
 

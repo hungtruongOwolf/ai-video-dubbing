@@ -128,7 +128,8 @@ def test_remote_run_end_to_end(dubd, tmp_path):
     ws_dir = tmp_path / "laptop-ws"
     ws_dir.mkdir()
     remote.PodState(pod_id="local", url=url, token="t" * 24, gpu="none", ref="dev").save(ws_dir)
-    rc = main(["run", str(video), "--to", "vi", "--fake", "--remote", "--workspace", str(ws_dir)])
+    rc = main(["run", str(video), "--to", "vi", "--fake", "--remote", "--workspace", str(ws_dir),
+               "--keep-original-audio"])  # fmt: skip
     assert rc == 0
     out = video.parent / "interview.dub" / "interview.vi.mp4"
     streams = probe(out)["streams"]

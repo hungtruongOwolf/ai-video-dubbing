@@ -26,7 +26,7 @@ What you see:
 [laptop] muxing into the original video (video stream copied, not re-encoded)
 ```
 
-Open `demo/interview.dub/interview.vi.mp4`. The default audio track is the "dub": a synthetic buzz per line, placed and stretched by the timing ladder over the faded original. The second audio track is the original. There are two subtitle tracks.
+Open `demo/interview.dub/interview.vi.mp4`. The audio track is the "dub": a synthetic buzz per line, placed and stretched by the timing ladder over the faded original (with `--keep-original-audio` the original is a second track). There are two subtitle tracks.
 
 The demo script is a cooking-show interview between a host (S1) and an older guest (S2). It was written to exercise the hard cases:
 

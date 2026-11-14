@@ -42,7 +42,7 @@ uv run dub run demo/interview.mp4 --to vi --fake        # dub it with fake model
 
 Output in `demo/interview.dub/`:
 
-- `interview.vi.mp4`: the original video stream (not re-encoded), a dubbed audio track, the original audio as a second track, and two subtitle tracks;
+- `interview.vi.mp4`: the original video stream (not re-encoded), the dubbed audio as its only audio track (`--keep-original-audio` adds the original as a second track; many players ignore the default flag and would play it), and two subtitle tracks;
 - `interview.vi.srt`, `interview.en.srt`.
 
 The job folder (`dub-workspace/jobs/<job>/`) holds:
