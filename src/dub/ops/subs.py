@@ -14,6 +14,7 @@ and are stretched to `min_cue_ms` when there is room.
 
 from __future__ import annotations
 
+import functools
 import unicodedata
 
 from dub.contracts.v1 import Cue, SubItem, SubsReq, SubtitleTrack
@@ -41,8 +42,17 @@ def balanced_lines(tokens: list[str], cpl: int, lang: str, max_lines: int) -> li
 
     Returns None if the tokens do not fit.
     """
+    out = _balanced(tuple(tokens), cpl, lang, max_lines)
+    return list(out) if out is not None else None
+
+
+@functools.lru_cache(maxsize=1 << 15)
+def _balanced(tokens: tuple[str, ...], cpl: int, lang: str, max_lines: int) -> tuple | None:
+    """balanced_lines, memoised: the cue search asks for the same token runs over and over
+    (a 60-minute speech took 12 s to lay out before)."""
+    tokens = list(tokens)
     if _width(tokens, lang) <= cpl:
-        return [join_line(tokens, lang)]
+        return (join_line(tokens, lang),)
     if max_lines < 2 or len(tokens) < 2:
         return None
     best: tuple[float, list[str]] | None = None
@@ -51,14 +61,34 @@ def balanced_lines(tokens: list[str], cpl: int, lang: str, max_lines: int) -> li
         w_first = _width(first, lang)
         if w_first > cpl:
             break
-        rest = balanced_lines(tokens[i:], cpl, lang, max_lines - 1)
+        rest = _balanced(tuple(tokens[i:]), cpl, lang, max_lines - 1)
         if rest is None:
             continue
         widths = [w_first] + [display_len(x, lang) for x in rest]
         score = max(widths) - (3 if ends_with(tokens[i - 1], _PUNCT) else 0)
         if best is None or score < best[0]:
-            best = (score, [join_line(first, lang), *rest])
+            best = (score, (join_line(first, lang), *rest))
     return best[1] if best else None
+
+
+def _fits(tokens: list[str], cpl: int, lang: str, max_lines: int) -> bool:
+    """Can the tokens be laid out on <= max_lines lines of <= cpl? Filling each line as far as
+    it goes is optimal for this yes/no question (balanced_lines then picks the nicest
+    layout), and it is linear instead of a search."""
+    if _width(tokens, lang) > cpl * max_lines:
+        return False
+    lines, start = 0, 0
+    while start < len(tokens):
+        lines += 1
+        if lines > max_lines:
+            return False
+        end = start + 1
+        if _width(tokens[start:end], lang) > cpl:
+            return False
+        while end < len(tokens) and _width(tokens[start : end + 1], lang) <= cpl:
+            end += 1
+        start = end
+    return True
 
 
 NO_PUNCT_PENALTY = 0.6  # cost of a cue break that is not after punctuation
@@ -74,7 +104,7 @@ def split_into_cues(tokens: list[str], cpl: int, lang: str, max_lines: int) -> l
 
     def ok(i: int, j: int) -> bool:
         if (i, j) not in fits:
-            fits[(i, j)] = balanced_lines(tokens[i:j], cpl, lang, max_lines) is not None
+            fits[(i, j)] = _fits(tokens[i:j], cpl, lang, max_lines)
         return fits[(i, j)]
 
     k_min = max(1, int(-(-total // (cpl * max_lines))))  # ceil
@@ -87,8 +117,11 @@ def split_into_cues(tokens: list[str], cpl: int, lang: str, max_lines: int) -> l
         best[0][0] = 0.0
         for c in range(1, k + 1):
             for j in range(1, n + 1):
-                for i in range(c - 1, j):
-                    if best[c - 1][i] == inf or not ok(i, j):
+                # shortest cue first: once tokens[i:j] does not fit, no longer cue does
+                for i in range(j - 1, c - 2, -1):
+                    if not ok(i, j):
+                        break
+                    if best[c - 1][i] == inf:
                         continue
                     size = _width(tokens[i:j], lang)
                     cost = ((size - target) / target) ** 2

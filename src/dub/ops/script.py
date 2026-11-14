@@ -48,8 +48,10 @@ def is_no_space(lang: str) -> bool:
     return base_lang(lang) in NO_SPACE_LANGS
 
 
+@functools.lru_cache(maxsize=1 << 16)
 def display_len(s: str, lang: str) -> float:
-    """Width of a subtitle line in "characters", as the style guides count them."""
+    """Width of a subtitle line in "characters", as the style guides count them. Cached: the
+    line-balancing search measures the same token runs many times."""
     cjk = base_lang(lang) in CJK_LANGS
     width = 0.0
     for ch in s:
