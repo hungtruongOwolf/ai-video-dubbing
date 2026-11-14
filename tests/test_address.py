@@ -3,7 +3,7 @@ from __future__ import annotations
 from dub.contracts.v1 import AddressTerms, CastSheet, Relation, Translation, Unit
 from dub.ops.address import check_line, consistency
 
-GENERIC = {"tôi", "tao", "tớ", "mình", "mày", "cậu", "bạn", "ta"}
+GENERIC = {"tôi", "tao", "tớ", "mày", "cậu", "bạn"}
 
 
 def _rel(listener: str, self_t: str, other_t: str, since: int = 0) -> Relation:

@@ -11,6 +11,10 @@ shared and testable without a GPU:
 4. `turns_from_windows`: every 10 ms frame of speech takes the label of the window centred
    nearest to it; runs of one label become turns, and a turn shorter than `min_turn_ms`
    between two turns of the same speaker is absorbed by them.
+5. `resegment`: speakers change at pauses, but a 1.5 s window straddles a quick turn-take and
+   shifts the boundary by up to a second. So the speech is cut again at every pause of 60 ms
+   or more; each piece long enough for an embedding goes to the nearest speaker centroid, and
+   shorter pieces keep the label the windows gave them.
 
 Speakers are named S1, S2... in order of first appearance.
 """
@@ -147,3 +151,41 @@ def purity(unit_start: int, unit_end: int, speaker: str, turns: list[Turn]) -> f
             else:
                 other += ov
     return 1.0 if own + other == 0 else own / (own + other)
+
+
+def resegment(
+    pieces: list[tuple[int, int]],
+    piece_labels: dict[int, int],
+    coarse: list[Turn],
+    min_turn_ms: int = 400,
+) -> list[Turn]:
+    """Turns from fine speech pieces. `piece_labels` gives a speaker label (index) for the
+    pieces that were embedded; the others take the coarse turn they overlap most."""
+    labelled: list[list] = []
+    for i, (s, e) in enumerate(pieces):
+        if i in piece_labels:
+            spk = f"#{piece_labels[i]}"
+        else:
+            best, best_ov = None, 0
+            for t in coarse:
+                ov = min(e, t.end_ms) - max(s, t.start_ms)
+                if ov > best_ov:
+                    best, best_ov = t.speaker, ov
+            spk = best or (labelled[-1][0] if labelled else "#?")
+        labelled.append([spk, s, e])
+    # a short piece between two pieces of the same speaker joins them
+    for i in range(1, len(labelled) - 1):
+        spk, s, e = labelled[i]
+        if e - s < min_turn_ms and labelled[i - 1][0] == labelled[i + 1][0] != spk:
+            labelled[i][0] = labelled[i - 1][0]
+    merged: list[list] = []
+    for spk, s, e in labelled:
+        if merged and merged[-1][0] == spk and s - merged[-1][2] < 1000:
+            merged[-1][2] = e
+        else:
+            merged.append([spk, s, e])
+    order: dict[str, str] = {}
+    for spk, _s, _e in merged:
+        if spk not in order:
+            order[spk] = f"S{len(order) + 1}"
+    return [Turn(speaker=order[spk], start_ms=int(s), end_ms=int(e)) for spk, s, e in merged]

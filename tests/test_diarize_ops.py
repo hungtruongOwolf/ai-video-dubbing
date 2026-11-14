@@ -50,3 +50,20 @@ def test_purity():
     ]
     assert purity(0, 4000, "S1", turns) == 0.75
     assert purity(0, 2000, "S1", turns) == 1.0
+
+
+def test_resegment_moves_the_boundary_to_the_pause():
+    from dub.contracts.v1 import Turn
+    from dub.ops.diarize import resegment
+
+    # windows put the turn change 600 ms late (at 3600); the real pause is at 3000-3150
+    coarse = [
+        Turn(speaker="#1", start_ms=0, end_ms=3600),
+        Turn(speaker="#2", start_ms=3600, end_ms=6000),
+    ]
+    pieces = [(0, 3000), (3150, 6000)]
+    turns = resegment(pieces, {0: 1, 1: 2}, coarse)
+    assert [(t.speaker, t.start_ms, t.end_ms) for t in turns] == [
+        ("S1", 0, 3000),
+        ("S2", 3150, 6000),
+    ]

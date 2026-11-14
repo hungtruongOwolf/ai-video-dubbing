@@ -94,6 +94,42 @@ class EcapaSpeaker:
             return self._op_diarize(req, ctx)
         raise ProviderError(f"{self.manifest.id} does not implement {op}", kind="unsupported")
 
+    def _resegment(self, mono, embs, labels, wins, coarse, p) -> list:
+        """Re-cut the turns at real pauses (see dub.ops.diarize.resegment)."""
+        cents = diar_ops.centroids(embs, np.asarray(labels))
+        keys = sorted(cents)
+        cmat = np.stack([cents[k] for k in keys])
+        gap = int(p.get("reseg_gap_ms", 60))
+        pieces = energy_vad(
+            mono, SR, frame_ms=10, min_speech_ms=100, merge_gap_ms=gap, floor_db=-50.0
+        )
+        min_ms = int(p.get("reseg_min_ms", 400))
+        idx = [i for i, (s, e) in enumerate(pieces) if e - s >= min_ms]
+        if not idx:
+            return coarse
+        vecs = self.embed(
+            [mono[pieces[i][0] * SR // 1000 : pieces[i][1] * SR // 1000] for i in idx]
+        )
+        best = np.argmax(vecs @ cmat.T, axis=1)
+        piece_labels = {i: int(keys[b]) for i, b in zip(idx, best, strict=True)}
+        # coarse turns carry S1.. names; map them to "#<label>" via majority overlap with pieces
+        name_of: dict[str, str] = {}
+        for t in coarse:
+            votes: dict[int, int] = {}
+            for i, lab in piece_labels.items():
+                s, e = pieces[i]
+                ov = min(e, t.end_ms) - max(s, t.start_ms)
+                if ov > 0:
+                    votes[lab] = votes.get(lab, 0) + ov
+            if votes:
+                name_of[t.speaker] = f"#{max(votes, key=votes.get)}"
+        coarse_named = [
+            diar_ops.Turn(speaker=name_of.get(t.speaker, f"#{t.speaker}"), start_ms=t.start_ms,
+                          end_ms=t.end_ms)
+            for t in coarse
+        ]  # fmt: skip
+        return diar_ops.resegment(pieces, piece_labels, coarse_named)
+
     def _op_embed(self, req: EmbedReq, ctx: RunCtx) -> Embeddings:
         mono = _mono16(ctx.cas.path(req.audio_key))
         spans = req.spans or [(0, round(len(mono) * 1000 / SR))]
@@ -127,5 +163,7 @@ class EcapaSpeaker:
             min_windows=int(p.get("min_windows", 3)),
         )
         turns = diar_ops.turns_from_windows(wins, labels, regions)
+        if p.get("reseg", True):
+            turns = self._resegment(mono, embs, labels, wins, turns, p)
         speakers = sorted({t.speaker for t in turns}, key=lambda s: int(s[1:]))
         return Diarization(turns=turns, speakers=speakers)
