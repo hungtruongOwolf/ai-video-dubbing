@@ -232,9 +232,18 @@ Edits are stored on the laptop and sent with every run. Each kind enters the pip
 
 Together with per-tile mixing, a one-line fix redoes one TTS call and one or two tiles. See [m2-edit-loop.md](m2-edit-loop.md).
 
+## Throughput (M5)
+
+- **Continuous batching in the workers.** One runner thread per worker runs the models; calls queued while it is busy, with the same provider, op and params, run as one batch (`run_batch`, up to `limits.max_batch`). OmniVoice, the back-check ASR and ECAPA batch; nothing waits for a batch to fill.
+- **LLM in parallel with TTS.** Each translated window is voiced ahead while the other windows are still being translated; the voicing pass then finds those takes in the cache.
+- **Single flight.** Identical calls in flight at the same time (two target languages of one video, a line voiced ahead and then for real) are computed once.
+- **24 GB profile.** After phase A the models only phase A needs (separation, sentence boundaries, the source ASR unless it is also the back-check) are unloaded on GPUs under 40 GB; workers hand cached GPU memory back after every batch, and out-of-memory errors are retried.
+- **Measuring.** dubd samples GPU utilisation during every job (`gpu.csv`); `dub bench speed` splits the wall time into stages, lanes and ops. Details: [m5-throughput.md](m5-throughput.md).
+
 ## Design rules
 
 - The scheduler may change **when** work runs, never **what** is produced (ADR-014). Results are reproducible, so resume and golden tests work.
+  One measured exception (M5): GPU batching. A line synthesised in a batch can come out as a different (equally valid) take than the same line alone, because batched kernels round differently and the diffusion sampler amplifies it; each line still samples from its own seeded generator. Every take is stored, so reruns, resumes and edits reuse it; only a line recomputed without its cache entry can change. The trade buys 3.9x TTS throughput.
 - No new abstraction without two concrete users.
 - Defaults change only through measured comparisons (the "swap gate").
 - Never infer gender from names.

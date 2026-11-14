@@ -186,7 +186,9 @@ def fetch() -> None:
     save_json(root / "index.json", index)
 
 
-def run() -> None:
+def run(params: list[str] | None = None, tag: str = "") -> None:
+    """Score every video; `params` (--param overrides) and `tag` compare a variant, e.g.
+    batched Whisper: run --param whisper_large_v3.batch_size=16 --tag batched."""
     from dub.cli import main as dub
 
     root = data_dir() / "realvid"
@@ -196,12 +198,13 @@ def run() -> None:
         if not Path(v["golden"]).exists():
             print(vid, "no reference sentences yet, skipped")
             continue
-        out = root / f"{vid}.scores.json"
+        out = root / f"{vid}.scores{('.' + tag) if tag else ''}.json"
+        extra = [x for p in params or [] for x in ("--param", p)]
         code = dub(["bench", "seg", v["media"], "--golden", v["golden"], "--from", v["lang"],
-                    "--remote", "--json", str(out)])  # fmt: skip
+                    "--remote", "--json", str(out), *extra])  # fmt: skip
         if code == 0:
             results[vid] = {**v, **json.loads(out.read_text(encoding="utf-8"))}
-    save_json(data_dir() / "results" / "real_videos.json", results)
+    save_json(data_dir() / "results" / f"real_videos{('_' + tag) if tag else ''}.json", results)
     for vid, r in results.items():
         t1 = r["tol1"]
         print(
@@ -213,8 +216,13 @@ def run() -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("step", choices=["fetch", "run"])
+    ap.add_argument("--param", action="append", default=[], help="PROVIDER.KEY=VALUE")
+    ap.add_argument("--tag", default="", help="suffix of the score files of a variant")
     a = ap.parse_args()
-    {"fetch": fetch, "run": run}[a.step]()
+    if a.step == "fetch":
+        fetch()
+    else:
+        run(a.param, a.tag)
 
 
 if __name__ == "__main__":

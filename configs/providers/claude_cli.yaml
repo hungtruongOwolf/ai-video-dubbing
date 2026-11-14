@@ -14,7 +14,7 @@ prompt_files:                  # prompt text is hashed into the cache key
   mt.context: mt_context.v1.md
   mt.translate: mt_translate.v1.md
   mt.rewrite: mt_rewrite.v1.md
-limits: {max_concurrency: 4}
+limits: {max_concurrency: 8}   # M5: rewrites of a 60-min final queue behind translation
 on_error:
   usage_limit: pause_then_retry
   retry_wait_s: [60, 300]      # then give up; finished windows stay cached, rerun later

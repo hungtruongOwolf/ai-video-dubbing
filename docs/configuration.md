@@ -159,6 +159,29 @@ and in `configs/providers/vieneu_v3_turbo.yaml` set `status: active` (a `candida
 only used when named explicitly: `--use tts.synthesize=vieneu_v3_turbo`). Its env (`tts2`) is
 installed by dubd on the next `dub up`.
 
+## Throughput
+
+```yaml
+throughput:
+  units_in_flight: 24          # lines voiced at the same time; bounds the TTS batch
+  free_phase_a_models: auto    # unload separation / source ASR / SaT after phase A (GPUs < 40 GB)
+```
+
+A provider batches when its manifest allows it and its adapter has `run_batch`:
+
+```yaml
+limits: {max_concurrency: 32, max_batch: 16}   # calls in flight per job / largest batch
+```
+
+One run can override provider parameters without editing a manifest (the values are part of
+the cache keys, so the variant is cached apart):
+
+```bash
+dub run VIDEO --to vi --remote --param whisper_large_v3.batch_size=16
+dub bench speed VIDEO --to vi --remote --profile final --fresh   # time it, nothing from cache
+dub run VIDEO --to vi,es,ja --remote                             # three languages, one analysis
+```
+
 ## Timing
 
 See `timing:` in `dub.yaml` and the ladder in [architecture.md](architecture.md#timing-fit-priority-2).

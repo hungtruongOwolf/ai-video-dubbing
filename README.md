@@ -102,11 +102,12 @@ Speech is still faked, but the context pass (summary, glossary, cast sheet) and 
 | Command | Does |
 |---|---|
 | `dub demo` | Build a 1-minute test interview video and its transcript |
-| `dub run VIDEO --to LANG [--fake] [--use OP=PROVIDER] [--profile draft\|final] [--speakers N] [--subs-only] [--confirm-cast]` | Dub one video (`--confirm-cast`: stop at the cast sheet to correct it) |
+| `dub run VIDEO --to LANG[,LANG...] [--fake] [--use OP=PROVIDER] [--param PROVIDER.KEY=VALUE] [--profile draft\|final] [--speakers N] [--subs-only] [--confirm-cast]` | Dub one video, into one or several languages (the analysis runs once); `--confirm-cast` stops at the cast sheet to correct it |
 | `dub up` / `dub down` / `dub status` | Rent, terminate and inspect the GPU pod |
 | `dub review VIDEO --to LANG [--remote]` | Review page: listen, fix lines, render, export |
 | `dub edit VIDEO --to LANG ACTION ...` | Record an edit from the terminal (text, regen, speaker, nudge, split, merge, lock, undo, cast) |
 | `dub bench seg VIDEO --golden FILE --remote` | Analyse a video (no dubbing) and score its sentence boundaries against the sentences really spoken |
+| `dub bench speed VIDEO --to LANG --remote [--fresh]` | Dub a video and show where the time goes: stages, lanes, ops, GPU utilisation |
 | `dub gc [--remote]` | Delete cache files no stored result points to (frees laptop or volume space) |
 | `dub doctor` | Show which providers can run on this machine and the route matrix |
 | `dub schema` | Export the `/v1` data contracts as JSON Schema |
@@ -127,7 +128,7 @@ src/dub/remote.py   laptop side of the pod: Runpod API, dub up/down/status, remo
 src/dub/runner.py   one run of one video, local or remote (shared by dub run and the review page)
 src/dub/edits.py    the human edit store (append-only JSONL on the laptop)
 src/dub/review/     the review page (local web app)
-src/dub/bench/      measuring a job against a reference (segmentation F1)
+src/dub/bench/      measuring a job: segmentation F1 against a reference, speed and GPU use
 experiments/        the measurements behind the defaults (E1, E3, E4, E6-E10, subtitle layout)
 pod/                pod bootstrap script and per-env requirement files
 src/dub/laptop.py   laptop side: extract the audio track, mux the result back
