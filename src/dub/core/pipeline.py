@@ -979,7 +979,8 @@ def _wants_pauses(cx: Ctx, op: str) -> bool:
         pid = cx.router.route(op, dict(cx.facts)).chain[0]
     except Exception:  # noqa: BLE001 - routing errors surface at the call itself
         return False
-    return bool(cx.cfg.providers[pid].params.get("reads_pauses"))
+    m = cx.cfg.providers[pid]
+    return bool(cx.params_for(m, op).get("reads_pauses"))  # --param can switch it off
 
 
 def _free_phase_a(cfg: Config) -> bool:
