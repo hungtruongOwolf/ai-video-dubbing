@@ -53,6 +53,14 @@ def main() -> None:
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--refs", type=Path, help="refs.json of a finished job: its voices too")
+    ap.add_argument("--multiples", default=",".join(map(str, MULTIPLES)))
+    ap.add_argument(
+        "--engine",
+        default="omnivoice",
+        choices=["omnivoice", "vieneu"],
+        help="vieneu: VieNeu-TTS at its own pace (no target length; one pass)",
+    )
+    ap.add_argument("--tag", default="")
     a = ap.parse_args()
     cas = _ws().cas
     voices = []
@@ -71,16 +79,20 @@ def main() -> None:
         )["words"])  # fmt: skip
         voices.append((f.stem, key, text))
     res: dict = {}
-    for m in MULTIPLES:
+    multiples = [1.0] if a.engine == "vieneu" else [float(x) for x in a.multiples.split(",")]
+    for m in multiples:
         errs, rows = [], []
         for vi, (vname, key, vtext) in enumerate(voices):
             for li, line in enumerate(LINES):
                 syl = count_units(line, "syllable")
                 target = round(syl / UNITS_PER_S * 1000 * m)
-                out = run_worker("tts", "omnivoice", "tts.synthesize", {
-                    "unit_id": f"short-{vi}-{li}", "text": line, "lang": "vi", "speaker": vname,
-                    "voice_key": key, "voice_text": vtext, "target_ms": target,
-                })  # fmt: skip
+                req = {"unit_id": f"short-{vi}-{li}", "text": line, "lang": "vi",
+                       "speaker": vname, "voice_key": key, "voice_text": vtext}  # fmt: skip
+                if a.engine == "vieneu":
+                    out = run_worker("tts2", "vieneu_v3_turbo", "tts.synthesize", req)
+                else:
+                    out = run_worker("tts", "omnivoice", "tts.synthesize",
+                                     {**req, "target_ms": target})  # fmt: skip
                 tr = media.trim(TrimReq(audio_key=out["audio_key"]), cas)
                 k16 = media.to_mono16k(AudioReq(audio_key=tr.audio_key), cas).audio_key
                 heard = run_worker("asr", "phowhisper_large_ct2", "asr.backcheck",
@@ -106,7 +118,8 @@ def main() -> None:
             "rows": rows,
         }
         print(m, json.dumps({k: v for k, v in res[str(m)].items() if k != "rows"}), flush=True)
-        save_json(data_dir() / "results" / "short_lines.json", res)
+        name = f"short_lines{'_' + a.engine if a.engine != 'omnivoice' else ''}{a.tag}.json"
+        save_json(data_dir() / "results" / name, res)
 
 
 if __name__ == "__main__":
