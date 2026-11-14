@@ -68,7 +68,11 @@ def run(input_key: str, only: list[str] | None = None) -> None:
                         db_path=Path("/tmp/exp.sqlite"))  # fmt: skip
     cas = ws.cas
     items = [it for it in json.loads(cas.read_text(input_key)) if not only or it["id"] in only]
-    results = {}
+    out = data_dir() / "results" / "e6.json"
+    out_text = data_dir() / "results" / "e6_text.json"  # what each model heard
+    old = json.loads(out.read_text(encoding="utf-8")) if out.exists() else {}
+    old_text = json.loads(out_text.read_text(encoding="utf-8")) if out_text.exists() else {}
+    results, texts = {}, {}
     for it in items:
         info = media.decode(DecodeReq(src_key=it["audio_key"]), cas)
         stems = run_worker("sep", "mel_roformer", "audio.separate", {"audio_key": info.a48k_key})
@@ -82,11 +86,12 @@ def run(input_key: str, only: list[str] | None = None) -> None:
                 joiner = "" if it["lang"] in ("zh", "ja") else " "
                 heard = joiner.join(w["w"] for w in tl["words"])
                 row[f"{model}/{name}"] = round(cer(it["reference"], heard), 4)
+                texts[f"{it['id']}/{model}/{name}"] = heard
         results[it["id"]] = {"lang": it["lang"], **row}
         print(it["id"], row, flush=True)
-    out = data_dir() / "results" / "e6.json"
-    old = json.loads(out.read_text(encoding="utf-8")) if out.exists() and only else {}
-    save_json(out, {**old, **results})
+        # saved after every video: a crash keeps what was measured
+        save_json(out, {**old, **results})
+        save_json(out_text, {**old_text, **texts})
 
 
 def main() -> None:
