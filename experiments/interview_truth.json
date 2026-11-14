@@ -1,0 +1,72 @@
+[
+ {
+  "line": 0,
+  "speaker": "S1",
+  "text": "Good evening everyone, and welcome back to our little kitchen show.",
+  "onset_ms": 700,
+  "offset_ms": 4260
+ },
+ {
+  "line": 1,
+  "speaker": "S1",
+  "text": "Today I am sitting with a very special guest, Mr. Tu, who has been cooking for forty years.",
+  "onset_ms": 5594,
+  "offset_ms": 11304
+ },
+ {
+  "line": 2,
+  "speaker": "S2",
+  "text": "Thank you, Lan. You make me sound so old!",
+  "onset_ms": 12962,
+  "offset_ms": 16632
+ },
+ {
+  "line": 3,
+  "speaker": "S1",
+  "text": "Forty years is a lot of practice, sir. What was the first dish you ever cooked?",
+  "onset_ms": 18241,
+  "offset_ms": 23661
+ },
+ {
+  "line": 4,
+  "speaker": "S2",
+  "text": "Rice porridge, for my mother, when she was sick. I was only nine years old, and I burned the bottom of the pot, so the whole house smelled of smoke for two days, but I was far too proud to start again from the beginning.",
+  "onset_ms": 25420,
+  "offset_ms": 39270
+ },
+ {
+  "line": 5,
+  "speaker": "S2",
+  "text": "She ate every spoon anyway.",
+  "onset_ms": 41987,
+  "offset_ms": 43547
+ },
+ {
+  "line": 6,
+  "speaker": "S1",
+  "text": "Oh no! That is so sweet.",
+  "onset_ms": 45131,
+  "offset_ms": 47331
+ },
+ {
+  "line": 7,
+  "speaker": "S2",
+  "text": "She said it was the best porridge in the world, which was a kind lie.",
+  "onset_ms": 48785,
+  "offset_ms": 52555
+ },
+ {
+  "line": 8,
+  "speaker": "S1",
+  "text": "And what will you teach us today?",
+  "onset_ms": 54214,
+  "offset_ms": 55724
+ },
+ {
+  "line": 9,
+  "speaker": "S2",
+  "text": "A simple fish soup, the way my grandmother made it, with tamarind and a lot of patience.",
+  "onset_ms": 57263,
+  "offset_ms": 62553
+ }
+]

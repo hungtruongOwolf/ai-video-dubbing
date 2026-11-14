@@ -129,6 +129,17 @@ class Diarization(Model):
     voices: list[SpeakerVoice] = Field(default_factory=list)
 
 
+class EmbedReq(Model):
+    """Speaker embeddings of spans of one audio file (the whole file when `spans` is empty)."""
+
+    audio_key: str
+    spans: list[tuple[int, int]] = Field(default_factory=list)  # (start_ms, end_ms)
+
+
+class Embeddings(Model):
+    vectors: list[list[float]]  # one unit vector per span
+
+
 # ---------------------------------------------------------------- segmentation
 
 
@@ -350,6 +361,8 @@ class RefsReq(Model):
     units: list[Unit]
     min_ms: int = 3000
     max_ms: int = 10000
+    unit_vectors: dict[str, list[float]] = Field(default_factory=dict)  # speaker embeddings
+    purity: dict[str, float] = Field(default_factory=dict)  # unit id -> share of own speaker
 
 
 class VoiceRef(Model):
@@ -357,6 +370,9 @@ class VoiceRef(Model):
     audio_key: str  # mono WAV clip cut on word boundaries
     text: str  # what is said in the clip (some TTS engines need it)
     seconds: float
+    centroid: list[float] = Field(default_factory=list)  # mean embedding of the speaker's lines
+    self_sim: float = 0.0  # how close the speaker's own lines are to that centroid (mean cos)
+    sim: float = 0.0  # this clip's similarity to the centroid
 
 
 class RefBank(Model):
@@ -547,6 +563,8 @@ ALL_MODELS: list[type[BaseModel]] = [
     Turn,
     SpeakerVoice,
     Diarization,
+    EmbedReq,
+    Embeddings,
     SegmentParams,
     SegmentReq,
     Sentence,
@@ -601,6 +619,7 @@ OPS: dict[str, tuple[type[BaseModel], type[BaseModel]]] = {
     "asr.backcheck": (TranscribeReq, WordTimeline),
     "text.boundaries": (BoundaryReq, Boundaries),
     "audio.diarize": (DiarizeReq, Diarization),
+    "audio.embed": (EmbedReq, Embeddings),
     "mt.context": (ContextReq, ContextSheet),
     "mt.translate": (TranslateReq, TranslationBatch),
     "mt.rewrite": (RewriteReq, RewriteRes),

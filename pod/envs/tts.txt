@@ -6,3 +6,5 @@ soundfile
 # SaT sentence boundaries (sat_12l_sm) share this env: one torch install, not two. The network
 # volume quota counts every venv's copy of torch (~5 GB each).
 wtpsplit==2.2.2
+# Speaker embeddings + diarization (ecapa_cluster)
+speechbrain==1.1.2

@@ -164,3 +164,14 @@ def test_punctuation_glued_to_the_next_word_moves_back():
     assert fixed == ["giữa", "đời", "sống", "lo", "toan.", "đặc", "biệt", "chùa"]
     seg = run(ws)
     assert [s.text for s in seg.sentences] == ["giữa đời sống lo toan.", "đặc biệt chùa"]
+
+
+def test_a_stray_word_of_another_speaker_is_given_back():
+    from dub.ops.segment import smooth_speakers
+
+    ws = words_from("one two three four five six")
+    spk = ["S1", "S1", "S2", "S1", "S1", "S1"]
+    ws = [w.model_copy(update={"speaker": s}) for w, s in zip(ws, spk, strict=True)]
+    assert [w.speaker for w in smooth_speakers(ws)] == ["S1"] * 6
+    long = [w.model_copy(update={"speaker": "S2"}) if 1 <= i <= 4 else w for i, w in enumerate(ws)]
+    assert [w.speaker for w in smooth_speakers(long)][1:5] == ["S2"] * 4  # a real turn stays

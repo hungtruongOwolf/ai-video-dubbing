@@ -12,11 +12,21 @@ from dub.contracts.v1 import Placement, Translation, Unit
 
 
 def score(unit: Unit, placement: Placement | None, tr: Translation | None,
-          edited: bool = False, cer: float | None = None) -> tuple[float, list[str]]:  # fmt: skip
+          edited: bool = False, cer: float | None = None, qa: dict | None = None,
+          purity: float | None = None) -> tuple[float, list[str]]:  # fmt: skip
     s, why = 0.0, []
     if cer is not None and cer > 0.15:
         s += min(cer, 1.0) * 8
         why.append(f"the dub does not sound like the text (CER {cer:.0%})")
+    if qa and qa.get("sim_ratio") is not None and qa["sim_ratio"] < 0.75:
+        s += (0.75 - qa["sim_ratio"]) * 10
+        why.append(f"the voice drifts from the speaker (similarity {qa['sim_ratio']:.2f})")
+    if qa and qa.get("tail", 1.0) < 0.6:
+        s += 3
+        why.append("the end of the line may be cut off")
+    if purity is not None and purity < 0.8:
+        s += (0.8 - purity) * 10
+        why.append(f"another voice in the original line ({1 - purity:.0%})")
     if placement:
         r = placement.rate
         if r > 1.08:

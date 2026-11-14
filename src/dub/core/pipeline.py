@@ -35,6 +35,8 @@ from dub.contracts.v1 import (
     Diarization,
     DiarizeReq,
     Edit,
+    Embeddings,
+    EmbedReq,
     MasterReq,
     MediaInfo,
     Placement,
@@ -71,9 +73,11 @@ from dub.core.ctx import Ctx
 from dub.core.executor import Executor
 from dub.core.router import Router
 from dub.core.trace import Tracer
+from dub.ops import diarize as diar_ops
 from dub.ops import edits as edits_ops
 from dub.ops import media as media_ops
 from dub.ops import mix as mix_ops
+from dub.ops import qa as qa_ops
 from dub.ops import refs as refs_ops
 from dub.ops import risk as risk_ops
 from dub.ops import segment as segment_ops
@@ -188,19 +192,19 @@ async def run_job(
     src_lp, tgt_lp = cfg.langpack(src_lang), cfg.langpack(spec.tgt_lang)
 
     log("[3/7] finding who speaks when")
+    vocals16: AudioRes = await cx.local(
+        "audio.to_mono16k", media_ops.to_mono16k, AudioReq(audio_key=stems.vocals_key), AudioRes
+    )
     diar: Diarization = await cx.call(
         "audio.diarize",
         DiarizeReq(
-            audio_key=stems.vocals_key,
+            audio_key=vocals16.audio_key,
             speakers_hint=spec.speakers_hint,
             replay_key=spec.transcript_key,
         ),
     )
     asr_words = segment_ops.normalize_words(
         sorted((w for w in words.words if w.w.strip()), key=lambda w: (w.start_ms, w.end_ms))
-    )
-    vocals16: AudioRes = await cx.local(
-        "audio.to_mono16k", media_ops.to_mono16k, AudioReq(audio_key=stems.vocals_key), AudioRes
     )
     speech: SpeechRegions = await cx.local(
         "audio.vad",
@@ -243,10 +247,25 @@ async def run_job(
     for w in warnings:
         log(f"      edit skipped: {w}")
     voiced = ue.apply_to_units(units)  # speaker and slot edits
+    # Speaker embedding of every line: picks the most typical reference clip per speaker and
+    # gives the QA gate each speaker's centroid. Purity: share of a line spoken by its speaker.
+    emb: Embeddings = await cx.call(
+        "audio.embed",
+        EmbedReq(audio_key=vocals16.audio_key, spans=[(u.start_ms, u.end_ms) for u in voiced]),
+    )
+    unit_vectors = dict(zip((u.id for u in voiced), emb.vectors, strict=True))
+    purity = {
+        u.id: 1.0
+        if u.id in ue.speaker
+        else round(diar_ops.purity(u.start_ms, u.end_ms, u.speaker, diar.turns), 3)
+        for u in voiced
+    }
     refs: RefBank = await cx.local(
         "voice.extract_refs",
         refs_ops.extract_refs,
-        RefsReq(vocals_key=stems.vocals_key, units=voiced),
+        RefsReq(
+            vocals_key=stems.vocals_key, units=voiced, unit_vectors=unit_vectors, purity=purity
+        ),
         RefBank,
     )
     if edits:
@@ -311,7 +330,43 @@ async def run_job(
 
     placements: list[Placement] = []
     checks: dict[str, WordTimeline] = {}  # unit id -> back-check words (relative to the clip)
+    qas: dict[str, qa_ops.QaResult] = {}
     trims: dict[str, TrimRes] = {}
+    q = cfg.dub.qa
+    limits = qa_ops.QaLimits(cer_max=q.cer_max, sim_ratio_min=q.sim_ratio_min, tail_min=q.tail_min)
+
+    async def qa_take(u: Unit, audio_key: str, text: str) -> tuple[qa_ops.QaResult, list[Word]]:
+        """Back-check ASR + speaker embedding of one take, judged against the QA limits."""
+        ref = refs.for_speaker(u.speaker)
+        clip16: AudioRes = await cx.local(
+            "audio.to_mono16k",
+            media_ops.to_mono16k,
+            AudioReq(audio_key=audio_key),
+            AudioRes,
+            subject=u.id,
+        )
+        check: WordTimeline = await cx.call(
+            "asr.backcheck",
+            TranscribeReq(audio_key=clip16.audio_key, lang=spec.tgt_lang, expected_text=text),
+            subject=u.id,
+        )
+        vec = None
+        if ref and ref.centroid:
+            e: Embeddings = await cx.call(
+                "audio.embed", EmbedReq(audio_key=clip16.audio_key), subject=u.id
+            )
+            vec = e.vectors[0]
+        res = qa_ops.judge(
+            text,
+            check.words,
+            tgt_lp.joiner,
+            vec,
+            ref.centroid if ref else None,
+            ref.self_sim if ref else None,
+            limits,
+        )
+        return res, check.words
+
     engine = media_ops.stretch_engine()
     if not spec.subs_only:
         log(f"[6/7] voicing and fitting {len(units)} units")
@@ -341,36 +396,55 @@ async def run_job(
             }
             rewrites = 0
             ref = refs.for_speaker(u.speaker)
+            base_seed = ue.seed.get(u.id, 0)
+            inline_qa = profile.takes > 1 and profile.backcheck
+            qa: qa_ops.QaResult | None = None
+            check_words: list[Word] = []
             async with sem:
                 while True:
+                    # Up to `takes` deterministic takes (seed, seed+1000, ...): keep the first
+                    # that passes the QA gate, else the best one (flagged).
+                    best = None
+                    for k in range(max(1, profile.takes) if inline_qa else 1):
 
-                    def make_req(m: ProviderManifest, text=text, pred=pred) -> SynthReq:
-                        exact = m.caps.duration_control == "exact"
-                        return SynthReq(
-                            unit_id=u.id,
-                            text=text,
-                            lang=spec.tgt_lang,
-                            speaker=u.speaker,
-                            seed=ue.seed.get(u.id, 0),
-                            voice_key=ref.audio_key if ref else None,
-                            voice_text=ref.text if ref else None,
-                            target_ms=exact_target_ms(u.slot_ms, pred, t.safe_ratio)
-                            if exact
-                            else None,
+                        def make_req(
+                            m: ProviderManifest, text=text, pred=pred, seed=base_seed + 1000 * k
+                        ) -> SynthReq:
+                            exact = m.caps.duration_control == "exact"
+                            return SynthReq(
+                                unit_id=u.id,
+                                text=text,
+                                lang=spec.tgt_lang,
+                                speaker=u.speaker,
+                                seed=seed,
+                                voice_key=ref.audio_key if ref else None,
+                                voice_text=ref.text if ref else None,
+                                target_ms=exact_target_ms(u.slot_ms, pred, t.safe_ratio)
+                                if exact
+                                else None,
+                            )
+
+                        take: SynthRes = await cx.call(
+                            "tts.synthesize", make_req, facts=facts, subject=u.id
                         )
-
-                    synth: SynthRes = await cx.call(
-                        "tts.synthesize", make_req, facts=facts, subject=u.id
-                    )
-                    # Fit the voice, not the clip: silence the engine left around it would
-                    # shift the onset and waste the slot.
-                    trimmed: TrimRes = await cx.local(
-                        "audio.trim",
-                        media_ops.trim,
-                        TrimReq(audio_key=synth.audio_key),
-                        TrimRes,
-                        subject=u.id,
-                    )
+                        # Fit the voice, not the clip: silence the engine left around it
+                        # would shift the onset and waste the slot.
+                        take_trim: TrimRes = await cx.local(
+                            "audio.trim",
+                            media_ops.trim,
+                            TrimReq(audio_key=take.audio_key),
+                            TrimRes,
+                            subject=u.id,
+                        )
+                        if not inline_qa:
+                            best = (None, take, take_trim, [])
+                            break
+                        res, words_k = await qa_take(u, take_trim.audio_key, text)
+                        if best is None or res.score > best[0].score:
+                            best = (res, take, take_trim, words_k)
+                        if res.passed:
+                            break
+                    qa, synth, trimmed, check_words = best
                     natural = pred if synth.exact else trimmed.dur_ms
                     fit = fit_unit(
                         slot_start=u.start_ms,
@@ -413,7 +487,14 @@ async def run_job(
                     subject=u.id,
                 )
                 trims[u.id] = trimmed
+                if qa is not None:
+                    qas[u.id] = qa
+                    checks[u.id] = WordTimeline(
+                        lang=spec.tgt_lang, words=_scale(check_words, 1 / max(fit.stretch, 1e-6))
+                    )
             flags = list(fit.flags) + (["untranslated"] if u.id in untranslated else [])
+            if qa is not None and not qa.passed:
+                flags.append("qa_failed")
             return Placement(
                 unit_id=u.id,
                 speaker=u.speaker,
@@ -433,23 +514,18 @@ async def run_job(
 
         placements = list(await asyncio.gather(*(dub_unit(i) for i in range(len(units)))))
 
-    async def backcheck(p: Placement) -> None:
-        """Transcribe one dubbed clip again (target language): subtitle timing + CER."""
-        clip16: AudioRes = await cx.local(
-            "audio.to_mono16k",
-            media_ops.to_mono16k,
-            AudioReq(audio_key=p.audio_key),
-            AudioRes,
-            subject=p.unit_id,
-        )
-        checks[p.unit_id] = await cx.call(
-            "asr.backcheck",
-            TranscribeReq(audio_key=clip16.audio_key, lang=spec.tgt_lang, expected_text=p.text),
-            subject=p.unit_id,
-        )
+    by_id = {u.id: u for u in units}
 
-    # Back-checks run while the tiles are mixed: they only feed subtitles and the report.
-    checking = asyncio.gather(*(backcheck(p) for p in placements if profile.backcheck))
+    async def backcheck(p: Placement) -> None:
+        """QA of the final clip when it was not checked take by take (one-take profiles)."""
+        res, words_p = await qa_take(by_id[p.unit_id], p.audio_key, p.text)
+        qas[p.unit_id] = res
+        checks[p.unit_id] = WordTimeline(lang=spec.tgt_lang, words=words_p)
+
+    # Post-hoc checks run while the tiles are mixed: they feed subtitles, risk and the report.
+    checking = asyncio.gather(
+        *(backcheck(p) for p in placements if profile.backcheck and p.unit_id not in qas)
+    )
 
     # ---------------------------------------------------------------- mix + subtitles
     log("[7/7] mixing and writing subtitles")
@@ -553,6 +629,7 @@ async def run_job(
         media.duration_ms,
         tiles,
     )
+    metrics.update(speaker_metrics(diar, purity, qas, refs))
     result = JobResult(
         job_id=job_id,
         job_dir=job_dir,
@@ -586,6 +663,8 @@ async def run_job(
         metrics,
         backcheck_cer,
         backcheck_text,
+        {uid: q.as_dict() for uid, q in qas.items()},
+        purity,
     )
     cx.flush_stats()
     ws.db.upsert_job(
@@ -629,6 +708,34 @@ def _analysis_result(cx, tracer, ws, job_id, job_dir, spec, seg, src_lang, media
         metrics=metrics, redone=dict(Counter(st.op for st in cx.stats if not st.hit)),
         calls=len(cx.stats), cache_hits=sum(1 for s in cx.stats if s.hit),
     )  # fmt: skip
+
+
+def _scale(words: list[Word], factor: float) -> list[Word]:
+    """Word times of a take, after the take was time-stretched by 1/factor."""
+    return [
+        w.model_copy(
+            update={"start_ms": round(w.start_ms * factor), "end_ms": round(w.end_ms * factor)}
+        )
+        for w in words
+    ]
+
+
+def speaker_metrics(diar, purity, qas, refs) -> dict[str, Any]:
+    """Speakers found, line purity, and the QA gate's verdicts."""
+    m: dict[str, Any] = {"speakers": len(diar.speakers)}
+    vals = list(purity.values())
+    if vals:
+        m["units_impure"] = sum(1 for v in vals if v < 0.8)
+        m["purity_p10"] = round(sorted(vals)[len(vals) // 10], 3)
+    if qas:
+        ratios = sorted(q.sim_ratio for q in qas.values() if q.sim_ratio is not None)
+        m["qa_passed"] = round(sum(1 for q in qas.values() if q.passed) / len(qas), 3)
+        m["qa_truncated"] = sum(1 for q in qas.values() if any("ending" in r for r in q.reasons))
+        if ratios:
+            m["voice_sim_ratio_p50"] = round(ratios[len(ratios) // 2], 3)
+            m["voice_sim_ratio_p10"] = round(ratios[len(ratios) // 10], 3)
+    m["ref_sim"] = {r.speaker: r.sim for r in refs.refs}
+    return m
 
 
 def _shift(words: list[Word], offset_ms: int) -> list[Word]:
@@ -696,6 +803,8 @@ def _write_outputs(
     metrics,
     backcheck_cer,
     backcheck_text,
+    qa_rows,
+    purity,
 ) -> None:
     tracer.save(job_dir / "trace.json")
     with open(job_dir / "routes.jsonl", "w", encoding="utf-8") as f:
@@ -708,7 +817,10 @@ def _write_outputs(
         tr = translations.get(u.id)
         p = by_id.get(u.id)
         edited = u.id in ue.text or u.id in ue.seed or u.id in ue.speaker or u.id in ue.nudge
-        risk, why = risk_ops.score(u, p, tr, edited=edited, cer=backcheck_cer.get(u.id))
+        risk, why = risk_ops.score(
+            u, p, tr, edited=edited, cer=backcheck_cer.get(u.id), qa=qa_rows.get(u.id),
+            purity=purity.get(u.id),
+        )  # fmt: skip
         rows.append(
             {
                 "unit": u.model_dump(),
@@ -721,6 +833,8 @@ def _write_outputs(
                 "seed": ue.seed.get(u.id, 0),
                 "backcheck_cer": backcheck_cer.get(u.id),
                 "backcheck_text": backcheck_text.get(u.id),
+                "qa": qa_rows.get(u.id),
+                "purity": purity.get(u.id),
             }
         )
     (job_dir / "tiles.json").write_text(

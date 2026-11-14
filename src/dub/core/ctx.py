@@ -48,6 +48,7 @@ LANES = {
     "asr.backcheck": "gpu · asr",
     "text.boundaries": "gpu · tts",
     "audio.diarize": "gpu · diarize",
+    "audio.embed": "gpu · tts",
     "mt.context": "llm",
     "mt.translate": "llm",
     "mt.rewrite": "llm",

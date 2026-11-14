@@ -1,0 +1,17 @@
+# Speaker embeddings (ECAPA-TDNN, VoxCeleb) and diarization by clustering them. No HF token needed.
+id: ecapa_cluster
+op: [audio.diarize, audio.embed]
+runtime: http
+env: tts                       # torch models share one env (the volume quota counts each torch copy)
+impl: dub.providers.speaker_ecapa:EcapaSpeaker
+impl_version: "1"
+weights: {hf: speechbrain/spkrec-ecapa-voxceleb, revision: 0f99f2d0ebe89ac095bcc5903c4dd8f72b367286}
+params:
+  model: speechbrain/spkrec-ecapa-voxceleb
+  revision: 0f99f2d0ebe89ac095bcc5903c4dd8f72b367286
+  threshold: 0.6               # cosine distance at which two clusters stay apart (E8 sets it)
+  win_ms: 1500
+  hop_ms: 750
+limits: {max_concurrency: 1}
+license: Apache-2.0
+description: Who speaks when (VAD windows + ECAPA embeddings + agglomerative clustering), and speaker similarity for QA.

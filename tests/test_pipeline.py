@@ -115,3 +115,13 @@ def test_bench_seg_analyses_a_video_without_dubbing(demo, tmp_path, capsys):
     s = json.loads(scores.read_text(encoding="utf-8"))
     assert s["tol1"]["n_gold"] > 5 and s["tol1"]["f1"] > 0.8  # rules on a punctuated replay
     assert (Path(s["job"]) / "segmentation.json").exists() and "analysis" in s["job"]
+
+
+def test_final_profile_runs_the_qa_gate_take_by_take(demo, tmp_path):
+    ws = tmp_path / "ws"
+    assert run(demo, ws, "--profile", "final", "--speakers", "2") == 0
+    job = next(p for p in (ws / "jobs").iterdir() if "final" in p.name)
+    units = json.loads((job / "units.json").read_text(encoding="utf-8"))
+    assert all(u["qa"] and u["qa"]["passed"] for u in units)
+    m = json.loads((job / "metrics.json").read_text(encoding="utf-8"))
+    assert m["qa_passed"] == 1.0 and m["speakers"] >= 1 and "ref_sim" in m

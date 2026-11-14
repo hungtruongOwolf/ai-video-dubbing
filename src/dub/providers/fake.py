@@ -18,6 +18,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+import numpy as np
+
 from dub.contracts.v1 import (
     CastSheet,
     CastSpeaker,
@@ -25,6 +27,8 @@ from dub.contracts.v1 import (
     ContextSheet,
     Diarization,
     DiarizeReq,
+    Embeddings,
+    EmbedReq,
     RewriteReq,
     RewriteRes,
     SeparateReq,
@@ -140,6 +144,21 @@ class FakeASR(_Base):
 
 
 class FakeDiarizer(_Base):
+    def op_audio_embed(self, req: EmbedReq, ctx: RunCtx) -> Embeddings:
+        """A crude 'voice print': pitch-like statistics per span (the fake voices differ by f0)."""
+        audio, sr = read_wav(ctx.cas.path(req.audio_key))
+        mono = audio.mean(axis=1)
+        spans = req.spans or [(0, round(len(mono) * 1000 / sr))]
+        out = []
+        for s, e in spans:
+            x = mono[s * sr // 1000 : max(e * sr // 1000, s * sr // 1000 + 2)]
+            zcr = float(np.mean(np.abs(np.diff(np.sign(x))) > 0)) if len(x) > 1 else 0.0
+            rms = float(np.sqrt(np.mean(x**2))) if len(x) else 0.0
+            v = np.array([zcr * 10, rms * 10, 1.0])
+            v = v / (np.linalg.norm(v) + 1e-9)
+            out.append([round(float(t), 4) for t in v])
+        return Embeddings(vectors=out)
+
     def op_audio_diarize(self, req: DiarizeReq, ctx: RunCtx) -> Diarization:
         if req.replay_key:
             tl, voices = load_replay(ctx, req.replay_key)

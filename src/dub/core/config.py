@@ -120,6 +120,7 @@ class Profile(Cfg):
     llm_rewrite: bool = False
     max_rewrites: int = 2
     backcheck: bool = True  # transcribe every dubbed line again: subtitle timing + CER
+    takes: int = 1  # QA gate: up to this many takes (seeds) per line; 1 = check and flag only
     # Per-provider params laid over the manifest's, e.g. {omnivoice: {num_step: 16}}.
     params: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
@@ -134,6 +135,12 @@ class TimingCfg(Cfg):
     min_pause_ms: int = 120  # minimum pause kept between two lines
     tail_guard_ms: int = 150  # space kept before the next line
     strict: bool = False  # tightly synced content: halve the borrowing limits
+
+
+class QaCfg(Cfg):
+    cer_max: float = 0.15  # back-check character error rate
+    sim_ratio_min: float = 0.75  # voice similarity / the speaker's own similarity
+    tail_min: float = 0.6  # share of the line's last quarter that the ASR heard
 
 
 class MixCfg(Cfg):
@@ -158,6 +165,7 @@ class DubConfig(Cfg):
     profile: str = "draft"
     profiles: dict[str, Profile] = Field(default_factory=lambda: {"draft": Profile()})
     timing: TimingCfg = Field(default_factory=TimingCfg)
+    qa: QaCfg = Field(default_factory=QaCfg)
     mix: MixCfg = Field(default_factory=MixCfg)
     translate: TranslateCfg = Field(default_factory=TranslateCfg)
     defaults: dict[str, list[str]] = Field(default_factory=dict)

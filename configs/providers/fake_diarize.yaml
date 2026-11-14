@@ -1,5 +1,5 @@
 id: fake_diarize
-op: [audio.diarize]
+op: [audio.diarize, audio.embed]
 impl: dub.providers.fake:FakeDiarizer
 impl_version: auto           # re-run when the fake code changes
 fake: true

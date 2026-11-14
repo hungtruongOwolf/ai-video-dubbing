@@ -136,6 +136,25 @@ def assign_speakers(words: list[Word], turns: list[Turn]) -> list[Word]:
     return out
 
 
+def smooth_speakers(words: list[Word], max_ms: int = 600, max_words: int = 2) -> list[Word]:
+    """A word or two given to another speaker in the middle of one speaker's run is almost
+    always a diarization slip at a turn edge: give them back (no unit is cut there)."""
+    out = list(words)
+    i = 0
+    while i < len(out):
+        j = i
+        while j + 1 < len(out) and out[j + 1].speaker == out[i].speaker:
+            j += 1
+        if 0 < i and j + 1 < len(out):
+            before, after = out[i - 1].speaker, out[j + 1].speaker
+            dur = out[j].end_ms - out[i].start_ms
+            if before == after != out[i].speaker and j - i + 1 <= max_words and dur < max_ms:
+                for k in range(i, j + 1):
+                    out[k] = out[k].model_copy(update={"speaker": before})
+        i = j + 1
+    return out
+
+
 def _blocks(words: list[Word], probs: list[float]):
     """Split at speaker changes: [(words, probs)] per block."""
     blocks: list[tuple[list[Word], list[float]]] = []
@@ -312,7 +331,9 @@ def segment(req: SegmentReq) -> Segmentation:
         (i for i, w in enumerate(req.words) if w.w.strip()),
         key=lambda i: (req.words[i].start_ms, req.words[i].end_ms),
     )
-    words = normalize_words(assign_speakers([req.words[i] for i in order], req.turns))
+    words = normalize_words(
+        smooth_speakers(assign_speakers([req.words[i] for i in order], req.turns))
+    )
     if req.probs:
         if len(req.probs) != len(req.words):
             raise ValueError(f"{len(req.probs)} boundary probs for {len(req.words)} words")
