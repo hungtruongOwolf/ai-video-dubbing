@@ -17,6 +17,7 @@ from typing import Any
 class Tracer:
     def __init__(self) -> None:
         self.t0 = time.perf_counter()
+        self.t0_unix = time.time()  # wall clock of ts=0, to line up GPU samples (gpu.csv)
         self.events: list[dict[str, Any]] = []
         self._lanes: dict[str, int] = {}
         self._busy: dict[int, bool] = {}
@@ -85,6 +86,12 @@ class Tracer:
     def save(self, path: Path) -> None:
         meta = {"ph": "M", "pid": 1, "name": "process_name", "args": {"name": "dub"}}
         Path(path).write_text(
-            json.dumps({"traceEvents": [meta, *self.events], "displayTimeUnit": "ms"}),
+            json.dumps(
+                {
+                    "traceEvents": [meta, *self.events],
+                    "displayTimeUnit": "ms",
+                    "otherData": {"t0_unix": self.t0_unix},
+                }
+            ),
             encoding="utf-8",
         )

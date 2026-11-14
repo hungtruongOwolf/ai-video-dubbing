@@ -172,12 +172,17 @@ async def run_job(
         status="running",
     )
 
+    def stage(msg: str) -> None:
+        """A pipeline stage starts: log it, and mark it on the trace (dub bench speed)."""
+        log(msg)
+        tracer.instant(msg, "stages")
+
     # ---------------------------------------------------------------- Phase A
-    log("[1/7] decoding audio")
+    stage("[1/7] decoding audio")
     media: MediaInfo = await cx.local(
         "media.decode", media_ops.decode, DecodeReq(src_key=spec.audio_key), MediaInfo
     )
-    log("[2/7] separating speech from background + transcribing (in parallel)")
+    stage("[2/7] separating speech from background + transcribing (in parallel)")
     stems, words = await asyncio.gather(
         cx.call("audio.separate", SeparateReq(audio_key=media.a48k_key)),
         cx.call(
@@ -193,7 +198,7 @@ async def run_job(
     cx.facts["src_lang"] = src_lang
     src_lp, tgt_lp = cfg.langpack(src_lang), cfg.langpack(spec.tgt_lang)
 
-    log("[3/7] finding who speaks when")
+    stage("[3/7] finding who speaks when")
     vocals16: AudioRes = await cx.local(
         "audio.to_mono16k", media_ops.to_mono16k, AudioReq(audio_key=stems.vocals_key), AudioRes
     )
@@ -288,7 +293,7 @@ async def run_job(
     log(f"      {len(words.words)} words -> {len(seg.sentences)} sentences -> {len(units)} units")
 
     # ---------------------------------------------------------------- Barrier: context pass
-    log("[4/7] reading the whole script: summary, glossary, cast sheet")
+    stage("[4/7] reading the whole script: summary, glossary, cast sheet")
     sheet: ContextSheet = await cx.call(
         "mt.context",
         ContextReq(src_lang=src_lang, tgt_lang=spec.tgt_lang, units=base_units, voices=diar.voices),
@@ -299,7 +304,7 @@ async def run_job(
                             profile_name)  # fmt: skip
 
     # ---------------------------------------------------------------- Phase B: translate
-    log("[5/7] translating")
+    stage("[5/7] translating")
     tcfg = cfg.dub.translate
     translations: dict[str, Translation] = {}
 
@@ -434,7 +439,7 @@ async def run_job(
 
     engine = media_ops.stretch_engine()
     if not spec.subs_only:
-        log(f"[6/7] voicing and fitting {len(units)} units")
+        stage(f"[6/7] voicing and fitting {len(units)} units")
         sem = asyncio.Semaphore(UNIT_CONCURRENCY)
 
         def neighbor(u: Unit, other: Unit, gap: int) -> Neighbor:
@@ -604,7 +609,7 @@ async def run_job(
     )
 
     # ---------------------------------------------------------------- mix + subtitles
-    log("[7/7] mixing and writing subtitles")
+    stage("[7/7] mixing and writing subtitles")
     dub_audio_key = None
     dub_m4a_key = None
     tiles: list[Tile] = []

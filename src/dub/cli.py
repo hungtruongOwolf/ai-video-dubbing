@@ -135,10 +135,15 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--dry-run", action="store_true", help="only count")
     _common(g)
 
-    b = sub.add_parser("bench", help="measure a job against a reference")
-    b.add_argument("what", choices=["seg"], help="seg: sentence segmentation F1")
+    b = sub.add_parser("bench", help="measure a job: segmentation F1, or where the time goes")
+    b.add_argument(
+        "what", choices=["seg", "speed"],
+        help="seg: sentence segmentation F1; speed: stages, ops, lanes and GPU use",
+    )  # fmt: skip
     b.add_argument("target", type=Path, help="a video/audio file, or a job folder to re-score")
-    b.add_argument("--golden", type=Path, required=True, help="reference: one sentence per line")
+    b.add_argument("--golden", type=Path, help="seg: reference, one sentence per line")
+    b.add_argument("--to", dest="tgt", default="vi", help="speed: target language (default vi)")
+    b.add_argument("--profile", default=None, help="speed: draft | final")
     b.add_argument("--tol", type=int, default=1, help="tolerance in words (default 1)")
     b.add_argument("--from", dest="src", default="auto", help="spoken language")
     b.add_argument("--remote", action="store_true", help="analyse on the GPU pod")
@@ -374,9 +379,37 @@ def cmd_gc(a) -> int:
     return 0
 
 
+def cmd_bench_speed(a) -> int:
+    from dub.bench.speed import analyse, render
+
+    if a.target.is_dir():
+        job = a.target
+    else:  # a media file: dub it first (cached stages are reused, so bench a fresh run)
+        opts = RunOptions(
+            video=a.target, tgt=a.tgt, src=a.src, profile=a.profile, remote=a.remote,
+            fake=a.fake, config_dir=a.config_dir, use=a.use,
+        )  # fmt: skip
+        job = run_video(opts, Workspace.open(a.workspace), log=print).job_dir
+    media_s = None
+    if (job / "tiles.json").exists():
+        tiles = json.loads((job / "tiles.json").read_text(encoding="utf-8"))
+        items = tiles.get("tiles", tiles) if isinstance(tiles, dict) else tiles
+        media_s = max((t["end_ms"] for t in items), default=0) / 1000 or None
+    rep = analyse(job, media_s)
+    print(render(rep))
+    if a.json:
+        a.json.write_text(json.dumps(rep.as_dict(), indent=1), encoding="utf-8")
+    return 0
+
+
 def cmd_bench(a) -> int:
     from dub.bench.seg import boundary_f1
 
+    if a.what == "speed":
+        return cmd_bench_speed(a)
+    if a.golden is None:
+        print("error: bench seg needs --golden", file=sys.stderr)
+        return 2
     if a.target.is_dir() or a.target.suffix == ".json":
         job = a.target if a.target.is_dir() else a.target.parent
     else:  # a media file: run the analysis (phase A) first

@@ -47,6 +47,10 @@ def _mono16(path) -> np.ndarray:
     raise ProviderError(f"unsupported sample rate {sr}", kind="bad_input")
 
 
+MAX_EMBED_S = 20  # longer chunks are embedded on their middle 20 s
+BATCH_SAMPLES = 64 * 3 * 16000  # padded samples per batch (64 windows of 3 s)
+
+
 class EcapaSpeaker:
     def __init__(self, manifest: ProviderManifest):
         self.manifest = manifest
@@ -66,24 +70,50 @@ class EcapaSpeaker:
         )
 
     def embed(self, chunks: list[np.ndarray]) -> np.ndarray:
+        """L2-normalised embeddings, in the order of `chunks`.
+
+        Batches are built by length (shortest first) under a budget of padded samples, and a
+        chunk longer than MAX_EMBED_S is embedded on its middle part: on a 60-minute speech
+        the pause-delimited pieces reach minutes, and 64 of them padded to the longest ran a
+        24 GB GPU out of memory.
+        """
         import torch
 
-        out = []
-        for i in range(0, len(chunks), 64):
-            batch = [
-                c if len(c) >= SR // 4 else np.pad(c, (0, SR // 4 - len(c)))
-                for c in chunks[i : i + 64]
-            ]
-            n = max(len(c) for c in batch)
-            x = torch.zeros(len(batch), n)
-            for j, c in enumerate(batch):
-                x[j, : len(c)] = torch.from_numpy(np.asarray(c, dtype=np.float32))
-            lens = torch.tensor([len(c) / n for c in batch])
+        if not chunks:
+            return np.zeros((0, 192), dtype=np.float32)
+        cap = MAX_EMBED_S * SR
+        prepared = []
+        for c in chunks:
+            c = np.asarray(c, dtype=np.float32)
+            if len(c) > cap:
+                mid = (len(c) - cap) // 2
+                c = c[mid : mid + cap]
+            if len(c) < SR // 4:
+                c = np.pad(c, (0, SR // 4 - len(c)))
+            prepared.append(c)
+        order = sorted(range(len(prepared)), key=lambda i: len(prepared[i]))
+        out = np.zeros((len(prepared), 192), dtype=np.float32)
+        i = 0
+        while i < len(order):
+            j = i + 1
+            while (
+                j < len(order)
+                and j - i < 64
+                and (j + 1 - i) * len(prepared[order[j]]) <= (BATCH_SAMPLES)
+            ):
+                j += 1
+            idx = order[i:j]
+            n = len(prepared[idx[-1]])
+            x = torch.zeros(len(idx), n)
+            for k, t in enumerate(idx):
+                x[k, : len(prepared[t])] = torch.from_numpy(prepared[t])
+            lens = torch.tensor([len(prepared[t]) / n for t in idx])
             with torch.no_grad():
                 e = self.enc.encode_batch(x.to(self.enc.device), lens.to(self.enc.device))
             e = torch.nn.functional.normalize(e.squeeze(1), dim=-1)
-            out.append(e.float().cpu().numpy())
-        return np.concatenate(out) if out else np.zeros((0, 192), dtype=np.float32)
+            out[idx] = e.float().cpu().numpy()
+            i = j
+        return out
 
     def run(self, op: str, req, ctx: RunCtx):
         if self.enc is None:

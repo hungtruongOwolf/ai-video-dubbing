@@ -143,3 +143,15 @@ def test_confirm_cast_stops_before_translation_then_corrections_apply(demo, tmp_
     cast = json.loads((job / "cast.json").read_text(encoding="utf-8"))["cast"]
     s1 = next(s for s in cast["speakers"] if s["id"] == "S1")
     assert s1["name"] == "Ana" and s1["gender"] == "female" and s1["locked"]
+
+
+def test_bench_speed_reports_stages_lanes_and_ops(demo, tmp_path, capsys):
+    out_json = tmp_path / "speed.json"
+    args = ["bench", "speed", str(demo), "--fake", "--workspace", str(tmp_path / "ws")]
+    assert main([*args, "--json", str(out_json)]) == 0
+    text = capsys.readouterr().out
+    assert "[6/7] voicing" in text and "tts.synthesize" in text
+    rep = json.loads(out_json.read_text(encoding="utf-8"))
+    assert [s["stage"][:5] for s in rep["stages"]] == [f"[{k}/7]" for k in range(1, 8)]
+    assert rep["wall_s"] > 0 and rep["media_s"] > 50 and rep["gpu_util_mean"] is None
+    assert sum(s["wall_s"] for s in rep["stages"]) <= rep["wall_s"] + 0.5

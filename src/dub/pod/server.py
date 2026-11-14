@@ -45,6 +45,7 @@ from dub.core.pipeline import JobSpec, run_job
 from dub.core.router import parse_overrides
 from dub.ops.preview import cut_mp3
 from dub.pod.envs import EnvManager
+from dub.pod.gpu import GpuSampler
 from dub.store import Workspace
 
 JOB_FILES = {
@@ -57,6 +58,7 @@ JOB_FILES = {
     "tiles.json",
     "metrics.json",
     "segmentation.json",
+    "gpu.csv",
 }
 _ID = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
 _KEY = re.compile(r"^[0-9a-f]{32}(\.[A-Za-z0-9]{1,8})?$")
@@ -124,11 +126,17 @@ class Jobs:
                 self.envs.settled.wait()
             job["status"] = "running"
             t0 = time.perf_counter()
-            res = asyncio.run(
-                run_job(
-                    self.cfg, self.ws, spec, overrides=overrides, log=lambda m: self._log(job_id, m)
-                )
-            )
+            gpu = GpuSampler().start()
+            try:
+                res = asyncio.run(
+                    run_job(
+                        self.cfg, self.ws, spec, overrides=overrides,
+                        log=lambda m: self._log(job_id, m),
+                    )
+                )  # fmt: skip
+            finally:
+                gpu.stop()
+            gpu.write(res.job_dir / "gpu.csv")
             job["result"] = {
                 "job_dir": res.job_id,
                 "src_lang": res.src_lang,
@@ -143,6 +151,7 @@ class Jobs:
                 "seconds": round(time.perf_counter() - t0, 2),
                 "calls": res.calls,
                 "cache_hits": res.cache_hits,
+                "gpu": gpu.summary(),
             }
             job["status"] = "done"
         except Exception as e:  # noqa: BLE001 - report every failure to the laptop
