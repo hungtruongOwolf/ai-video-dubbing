@@ -8,8 +8,9 @@ rules cannot do anything with such text.
 Words -> one text (spaces between words, or the ASR's own spaces for zh/ja/th), one
 probability per word: the probability at its last character, or at the space after it.
 
-Calibration: the manifest's `threshold` (chosen by experiment E4) is mapped to 0.5, so the
-segmenter can use one threshold for every provider:  p' = sigmoid(logit(p) - logit(t)).
+Calibration: the manifest's `threshold` (chosen by experiment E4; `lang_threshold` overrides
+it per language) is mapped to 0.5, so the segmenter can use one threshold for every provider:
+p' = sigmoid(logit(p) - logit(t)).
 
 Runs in the `tts` worker env on the GPU pod, next to OmniVoice (one torch install for both;
 fp16 on the GPU: ~0.6 GB of VRAM). It is called once per job, before any TTS, so the two never
@@ -92,5 +93,6 @@ class SaTBoundaries:
             self.load(ctx)
         text, ends = build_text(req)
         char_probs = self.sat.predict_proba(text)
-        t = float(ctx.params.get("threshold", 0.25))
+        by_lang = ctx.params.get("lang_threshold") or {}
+        t = float(by_lang.get(req.lang.split("-")[0], ctx.params.get("threshold", 0.25)))
         return Boundaries(probs=[calibrate(p, t) for p in word_probs(char_probs, text, ends)])
