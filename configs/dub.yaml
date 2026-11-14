@@ -24,7 +24,9 @@ timing:
 # QA gate for every dubbed take (see src/dub/ops/qa.py). Final renders try up to `takes` seeds.
 qa:
   cer_max: 0.15                # back-check character error rate
-  sim_ratio_min: 0.75          # voice similarity, relative to the speaker's own lines
+  sim_ratio_min: 0.5           # voice similarity, relative to the speaker's own lines (E10: clones ~0.75)
+  other_margin: 0.05           # fail when the take sounds more like another speaker
+  voice_min_ms: 1200           # shorter takes are not judged on voice
   tail_min: 0.6                # share of the line's last quarter the ASR heard (truncation)
 
 mix:

@@ -22,9 +22,9 @@ def score(unit: Unit, placement: Placement | None, tr: Translation | None,
     if cer is not None and cer > 0.15:
         s += min(cer, 1.0) * 8
         why.append(f"the dub does not sound like the text (CER {cer:.0%})")
-    if qa and qa.get("sim_ratio") is not None and qa["sim_ratio"] < 0.75:
-        s += (0.75 - qa["sim_ratio"]) * 10
-        why.append(f"the voice drifts from the speaker (similarity {qa['sim_ratio']:.2f})")
+    if qa and any(r.startswith("voice") for r in qa.get("reasons", [])):
+        s += 4
+        why.append(next(r for r in qa["reasons"] if r.startswith("voice")))
     if qa and qa.get("tail", 1.0) < 0.6:
         s += 3
         why.append("the end of the line may be cut off")

@@ -17,6 +17,13 @@ def test_good_take_passes_and_bad_ones_say_why():
     assert not cut.passed and any("ending" in r for r in cut.reasons)
     other = judge(line, _words(line.lower()), " ", [0.0, 1.0, 0.0], vec, 0.8, QaLimits())
     assert not other.passed and any("voice" in r for r in other.reasons)
+    # sounds like another speaker of the video -> fail, even with a fair similarity ratio
+    cents = {"S1": [1.0, 0.0, 0.0], "S2": [0.6, 0.8, 0.0]}
+    take = [0.7, 0.71, 0.0]
+    swap = judge(line, _words(line), " ", take, cents["S1"], 0.8, QaLimits(), "S1", cents, 3000)
+    assert not swap.passed and swap.closest == "S2"
+    short = judge(line, _words(line), " ", take, cents["S1"], 0.8, QaLimits(), "S1", cents, 800)
+    assert short.passed and short.sim_ratio is None  # too short to judge the voice
     assert ok.score > cut.score and ok.score > other.score
 
 

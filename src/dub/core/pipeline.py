@@ -361,7 +361,13 @@ async def run_job(
     qas: dict[str, qa_ops.QaResult] = {}
     trims: dict[str, TrimRes] = {}
     q = cfg.dub.qa
-    limits = qa_ops.QaLimits(cer_max=q.cer_max, sim_ratio_min=q.sim_ratio_min, tail_min=q.tail_min)
+    limits = qa_ops.QaLimits(
+        cer_max=q.cer_max,
+        sim_ratio_min=q.sim_ratio_min,
+        tail_min=q.tail_min,
+        other_margin=q.other_margin,
+        voice_min_ms=q.voice_min_ms,
+    )
 
     async def qa_take(u: Unit, audio_key: str, text: str) -> tuple[qa_ops.QaResult, list[Word]]:
         """Back-check ASR + speaker embedding of one take, judged against the QA limits."""
@@ -392,6 +398,9 @@ async def run_job(
             ref.centroid if ref else None,
             ref.self_sim if ref else None,
             limits,
+            speaker=u.speaker,
+            centroids={r.speaker: r.centroid for r in refs.refs if r.centroid},
+            dur_ms=clip16.dur_ms,
         )
         return res, check.words
 

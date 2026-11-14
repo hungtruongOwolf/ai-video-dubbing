@@ -2,9 +2,12 @@
 
 Three checks per take (the design's "4 checks" minus duration, which the timing fit owns):
 - words: CER between the line and what the back-check ASR heard;
-- voice: cosine similarity of the take's speaker embedding to the speaker's centroid, divided
-  by how similar the speaker's own original lines are to that centroid (`self_sim`). A ratio
-  of 1.0 means "as close as the speaker is to themself";
+- voice: the take must sound more like its own speaker than like anyone else in the video
+  (cosine to each speaker's centroid), and its similarity to its own centroid, divided by how
+  similar the speaker's original lines are to it (`self_sim`), must not collapse. Measured on
+  the drama (E10): cross-lingual clones sit around 0.75 of the speaker's own similarity, so the
+  floor is low (0.5); the "closer to someone else" test is what catches a wrong voice. Clips
+  under 1.2 s are not judged on voice (their embeddings are unreliable);
 - ending: the share of the last quarter of the line that the ASR heard. A take that stops
   before its last words ("truncated") fails here even when the CER is still small.
 
@@ -24,8 +27,10 @@ from dub.ops.align import _norm_chars, cer
 @dataclass
 class QaLimits:
     cer_max: float = 0.15
-    sim_ratio_min: float = 0.75
+    sim_ratio_min: float = 0.5
     tail_min: float = 0.6
+    other_margin: float = 0.05  # fail if another speaker's centroid is closer by this much
+    voice_min_ms: int = 1200
 
 
 @dataclass
@@ -35,6 +40,7 @@ class QaResult:
     tail: float
     passed: bool
     reasons: list[str] = field(default_factory=list)
+    closest: str | None = None  # the speaker whose centroid is closest to the take
 
     @property
     def score(self) -> float:
@@ -49,6 +55,7 @@ class QaResult:
             "tail": round(self.tail, 3),
             "passed": self.passed,
             "reasons": self.reasons,
+            "closest": self.closest,
         }
 
 
@@ -84,18 +91,31 @@ def judge(
     centroid: list[float] | None,
     self_sim: float | None,
     limits: QaLimits,
+    speaker: str | None = None,
+    centroids: dict[str, list[float]] | None = None,
+    dur_ms: int | None = None,
 ) -> QaResult:
     heard = join_words(words, joiner)
     c = cer(text, heard)
     tail = tail_heard(text, heard)
     ratio = None
-    if take_vec and centroid and self_sim:
-        ratio = cosine(take_vec, centroid) / self_sim
+    closest = None
     reasons = []
+    judge_voice = take_vec and centroid and self_sim and (dur_ms or 10**9) >= limits.voice_min_ms
+    if judge_voice:
+        own = cosine(take_vec, centroid)
+        ratio = own / self_sim
+        if centroids and speaker:
+            sims = {s: cosine(take_vec, v) for s, v in centroids.items() if v}
+            closest = max(sims, key=sims.get) if sims else None
+            if closest and closest != speaker and sims[closest] > own + limits.other_margin:
+                reasons.append(f"voice: sounds more like {closest} than {speaker}")
     if c > limits.cer_max:
         reasons.append(f"words: CER {c:.0%}")
     if ratio is not None and ratio < limits.sim_ratio_min:
         reasons.append(f"voice: similarity {ratio:.2f} of the speaker's own")
     if tail < limits.tail_min:
         reasons.append(f"ending: only {tail:.0%} of the last words heard")
-    return QaResult(cer=c, sim_ratio=ratio, tail=tail, passed=not reasons, reasons=reasons)
+    return QaResult(
+        cer=c, sim_ratio=ratio, tail=tail, passed=not reasons, reasons=reasons, closest=closest
+    )
