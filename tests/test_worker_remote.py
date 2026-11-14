@@ -281,6 +281,24 @@ def test_direct_worker_calls_keep_the_pod_awake(cfg, ws, dubd, monkeypatch):
     httpd.shutdown()
 
 
+def test_a_heartbeat_file_keeps_the_pod_awake(dubd, tmp_path, monkeypatch):
+    """Downloads and other work outside dubd (pod/busy.sh) touch a heartbeat file."""
+    import os
+    import time
+
+    from dub.pod import server as server_mod
+
+    _url, srv = dubd
+    beat = tmp_path / "dub.busy"
+    monkeypatch.setattr(server_mod, "BUSY_FILE", beat)
+    assert not srv._heartbeat_busy()  # no file
+    beat.touch()
+    assert srv._heartbeat_busy()
+    old = time.time() - server_mod.BUSY_FRESH_S - 5
+    os.utime(beat, (old, old))
+    assert not srv._heartbeat_busy()  # stale: the work ended without cleaning up
+
+
 # -------------------------------------------------------------------- worker restarts
 
 

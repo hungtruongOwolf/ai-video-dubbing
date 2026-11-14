@@ -16,6 +16,9 @@ token and keeps it in the laptop's workspace.
 Idle watchdog: when no job has run and no request has arrived for DUB_IDLE_MINUTES, the pod
 terminates itself through the Runpod API with the pod-scoped key Runpod injects
 (RUNPOD_API_KEY, RUNPOD_POD_ID). Everything worth keeping is already on the network volume.
+Work outside dubd keeps the pod up too: a worker that served a call in the last minute, or a
+heartbeat file touched in the last two minutes (`pod/busy.sh CMD...` runs a command that way:
+downloads, experiments that do not go through the workers).
 """
 
 from __future__ import annotations
@@ -253,13 +256,20 @@ class DubServer:
                 return True
         return False
 
+    def _heartbeat_busy(self) -> bool:
+        """Background work on the pod (pod/busy.sh) touches this file while it runs."""
+        try:
+            return time.time() - BUSY_FILE.stat().st_mtime < BUSY_FRESH_S
+        except OSError:
+            return False
+
     def watchdog(self, terminate: Callable[[], None]) -> None:
         while True:
             time.sleep(30)
             # Never idle out while a job runs or while the first boot is still installing envs
             # and downloading weights (that can take longer than the idle limit).
             installing = self.envs.started and not self.envs.settled.is_set()
-            if self.jobs.running() or installing or self._workers_busy():
+            if self.jobs.running() or installing or self._workers_busy() or self._heartbeat_busy():
                 self.touch()
                 continue
             if time.time() - self.last_activity > self.idle_s:
@@ -268,6 +278,10 @@ class DubServer:
                 )
                 terminate()
                 return
+
+
+BUSY_FILE = Path(os.environ.get("DUB_BUSY_FILE", "/tmp/dub.busy"))
+BUSY_FRESH_S = 120
 
 
 def _worker_idle_s(url: str) -> float | None:

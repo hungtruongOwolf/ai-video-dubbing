@@ -45,7 +45,7 @@ dub run video.mp4 --to vi --remote
 uv run dub up                                   # rent the pod, wait until every model is loaded
 uv run dub run video.mp4 --to vi --from en --remote
 uv run dub status                               # price, uptime, worker status
-uv run dub down                                 # terminate it (or let it idle out after 10 min)
+uv run dub down                                 # terminate it (or let it idle out after idle_minutes, 5 by default)
 ```
 
 - `dub run --remote` starts a pod by itself when none is running.
@@ -71,6 +71,8 @@ uv run dub down                                 # terminate it (or let it idle o
 - starts one worker per env. Each worker preloads its models and serves them on `127.0.0.1:710x`.
 - accepts uploads in parts (the proxy limits requests to 100 MB), runs jobs, and serves the results.
 - terminates the pod after `idle_minutes` without work, using the pod-scoped key Runpod injects. It never does this while a job runs or while the first boot is still installing.
+  Work outside dubd counts too: a worker call in the last minute (experiments), or a command run through
+  `pod/busy.sh` (downloads, scripts), which touches a heartbeat file every 30 s.
 
 Volume layout:
 
