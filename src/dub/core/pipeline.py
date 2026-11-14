@@ -410,6 +410,18 @@ async def run_job(
         ContextReq(src_lang=src_lang, tgt_lang=spec.tgt_lang, units=base_units, voices=diar.voices),
     )
     sheet = edits_ops.apply_cast(sheet, edits)  # the user's corrections win
+    finer = _finer_diarization(cx, sheet, spec)
+    if finer is not None:  # one voice holds several people: cluster again, finer (once)
+        if calib is not None:
+            calib.cancel()
+        merged = ", ".join(f"{s.id} ({s.characters})" for s in sheet.cast.speakers
+                           if s.characters > 1)  # fmt: skip
+        log(f"      the cast sheet finds several people under one voice: {merged}; "
+            f"finding who speaks when again (threshold {finer})")  # fmt: skip
+        diar_params = {**spec.params.get("ecapa_cluster", {}), "threshold": finer,
+                       "min_share": DIAR_FINER_MIN_SHARE}  # fmt: skip
+        spec = dataclasses.replace(spec, params={**spec.params, "ecapa_cluster": diar_params})
+        return await run_job(cfg, ws, spec, overrides=overrides, log=log)
     if spec.confirm_cast:
         return _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, voiced, src_lang, media,
                             diar.voices, profile_name)  # fmt: skip
@@ -1139,6 +1151,31 @@ def _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, units, src_lang, 
 
 
 CALIB_MAX_PAD_MS = 800
+# Diarization again when the cast sheet finds several people under one speaker id (M8: a
+# TikTok drama of ~6 characters came out as 2 voices at 0.85; 0.75 gave 5).
+DIAR_STEP = 0.1
+DIAR_FLOOR = 0.7
+DIAR_FINER_MIN_SHARE = 0.03
+
+
+def _finer_diarization(cx: Ctx, sheet: ContextSheet, spec: JobSpec) -> float | None:
+    """The next, finer clustering threshold when the cast sheet says one speaker id holds
+    several people; None when there is nothing to do (or no finer step left)."""
+    if spec.speakers_hint or spec.transcript_key:
+        return None
+    if not any(s.characters > 1 and not s.locked for s in sheet.cast.speakers):
+        return None
+    try:
+        pid = cx.router.route("audio.diarize", dict(cx.facts)).chain[0]
+    except Exception:  # noqa: BLE001 - no diarizer: nothing to refine
+        return None
+    if pid != "ecapa_cluster":
+        return None
+    cur = float(cx.params_for(cx.cfg.providers[pid], "audio.diarize").get("threshold", 0.85))
+    nxt = round(cur - DIAR_STEP, 2)
+    return nxt if nxt >= DIAR_FLOOR - 1e-9 else None
+
+
 _CJK = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯豈-﫿]")
 
 

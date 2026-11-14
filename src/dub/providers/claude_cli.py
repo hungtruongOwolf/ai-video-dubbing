@@ -76,6 +76,7 @@ class LLMSpeaker(_S):
     role: str | None
     style: str | None
     evidence: list[str]
+    characters: int = 1  # different people speaking under this id (diarization merged them)
 
 
 class LLMRelation(_S):
@@ -280,6 +281,7 @@ def to_context_sheet(out: LLMContext, tgt: str) -> ContextSheet:
                     role=s.role,
                     style=s.style,
                     evidence=s.evidence,
+                    characters=max(1, s.characters),
                 )
                 for s in out.speakers
             ],

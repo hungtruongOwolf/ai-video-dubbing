@@ -249,6 +249,8 @@ class CastSpeaker(Model):
     style: str | None = None
     evidence: list[str] = Field(default_factory=list)
     locked: bool = False  # True = confirmed by the user; the LLM must not change it
+    # how many people actually speak under this id (> 1: the diarization merged voices)
+    characters: int = 1
 
 
 class AddressTerms(Model):

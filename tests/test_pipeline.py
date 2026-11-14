@@ -214,3 +214,29 @@ def test_leftover_source_characters_are_foreign_in_a_latin_target():
     assert vi.findall("Phủ 钱府 ở thành Đông") == ["钱", "府"]
     assert not vi.findall("Phủ Tiền ở thành Đông, 3 lạng")
     assert _foreign_script("zh") is None and _foreign_script("ja") is None
+
+
+def test_merged_voices_lead_to_a_finer_diarization_once():
+    from types import SimpleNamespace
+
+    from dub.contracts.v1 import CastSheet, CastSpeaker, ContextSheet
+    from dub.core.pipeline import JobSpec, _finer_diarization
+
+    def cx(threshold):
+        route = SimpleNamespace(chain=["ecapa_cluster"])
+        return SimpleNamespace(
+            router=SimpleNamespace(route=lambda op, facts: route), facts={},
+            cfg=SimpleNamespace(providers={"ecapa_cluster": None}),
+            params_for=lambda m, op: {"threshold": threshold},
+        )  # fmt: skip
+
+    def sheet(*chars):
+        speakers = [CastSpeaker(id=f"S{i}", characters=c) for i, c in enumerate(chars, 1)]
+        return ContextSheet(summary="", cast=CastSheet(speakers=speakers))
+
+    spec = JobSpec(audio_key="a", source_name="v.mp4", tgt_lang="vi")
+    assert _finer_diarization(cx(0.85), sheet(1, 1), spec) is None  # nothing merged
+    assert _finer_diarization(cx(0.85), sheet(3, 1), spec) == 0.75
+    assert _finer_diarization(cx(0.75), sheet(2, 1), spec) is None  # floor 0.7: once only
+    hinted = JobSpec(audio_key="a", source_name="v.mp4", tgt_lang="vi", speakers_hint=6)
+    assert _finer_diarization(cx(0.85), sheet(3), hinted) is None  # the user said how many

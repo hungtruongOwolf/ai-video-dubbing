@@ -4,7 +4,7 @@ Produce:
 
 1. summary: 2-4 sentences: what the video is, the setting, the tone.
 2. glossary: names and recurring terms, with how to render each in the target language. Keep personal names unless the target language has a conventional form.
-3. speakers: for every speaker id in the transcript: name (if said), gender, gender_confidence, age_band, role, speaking style, and the evidence you used.
+3. speakers: for every speaker id in the transcript: name (if said), gender, gender_confidence, age_band, role, speaking style, the evidence you used, and characters: how many different people actually speak under this id. Speaker ids come from an automatic voice clustering that can merge people: count 2 or more when this id's own lines answer each other (a question and its reply in a row), address each other, or clearly belong to different roles (a broker and a nanny). Count only people who speak; people quoted, mentioned or narrated about do not count. Normally 1.
 4. relations: for every pair of speakers who talk to each other, in BOTH directions: the relation, the formality level, and the target-language address terms. self_term is how the speaker refers to themself; other_term is how the speaker addresses the listener. If the relation changes during the video, add another entry with since_ms.
 5. audience: the formality level and the address term to use when someone speaks to the viewers.
 6. mentioned: people who are talked about but do not speak, with gender if known (needed for third-person pronouns).
