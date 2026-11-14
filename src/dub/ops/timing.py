@@ -68,14 +68,24 @@ def count_units(text: str, unit: str) -> int:
     return max(1, sum(_syllables(w) for w in _WORD.findall(text)))
 
 
+def short_factor(n: int, boost: float, short_units: int) -> float:
+    """Length factor of an n-unit line: `boost` up to short_units, fading linearly to 1.0
+    at 2 x short_units (Langpack.short_boost)."""
+    if boost == 1.0 or short_units <= 0 or n >= 2 * short_units:
+        return 1.0
+    if n <= short_units:
+        return boost
+    return boost + (1.0 - boost) * (n - short_units) / short_units
+
+
 def predict_ms(
-    text: str, unit: str, units_per_s: float, base_ms: int = 0, per_unit_ms: int = 0
+    text: str, unit: str, units_per_s: float, boost: float = 1.0, short_units: int = 0
 ) -> int:
-    """Natural length of a line: its units at the average rate, but never under the floor
-    of a short line (base_ms + units * per_unit_ms; see Langpack.short_base_ms)."""
+    """Natural length of a line: its units at the average rate, longer for a short line
+    (M8: 4-6 syllable Vietnamese lines were understood 67% of the time at the average rate,
+    96% at 1.6x; experiments/short_lines.py)."""
     n = count_units(text, unit)
-    linear = round(n / units_per_s * 1000)
-    return max(linear, base_ms + n * per_unit_ms) if (base_ms or per_unit_ms) else linear
+    return round(n / units_per_s * 1000 * short_factor(n, boost, short_units))
 
 
 # ---------------------------------------------------------------- step 1: pick a variant

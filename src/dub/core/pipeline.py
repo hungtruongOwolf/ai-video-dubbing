@@ -528,7 +528,7 @@ async def run_job(
     # translation changes later (forms of address) are voiced again.
     def predict(text: str) -> int:
         return predict_ms(text, tgt_lp.speech_unit, tgt_lp.units_per_s,
-                          tgt_lp.short_base_ms, tgt_lp.short_unit_ms)  # fmt: skip
+                          tgt_lp.short_boost, tgt_lp.short_units)  # fmt: skip
 
     def choose(u: Unit, tr: Translation) -> tuple[str, str, int]:
         if u.id in ue.text:
@@ -572,12 +572,13 @@ async def run_job(
             media_end_ms=media.duration_ms,
         )  # fmt: skip
 
-    def will_rewrite(u: Unit, pred: int) -> bool:
+    def will_rewrite(u: Unit, text: str, pred: int) -> bool:
         """Sure to be rewritten (final): even with all the room around it, too fast. Voicing
         such a line ahead would be wasted."""
         return (
             profile.llm_rewrite
             and not ue.is_protected(u.id)
+            and count_units(text, tgt_lp.speech_unit) > NO_REWRITE_UNITS
             and engine_exact(u)
             and planned_fit(u, pred, None, None).rate > t.rate_p95
         )
@@ -591,7 +592,7 @@ async def run_job(
         async with prefetch_sem:
             try:
                 _variant, text, pred = choose(u, ue.apply_to_translation(tr))
-                if will_rewrite(u, pred) or u.id in ue.original:
+                if will_rewrite(u, text, pred) or u.id in ue.original:
                     return
                 seed = ue.seed.get(u.id, 0)
                 take: SynthRes = await cx.call(
@@ -777,7 +778,11 @@ async def run_job(
             async with sem:
                 # Exact-duration engines: the fit is known before synthesis, so a line that is
                 # too fast is rewritten first and voiced once.
-                if profile.llm_rewrite and not ue.is_protected(u.id) and engine_exact(u):
+                # a line of a few syllables is not shortened: one word less is worse to hear
+                # than a line that runs a little into the pause
+                short = count_units(text, tgt_lp.speech_unit) <= NO_REWRITE_UNITS
+                rewritable = profile.llm_rewrite and not ue.is_protected(u.id) and not short
+                if rewritable and engine_exact(u):
                     while rewrites < profile.max_rewrites:
                         planned = planned_fit(u, pred, prev, nxt)
                         if planned.rate <= t.rate_p95:
@@ -1186,6 +1191,7 @@ CALIB_MAX_PAD_MS = 800
 # Diarization again when the cast sheet finds several people under one speaker id (M8: a
 # TikTok drama of ~6 characters came out as 2 voices at 0.85; 0.75 gave 5).
 REF_CANDIDATES = 3  # reference clips tried per speaker (M8)
+NO_REWRITE_UNITS = 3  # lines this short are never shortened by the LLM (M8)
 REF_TEXT_OK = 0.15  # a clip heard within this CER of its line's text is clean
 DIAR_STEP = 0.1
 DIAR_FLOOR = 0.7

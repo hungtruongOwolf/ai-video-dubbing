@@ -5,6 +5,11 @@ iso639_2: vie
 speech_unit: syllable          # every Vietnamese word is one syllable
 units_per_s: 4.7               # E7: OmniVoice (cross-lingual clone) loses words above ~4.7 syl/s
 joiner: " "
+# M8 (experiments/short_lines.py, 6 voices x 12 lines): lines of 4-6 syllables were understood
+# 67% of the time at the average rate, 96% at 1.6x, 75% at 2x; 2-3 syllables 19% -> 31-33%
+# from 1.3x on. Short lines are planned 1.6x longer, fading to 1x at 12 syllables.
+short_boost: 1.6
+short_units: 6
 segment: {max_unit_s: 15, target_unit_s: 7, min_unit_s: 1.0, hard_pause_s: 1.5}
 subs: {cpl: 42, cps: 17, max_lines: 2}
 # Generic pronouns: wrong when the cast sheet gives kinship terms (ông/cháu, mẹ/con, anh/em...).
