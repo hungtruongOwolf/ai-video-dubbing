@@ -23,7 +23,7 @@ The workers must be up (`uv run dub up`). On the pod (`/workspace/dub`):
 export DUB_EXP_DATA=/workspace/dub/experiments
 cd /workspace/dub/repo
 ../envs/tts/bin/python  experiments/e4_segmentation.py text
-../envs/core/bin/python experiments/e4_segmentation.py speech --threshold 0.25
+../envs/core/bin/python experiments/e4_segmentation.py speech    # then: analyse, anywhere
 ../envs/core/bin/python experiments/tts_rate.py gen
 ../envs/tts/bin/python  experiments/tts_rate.py mos
 ../envs/core/bin/python experiments/tts_rate.py report

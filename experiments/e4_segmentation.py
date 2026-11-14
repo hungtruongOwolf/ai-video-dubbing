@@ -16,7 +16,8 @@ speech (in the pod's `core` env, through the running dubd workers):
 
 Usage (on the pod):
     envs/tts/bin/python experiments/e4_segmentation.py text
-    envs/core/bin/python experiments/e4_segmentation.py speech --threshold 0.25
+    envs/core/bin/python experiments/e4_segmentation.py speech     # collect + analyse
+    python experiments/e4_segmentation.py analyse                  # re-analyse (anywhere)
 """
 
 from __future__ import annotations
@@ -128,12 +129,16 @@ def _seg(lang, words, params, probs, regions):
     return segment(req)
 
 
-def run_speech(threshold: float, langs: list[str]) -> dict:
+def collect_speech(langs: list[str]) -> dict:
+    """Pod step: synthesize, transcribe, get raw SaT probabilities and VAD regions.
+
+    Everything the analysis needs is saved, so thresholds can be explored later anywhere.
+    """
     import os
 
     import numpy as np
 
-    from dub.contracts.v1 import AudioReq, VadReq, Word
+    from dub.contracts.v1 import AudioReq, VadReq
     from dub.core.config import load_config
     from dub.ops import media, vad
     from dub.ops.audio_io import read_wav, write_wav
@@ -145,28 +150,26 @@ def run_speech(threshold: float, langs: list[str]) -> dict:
     )
     cas = ws.cas
     cfg = load_config()
-    results: dict = {}
+    raw: dict = {}
     for lang in langs:
         t0 = time.time()
         docs = [d[:SENTS_PER_DOC] for d in documents(lang) if len(d) >= SENTS_PER_DOC][
             :DOCS_PER_LANG
         ]
         lp = cfg.langpack(lang)
-        per_doc = {"rules": [], "sat": [], "rules_units": [], "sat_units": [], "pause_units": []}
-        onset = {"asr": [], "snapped": []}
+        raw[lang] = []
         for di, doc in enumerate(docs):
             # 1. speech: two sentences per TTS call, chunks joined with a short silence
             parts, truth, pos, sr = [], [], 0, 24000
             for ci in range(0, len(doc), 2):
                 sep = "" if lang in ("zh", "ja") else " "  # Thai separates sentences with a space
-                text = sep.join(doc[ci : ci + 2])
                 res = run_worker(
                     "tts",
                     "omnivoice",
                     "tts.synthesize",
                     {
                         "unit_id": f"e4-{lang}-{di}-{ci}",
-                        "text": text,
+                        "text": sep.join(doc[ci : ci + 2]),
                         "lang": lang,
                         "speaker": "S1",
                     },
@@ -181,19 +184,21 @@ def run_speech(threshold: float, langs: list[str]) -> dict:
             write_wav(tmp, np.concatenate(parts), sr)
             key = cas.put_file(tmp, move=True)
             a16 = media.to_mono16k(AudioReq(audio_key=key), cas)
-            # 2. ASR (the langpack's model), boundaries, VAD
+            # 2. ASR (the langpack's model), raw boundary probabilities, VAD
             tl = run_worker(
                 "asr",
                 ASR_FOR.get(lang, "whisper_large_v3"),
                 "asr.transcribe",
                 {"audio_key": a16.audio_key, "lang": lang},
             )
-            words = [Word.model_validate(w) for w in tl["words"]]
-            words = sorted((w for w in words if w.w.strip()), key=lambda w: (w.start_ms, w.end_ms))
+            words = sorted(
+                (w for w in tl["words"] if w["w"].strip()),
+                key=lambda w: (w["start_ms"], w["end_ms"]),
+            )
             breq = BoundaryReq(
                 lang=lang,
-                words=[w.w for w in words],
-                space_before=[w.space_before for w in words] if not lp.joiner else [],
+                words=[w["w"] for w in words],
+                space_before=[w.get("space_before", False) for w in words] if not lp.joiner else [],
                 joiner=lp.joiner,
             )
             sat_p = run_worker(
@@ -201,40 +206,73 @@ def run_speech(threshold: float, langs: list[str]) -> dict:
                 "sat_12l_sm",
                 "text.boundaries",
                 breq.model_dump(mode="json"),
-                params={"threshold": threshold},
+                params={"threshold": 0.5},  # 0.5 = no calibration: raw model probabilities
             )["probs"]
             speech = vad.speech_regions(VadReq(audio_key=a16.audio_key), cas).regions
-            params = lp.segment_params()
+            raw[lang].append(
+                {
+                    "gold": doc,
+                    "words": words,
+                    "sat": sat_p,
+                    "speech": speech,
+                    "truth": truth,
+                    "audio_key": key,
+                }
+            )
+        print(lang, f"{time.time() - t0:.0f}s", flush=True)
+        save_json(data_dir() / "results" / "e4_speech_raw.json", raw)
+    return raw
 
-            rules = _seg(lang, words, params, rule_probs([w.w for w in words]), speech)
-            sat = _seg(lang, words, params, sat_p, speech)
-            sat_raw = _seg(lang, words, params, sat_p, [])
-            pause = _seg(
-                lang, words, params, [0.0] * len(words), speech
-            )  # no text model: DP on durations and pauses
-            per_doc["rules"].append(boundary_f1([s.text for s in rules.sentences], doc, lang))
-            per_doc["sat"].append(boundary_f1([s.text for s in sat.sentences], doc, lang))
-            for name, sg in (("rules_units", rules), ("sat_units", sat), ("pause_units", pause)):
-                per_doc[name].append(boundary_f1([u.text for u in sg.units], doc, lang))
-            # 3. onset error of the unit that starts each chunk
-            for t in truth:
-                near = [u for u in sat_raw.units if abs(u.start_ms - t) < 1000]
+
+def analyse_speech(raw: dict, thresholds: list[float]) -> dict:
+    """F1 of the pipeline's segmenter on the collected speech, for several SaT thresholds."""
+    from dub.contracts.v1 import Word
+    from dub.core.config import load_config
+    from dub.providers.boundaries_sat import calibrate
+
+    cfg = load_config()
+    results: dict = {}
+    for lang, docs in raw.items():
+        params = cfg.langpack(lang).segment_params()
+        acc: dict = {"rules": [], "rules_units": [], "pause_units": []}
+        onset: dict = {"asr": [], "snapped": []}
+        for d in docs:
+            words = [Word.model_validate(w) for w in d["words"]]
+            gold = d["gold"]
+            rules = _seg(lang, words, params, rule_probs([w.w for w in words]), d["speech"])
+            pause = _seg(lang, words, params, [0.0] * len(words), d["speech"])
+            acc["rules"].append(boundary_f1([s.text for s in rules.sentences], gold, lang))
+            acc["rules_units"].append(boundary_f1([u.text for u in rules.units], gold, lang))
+            acc["pause_units"].append(boundary_f1([u.text for u in pause.units], gold, lang))
+            for t in thresholds:
+                probs = [calibrate(p, t) for p in d["sat"]]
+                sat = _seg(lang, words, params, probs, d["speech"])
+                acc.setdefault(f"sat@{t}", []).append(
+                    boundary_f1([s.text for s in sat.sentences], gold, lang)
+                )
+                acc.setdefault(f"sat_units@{t}", []).append(
+                    boundary_f1([u.text for u in sat.units], gold, lang)
+                )
+            # onset error of the unit that starts each synthesized chunk (known true onset)
+            unsnapped = _seg(lang, words, params, rule_probs([w.w for w in words]), [])
+            by_id = {u.id: u for u in rules.units}
+            for truth in d["truth"]:
+                near = [u for u in unsnapped.units if abs(u.start_ms - truth) < 1000]
                 if not near:
                     continue
-                u = min(near, key=lambda u: abs(u.start_ms - t))
-                snapped = next(x for x in sat.units if x.id == u.id)
-                onset["asr"].append(abs(u.start_ms - t))
-                onset["snapped"].append(abs(snapped.start_ms + 30 - t))  # 30 ms = snap pad
-        out = {k: micro(v).as_dict() for k, v in per_doc.items()}
+                u = min(near, key=lambda u: abs(u.start_ms - truth))
+                onset["asr"].append(abs(u.start_ms - truth))
+                onset["snapped"].append(abs(by_id[u.id].start_ms + 30 - truth))  # 30 ms pad
+        out = {k: micro(v).as_dict() for k, v in acc.items()}
         for k, v in onset.items():
             if v:
                 v = sorted(v)
                 out[f"onset_{k}_ms"] = {
                     "p50": statistics.median(v),
                     "p95": v[min(len(v) - 1, round(0.95 * (len(v) - 1)))],
+                    "max": v[-1],
                     "n": len(v),
                 }
-        out["seconds"] = round(time.time() - t0)
         results[lang] = out
         print(lang, out, flush=True)
     return results
@@ -242,16 +280,23 @@ def run_speech(threshold: float, langs: list[str]) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("arm", choices=["text", "speech"])
+    ap.add_argument("arm", choices=["text", "speech", "analyse"])
     ap.add_argument("--models", default="sat-3l-sm,sat-12l-sm")
-    ap.add_argument("--threshold", type=float, default=0.25)
+    ap.add_argument("--thresholds", default="0.1,0.15,0.2,0.25,0.3,0.4,0.5")
     ap.add_argument("--langs", default=",".join(LANGS))
     a = ap.parse_args()
     out = data_dir() / "results"
     if a.arm == "text":
         save_json(out / "e4_text.json", run_text(a.models.split(",")))
     else:
-        save_json(out / "e4_speech.json", run_speech(a.threshold, a.langs.split(",")))
+        if a.arm == "speech":
+            raw = collect_speech(a.langs.split(","))
+        else:
+            import json
+
+            raw = json.loads((out / "e4_speech_raw.json").read_text(encoding="utf-8"))
+        ths = [float(x) for x in a.thresholds.split(",")]
+        save_json(out / "e4_speech.json", analyse_speech(raw, ths))
 
 
 if __name__ == "__main__":
