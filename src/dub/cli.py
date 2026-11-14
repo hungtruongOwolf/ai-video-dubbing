@@ -143,6 +143,11 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--remote", action="store_true", help="on the GPU pod's network volume")
     g.add_argument("--min-age-min", type=float, default=60, help="keep newer files (default 60)")
     g.add_argument("--dry-run", action="store_true", help="only count")
+    g.add_argument(
+        "--older-than-hours", type=float, default=None,
+        help="also forget audio results stored more than N hours ago (transcripts and "
+        "translations stay), freeing their files",
+    )  # fmt: skip
     _common(g)
 
     b = sub.add_parser("bench", help="measure a job: segmentation F1, or where the time goes")
@@ -427,13 +432,17 @@ def cmd_gc(a) -> int:
         if state is None:
             print("no pod is running (dub up first)", file=sys.stderr)
             return 2
-        rep = remote.Dubd(state.url, state.token).gc(a.min_age_min * 60, a.dry_run)
+        evict = a.older_than_hours * 3600 if a.older_than_hours is not None else None
+        rep = remote.Dubd(state.url, state.token).gc(a.min_age_min * 60, a.dry_run, evict)
     else:
         from dub.store.gc import collect
 
+        evict = a.older_than_hours * 3600 if a.older_than_hours is not None else None
         rep = collect(Workspace.open(a.workspace), min_age_s=a.min_age_min * 60,
-                      dry_run=a.dry_run).as_dict()  # fmt: skip
+                      dry_run=a.dry_run, evict_older_than_s=evict).as_dict()  # fmt: skip
     verb = "would free" if a.dry_run else "freed"
+    if rep.get("evicted"):
+        print(f"forgot {rep['evicted']} stored audio results")
     print(f"{verb} {rep['freed_mb']} MB: {rep['deleted']} files deleted, {rep['kept']} kept, "
           f"{rep['tmp_deleted']} temp files")  # fmt: skip
     for e in rep["errors"]:

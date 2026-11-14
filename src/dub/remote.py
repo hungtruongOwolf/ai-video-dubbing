@@ -269,10 +269,14 @@ class Dubd:
     def submit(self, body: dict[str, Any]) -> str:
         return self._json("POST", "/jobs", body)["job_id"]
 
-    def gc(self, min_age_s: float = 600, dry_run: bool = False) -> dict[str, Any]:
+    def gc(
+        self, min_age_s: float = 600, dry_run: bool = False, evict_older_than_s: float | None = None
+    ) -> dict[str, Any]:
         """Delete unreferenced files from the pod's CAS (network volume quota). The pod sweeps
         in the background; this polls until it is done."""
-        state = self._json("POST", "/gc", {"min_age_s": min_age_s, "dry_run": dry_run}, 60)
+        body = {"min_age_s": min_age_s, "dry_run": dry_run}
+        body["evict_older_than_s"] = evict_older_than_s
+        state = self._json("POST", "/gc", body, 60)
         while state.get("status") == "running":
             time.sleep(5)
             state = self._json("GET", "/gc", timeout=60)

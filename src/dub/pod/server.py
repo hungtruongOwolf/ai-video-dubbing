@@ -418,13 +418,15 @@ def make_handler(srv: DubServer):
                     # A big CAS takes minutes to sweep, longer than the proxy keeps a request
                     # open: run it in the background and let the laptop poll GET /gc.
                     min_age, dry = float(body.get("min_age_s", 600)), bool(body.get("dry_run"))
+                    evict_s = body.get("evict_older_than_s")
                     srv.gc_state = {"status": "running"}
 
                     def sweep() -> None:
                         from dub.store.gc import collect
 
                         try:
-                            rep = collect(srv.ws, min_age_s=min_age, dry_run=dry)
+                            rep = collect(srv.ws, min_age_s=min_age, dry_run=dry,
+                                          evict_older_than_s=evict_s)  # fmt: skip
                             srv.gc_state = {"status": "done", "report": rep.as_dict()}
                         except Exception as e:  # noqa: BLE001 - reported to the poller
                             srv.gc_state = {"status": "error", "error": str(e)}

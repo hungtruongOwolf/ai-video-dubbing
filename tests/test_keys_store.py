@@ -98,3 +98,23 @@ def test_gc_deletes_only_unreferenced_old_files(tmp_path):
     rep = collect(ws, min_age_s=3600)
     assert rep.deleted == 1 and rep.freed_bytes == 4
     assert ws.cas.exists(used) and ws.cas.exists(fresh) and not ws.cas.exists(junk)
+
+
+def test_eviction_forgets_old_audio_results_but_keeps_text_results(tmp_path):
+    import os
+    import time
+
+    from dub.store import Workspace
+    from dub.store.gc import collect
+
+    ws = Workspace.open(tmp_path / "ws")
+    wav = ws.cas.put_bytes(b"RIFF....", ".wav")
+    ws.memo.put("a" * 64, {"op": "audio.separate", "result": {"vocals_key": wav}})
+    ws.memo.put("b" * 64, {"op": "mt.translate", "result": {"items": [{"target": "xin chào"}]}})
+    old = time.time() - 3 * 3600
+    for p in ws.memo.root.glob("*/*.json"):
+        os.utime(p, (old, old))
+    os.utime(ws.cas.path(wav), (old, old))
+    rep = collect(ws, min_age_s=0, evict_older_than_s=2 * 3600)
+    assert rep.evicted == 1 and rep.deleted == 1 and not ws.cas.exists(wav)
+    assert ws.memo.get("a" * 64) is None and ws.memo.get("b" * 64) is not None
