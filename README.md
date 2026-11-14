@@ -90,7 +90,8 @@ Speech is still faked, but the context pass (summary, glossary, cast sheet) and 
 | `dub up` / `dub down` / `dub status` | Rent, terminate and inspect the GPU pod |
 | `dub review VIDEO --to LANG [--remote]` | Review page: listen, fix lines, render, export |
 | `dub edit VIDEO --to LANG ACTION ...` | Record an edit from the terminal (text, regen, speaker, nudge, split, merge, lock, undo) |
-| `dub bench seg JOB --golden FILE` | Sentence-boundary F1 of a job against the sentences really spoken (one per line) |
+| `dub bench seg VIDEO --golden FILE --remote` | Analyse a video (no dubbing) and score its sentence boundaries against the sentences really spoken |
+| `dub gc [--remote]` | Delete cache files no stored result points to (frees laptop or volume space) |
 | `dub doctor` | Show which providers can run on this machine and the route matrix |
 | `dub schema` | Export the `/v1` data contracts as JSON Schema |
 | `dub jobs` | List jobs in the workspace |

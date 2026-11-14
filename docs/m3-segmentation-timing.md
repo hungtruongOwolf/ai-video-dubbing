@@ -75,6 +75,50 @@ labelled real videos): on read news, English, Spanish, and Vietnamese/Chinese te
 punctuation reach them; Japanese is close; Thai, unpunctuated Vietnamese and Chinese speech do
 not. The real-video check needs your own labelled videos: `dub bench seg` (below).
 
+### Real videos
+
+11 videos from Wikimedia Commons (public domain or free licences) with human subtitles in the
+spoken language, first ~5 minutes each, 334 reference sentence boundaries (`experiments/real_videos.py`).
+References come from the punctuated subtitles (en, es, vi, one zh narration); for the
+Chinese/Japanese videos whose subtitles have no punctuation, the assistant placed the sentence
+ends on the human transcript (silver labels, `experiments/golden/`). The pipeline runs phase A
+only (`dub bench seg VIDEO --golden FILE --remote`).
+
+| Video | Kind | F1 (±1 word) | P | R | ours / ref |
+|---|---|---|---|---|---|
+| en Obama weekly address 2016 | address | 0.828 | 0.774 | 0.889 | 31 / 27 |
+| en Obama weekly address 2009 | address | 0.892 | 0.806 | 1.000 | 36 / 29 |
+| en Kennedy at Rice University | speech, crowd | 0.808 | 0.700 | 0.955 | 30 / 22 |
+| es Maduro | spontaneous | 0.778 | 0.875 | 0.700 | 16 / 20 |
+| es Wikipedia tutorial | tutorial | 0.889 | 0.923 | 0.857 | 13 / 14 |
+| vi Hồ Chí Minh, Proclamation of Independence | 1945 recording | 0.766 | 0.735 | 0.800 | 49 / 45 |
+| vi Phổ Lại pagoda | documentary | 0.627 | 0.618 | 0.636 | 34 / 33 |
+| zh vivo & MediaTek interview (silver) | interview | 0.718 | 0.903 | 0.596 | 31 / 47 |
+| zh polio (WikiProjectMed) | narration | 0.830 | 0.846 | 0.815 | 26 / 27 |
+| ja Digital Agency talk (silver) | conversation | 0.767 | 0.933 | 0.651 | 30 / 43 |
+| ja Mynaportal (silver) | documentary | 0.863 | 0.917 | 0.815 | 24 / 27 |
+
+Per language (all boundaries pooled): en 0.846, es 0.825, ja 0.806, zh 0.763, vi 0.708. No
+unit was longer than 15 s (longest 14.8 s).
+
+What the errors are, from reading them:
+- **English over-splits** (precision 0.76): Whisper writes a full stop at many rhetorical
+  pauses, and the Kennedy subtitles follow the prepared text, so his ad-libbed sentences
+  count as extra boundaries. For dubbing, an extra cut at a real pause is mostly harmless.
+- **Chinese and Japanese conversation under-split** (recall 0.60–0.65): Whisper writes no
+  punctuation at all there, and SaT leaves long unpunctuated stretches together. Units are
+  still capped at 15 s by the DP.
+- **Vietnamese** (0.71): PhoWhisper writes no punctuation, reads numbers out, drops phrases,
+  and sometimes glues a full stop to the next word.
+- Some references are themselves noisy (the Maduro subtitles misspell words the ASR got
+  right).
+
+Two fixes came out of this, and are in the numbers above:
+- a sentence now continues across a long pause (units are still cut there): Kennedy waiting
+  for applause had ended sentences mid-way (0.778 → 0.808);
+- punctuation an ASR glued to the start of the next word moves back ("toan .đặc" →
+  "toan. đặc"): the Phổ Lại documentary went 0.531 → 0.627, the 1945 recording 0.717 → 0.766.
+
 ## Slot onsets (timing)
 
 A test clip with known line onsets (two Windows SAPI voices with a music bed, 10 lines; the
@@ -193,7 +237,7 @@ between lines and between cues is checked.
 | no unit longer than 15 s | yes: by construction (DP), and 0 in every run |
 | onset error p95 ≤ 150 ms | yes on the test clip (10 ms) and for en/es/vi/zh speech (≤ 150 ms); **no** for some Japanese and Thai chunks (p95 ~0.5 s) |
 | speed-up p95 ≤ 1.15 | final profile 1.08; draft 1.15 (no rewrites in drafts) |
-| segmentation F1 (design: ≥ 0.92 talks, ≥ 0.85 conversation, on hand-labelled real video) | read news: en/es ≥ 0.92 on speech; vi/zh/th below on speech (see E4); real videos still to be labelled (`dub bench seg`) |
+| segmentation F1 (design: ≥ 0.92 talks, ≥ 0.85 conversation, on labelled real video) | **not met**: real videos en 0.85, es 0.83, ja 0.81, zh 0.76, vi 0.71 (11 videos, above); read news en/es ≥ 0.92 on speech |
 | Thai line breaks: 0 errors | yes (0 of 5363 breaks inside a word or cluster) |
 
 Not done in M3, and why:
@@ -206,15 +250,30 @@ Not done in M3, and why:
   the remaining errors are mostly ASR errors (dropped phrases, numbers read out).
 - 60-minute measurements (throughput, re-export) stay with the M5 benchmark.
 
-Cost of the M3 pod session: ~62 minutes of an RTX 4090 at $0.89/h ≈ $0.92.
+Cost: the M3 experiment session $0.68 (Runpod billing); the real-video benchmark ~40 more
+minutes (~$0.6, three short sessions, two of them cut short by the volume quota below).
+
+## The 50 GB volume
+
+The benchmark ran the volume out of quota twice. Measured: 35.0 GB of data (`du`), but
+52.1 GB when every hardlink is counted, and Runpod's quota counts it that way. The uv cache
+on the volume was hardlinked into every venv, so it doubled every install. Fixes:
+- the uv cache now lives on the container disk and packages are copied into the venvs
+  (`pod/setup_env.sh`): the volume dropped to 38.4 GB;
+- `dub gc [--remote]` deletes CAS files that no stored result points to (experiment outputs,
+  replaced intermediates); it freed 0.8 GB here;
+- a 5-minute video still leaves ~190 MB of WAVs on the volume (48 kHz stereo audio, both
+  stems). Evicting old intermediates is an M5 item.
 
 ## Running it yourself
 
 ```bash
 uv run dub run video.mp4 --to vi --from en --remote
 # report.md, "Sync and quality": onset error, speed-up, unit lengths, back-check CER, drift
-uv run dub bench seg dub-workspace/jobs/<job> --golden video.sentences.txt
+uv run dub bench seg video.mp4 --golden video.sentences.txt --from en --remote
+uv run dub gc --remote          # free volume space
 ```
 
-`--golden`: the sentences actually spoken in the video, one per line, in the source language.
-The command prints precision, recall and F1 of the job's sentence boundaries (±0 and ±1 word).
+`dub bench seg` analyses the video without dubbing it (phase A only) and prints precision,
+recall and F1 of the sentence boundaries against `--golden`, the sentences really spoken
+(one per line).

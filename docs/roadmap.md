@@ -134,7 +134,7 @@ First boot on an empty volume, from pod creation to all workers ready: about 5 m
 | Onset error p95 ≤ 150 ms | test clip with known onsets: 10 ms (was 494 ms); E4 speech: en 150, es 30, vi 10, zh 20 ms; **ja/th ~0.5 s** on a few chunks |
 | Speed-up p95 ≤ 1.15 | final 1.08; draft 1.15 |
 | Thai line breaks: 0 errors | yes (M0 broke inside a word at 78% of its breaks) |
-| Segmentation F1 ≥ 0.92 (talks) | speech: en 0.92, es 0.93, ja 0.87–0.90, th 0.71, zh 0.78, vi 0.63; text with punctuation 0.93–0.99 except th 0.85. Real-video labels still to do |
+| Segmentation F1 ≥ 0.92 (talks) | **not met** on 11 real videos: en 0.85, es 0.83, ja 0.81, zh 0.76, vi 0.71 (read news on speech: en 0.92, es 0.93) |
 
 **Changed from the original plan:**
 - SaT runs in the `tts` env: the 50 GB volume could not hold a third copy of torch.
@@ -143,6 +143,7 @@ First boot on an empty volume, from pod creation to all workers ready: about 5 m
 - E6 (ASR per source language) moved to M4; an LLM arm for E4 was not run.
 - Edit → render p50 went from 2.3 s to 3.3 s: the back-check and subtitle timing of the edited
   line (`backcheck: false` to skip).
+- The volume quota counts hardlinks: the uv cache moved to the container disk; `dub gc` added.
 
 Details: [m3-segmentation-timing.md](m3-segmentation-timing.md).
 
