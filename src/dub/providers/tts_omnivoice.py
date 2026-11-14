@@ -41,6 +41,12 @@ class OmniVoiceTTS:
             kwargs["revision"] = p["revision"]
         self.model = OmniVoice.from_pretrained(p.get("model", "k2-fsa/OmniVoice"), **kwargs)
         self.accepts = set(inspect.signature(self.model.generate).parameters)
+        # One tiny generation so CUDA kernels are compiled and cached now, not on the first
+        # line a user edits (that first call was ~3 s slower).
+        try:
+            self.model.generate(text="Hello.", num_step=4, duration=0.5)
+        except Exception as e:  # noqa: BLE001 - warm-up is best effort
+            ctx.log(f"warm-up skipped: {e}")
 
     def _prompt(self, ctx: RunCtx, voice_key: str | None, voice_text: str | None) -> Any:
         if not voice_key:
