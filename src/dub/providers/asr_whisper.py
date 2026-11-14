@@ -185,3 +185,95 @@ class FasterWhisperASR:
             for j, i in enumerate(idx):
                 out[i] = WordTimeline(lang=lang or info.language, words=per[j])
         return [o for o in out if o is not None]
+
+
+# ---------------------------------------------------------------- punctuation transfer
+
+SENTENCE_MARKS = ".?!"
+
+
+def transfer_punct(words: list[Word], donor: list[Word], window_ms: int = 60_000,
+                   margin_ms: int = 5_000) -> list[Word]:  # fmt: skip
+    """Copy the sentence-final punctuation of `donor` (an ASR that punctuates, e.g. Whisper)
+    onto `words` (an ASR that does not, e.g. PhoWhisper), where the two agree on the text.
+
+    Characters are matched with case and diacritics folded, window by window along the
+    timeline (both sides have word times), so a long video stays linear. A mark moves only
+    when the donor word's last character matches the last character of one of our words:
+    where the two ASRs heard different words (numbers as digits vs as words, an invented
+    phrase), nothing moves.
+    """
+    import difflib
+
+    from dub.ops.align import _norm_chars
+
+    out = [w.model_copy() for w in words]
+    if not words or not donor:
+        return out
+    end = max(words[-1].end_ms, donor[-1].end_ms)
+    for ws in range(0, end + 1, window_ms):
+        we = ws + window_ms
+        tgt: list[str] = []
+        owner: list[int] = []
+        for i, w in enumerate(words):
+            if ws - margin_ms <= w.start_ms < we + margin_ms:
+                for _, c in _norm_chars(w.w, strip_marks=True):
+                    tgt.append(c)
+                    owner.append(i)
+        src: list[str] = []
+        marks: dict[int, str] = {}
+        for w in donor:
+            if not ws <= w.start_ms < we:
+                continue
+            chars = [c for _, c in _norm_chars(w.w, strip_marks=True)]
+            if not chars:
+                continue
+            src.extend(chars)
+            last = w.w.strip()[-1:]
+            if last in SENTENCE_MARKS:
+                marks[len(src) - 1] = last
+        if not marks or not tgt:
+            continue
+        sm = difflib.SequenceMatcher(None, src, tgt, autojunk=False)
+        s2t = {a + k: b + k for a, b, n in sm.get_matching_blocks() for k in range(n)}
+        for si, mark in marks.items():
+            ti = s2t.get(si)
+            if ti is None:
+                continue
+            wi = owner[ti]
+            if ti + 1 < len(owner) and owner[ti + 1] == wi:
+                continue  # not the end of our word: the two ASRs split the words differently
+            if out[wi].w[-1:] not in SENTENCE_MARKS + "…":
+                out[wi] = out[wi].model_copy(update={"w": out[wi].w + mark})
+    return out
+
+
+class PunctTransferASR:
+    """Words and times from one model, sentence punctuation from another (M7 experiment).
+
+    PhoWhisper hears Vietnamese best but writes no punctuation, and SaT then has to guess
+    sentence ends from bare words (E4: Vietnamese F1 0.711 unpunctuated, 0.987 punctuated).
+    Whisper large-v3 punctuates but mishears more, and sometimes invents sentences; its
+    punctuation is only transferred where both heard the same words.
+    """
+
+    def __init__(self, manifest: ProviderManifest):
+        self.manifest = manifest
+        self.words_asr = FasterWhisperASR(manifest)
+        self.punct_asr = FasterWhisperASR(manifest)
+
+    def _ctx(self, ctx: RunCtx, prefix: str) -> RunCtx:
+        import dataclasses
+
+        p = ctx.params
+        params = {k: v for k, v in p.items() if not k.startswith("punct_")}
+        if prefix:
+            params.update({k[len(prefix) :]: v for k, v in p.items() if k.startswith(prefix)})
+        return dataclasses.replace(ctx, params=params)
+
+    def run(self, op: str, req: TranscribeReq, ctx: RunCtx) -> WordTimeline:
+        heard = self.words_asr.run(op, req, self._ctx(ctx, ""))
+        if op != "asr.transcribe":
+            return heard  # back-checks only need the words
+        donor = self.punct_asr.run(op, req, self._ctx(ctx, "punct_"))
+        return WordTimeline(lang=heard.lang, words=transfer_punct(heard.words, donor.words))

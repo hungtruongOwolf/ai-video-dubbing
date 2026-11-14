@@ -186,7 +186,12 @@ def fetch() -> None:
     save_json(root / "index.json", index)
 
 
-def run(params: list[str] | None = None, tag: str = "", use: list[str] | None = None) -> None:
+def run(
+    params: list[str] | None = None,
+    tag: str = "",
+    use: list[str] | None = None,
+    only: list[str] | None = None,
+) -> None:
     """Score every video; `params` (--param overrides) and `tag` compare a variant, e.g.
     batched Whisper: run --param whisper_large_v3.batch_size=16 --tag batched."""
     from dub.cli import main as dub
@@ -195,6 +200,8 @@ def run(params: list[str] | None = None, tag: str = "", use: list[str] | None = 
     index = json.loads((root / "index.json").read_text(encoding="utf-8"))
     results = {}
     for vid, v in index.items():
+        if only and vid not in only and v["lang"] not in only:
+            continue
         if not Path(v["golden"]).exists():
             print(vid, "no reference sentences yet, skipped")
             continue
@@ -220,11 +227,12 @@ def main() -> None:
     ap.add_argument("--param", action="append", default=[], help="PROVIDER.KEY=VALUE")
     ap.add_argument("--tag", default="", help="suffix of the score files of a variant")
     ap.add_argument("--use", action="append", default=[], help="OP=PROVIDER")
+    ap.add_argument("--only", default="", help="comma-separated video ids or languages")
     a = ap.parse_args()
     if a.step == "fetch":
         fetch()
     else:
-        run(a.param, a.tag, a.use)
+        run(a.param, a.tag, a.use, [x for x in a.only.split(",") if x])
 
 
 if __name__ == "__main__":

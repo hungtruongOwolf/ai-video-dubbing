@@ -1,0 +1,23 @@
+# Vietnamese: PhoWhisper's words and times + Whisper large-v3's sentence punctuation where both
+# heard the same words (experiment: PhoWhisper writes no punctuation, SaT then guesses).
+id: phowhisper_punct
+op: [asr.transcribe, asr.backcheck]
+runtime: http
+env: asr
+impl: dub.providers.asr_whisper:PunctTransferASR
+impl_version: "1"
+status: candidate
+preload: false
+weights: {hf: kiendt/PhoWhisper-large-ct2, revision: abceb098c94235c16414dda9e1aada82ebcf6288}
+params:
+  model: kiendt/PhoWhisper-large-ct2
+  revision: abceb098c94235c16414dda9e1aada82ebcf6288
+  language: vi
+  compute_type: float16
+  beam_size: 5
+  punct_model: Systran/faster-whisper-large-v3
+  punct_revision: edaa852ec7e145841d8ffdb056a99866b5f0a478
+caps: {langs: [vi]}
+limits: {max_concurrency: 32, max_batch: 16}
+license: MIT (conversions); PhoWhisper BSD-3-Clause; Whisper MIT
+description: PhoWhisper words with Whisper's sentence punctuation transferred by character alignment.
