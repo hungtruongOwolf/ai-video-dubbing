@@ -99,6 +99,11 @@ class Langpack(Cfg):
     speech_unit: Literal["syllable", "char", "word"] = "syllable"
     units_per_s: float = 4.5  # average speaking rate (estimate; E7 in M3 measures it)
     joiner: str = " "  # "" for zh/ja/th
+    # M8: a short line takes longer than its units at the average rate (the onset, the
+    # lengthened last syllable). Planned length: max(units / units_per_s,
+    # short_base_ms + units * short_unit_ms). 0 = linear only.
+    short_base_ms: int = 0
+    short_unit_ms: int = 0
     segment: SegmentCfg = Field(default_factory=SegmentCfg)
     subs: SubsCfg = Field(default_factory=SubsCfg)
     chains: dict[str, list[str]] = Field(default_factory=dict)  # op -> preferred providers

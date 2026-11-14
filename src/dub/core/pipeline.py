@@ -527,7 +527,8 @@ async def run_job(
     # pass below makes exactly the same calls, so it finds them in the cache; only lines whose
     # translation changes later (forms of address) are voiced again.
     def predict(text: str) -> int:
-        return predict_ms(text, tgt_lp.speech_unit, tgt_lp.units_per_s)
+        return predict_ms(text, tgt_lp.speech_unit, tgt_lp.units_per_s,
+                          tgt_lp.short_base_ms, tgt_lp.short_unit_ms)  # fmt: skip
 
     def choose(u: Unit, tr: Translation) -> tuple[str, str, int]:
         if u.id in ue.text:

@@ -68,8 +68,14 @@ def count_units(text: str, unit: str) -> int:
     return max(1, sum(_syllables(w) for w in _WORD.findall(text)))
 
 
-def predict_ms(text: str, unit: str, units_per_s: float) -> int:
-    return round(count_units(text, unit) / units_per_s * 1000)
+def predict_ms(
+    text: str, unit: str, units_per_s: float, base_ms: int = 0, per_unit_ms: int = 0
+) -> int:
+    """Natural length of a line: its units at the average rate, but never under the floor
+    of a short line (base_ms + units * per_unit_ms; see Langpack.short_base_ms)."""
+    n = count_units(text, unit)
+    linear = round(n / units_per_s * 1000)
+    return max(linear, base_ms + n * per_unit_ms) if (base_ms or per_unit_ms) else linear
 
 
 # ---------------------------------------------------------------- step 1: pick a variant

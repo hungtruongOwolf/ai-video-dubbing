@@ -130,3 +130,12 @@ def test_strict_mode_halves_limits():
         slot_start=1000, slot_end=3000, natural_ms=2400, clip_ms=2400, prev=far(), next_=None, t=s
     )
     assert f.room_after_ms == T.late_end_ms // 2
+
+
+def test_short_lines_get_a_floor_long_lines_stay_linear():
+    from dub.ops.timing import predict_ms
+
+    assert predict_ms("Trai.", "syllable", 4.7) == 213
+    assert predict_ms("Trai.", "syllable", 4.7, 300, 150) == 450  # 300 + 1 x 150
+    long = "Hôm nay trời rất đẹp, chúng ta cùng đi dạo nhé."  # 11 syllables
+    assert predict_ms(long, "syllable", 4.7, 300, 150) == predict_ms(long, "syllable", 4.7)
