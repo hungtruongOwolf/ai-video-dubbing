@@ -394,6 +394,14 @@ def make_handler(srv: DubServer):
                     return self._mp3(data)
                 if parts == ["jobs"]:
                     return self._json(200, {"job_id": srv.jobs.submit(body)})
+                if parts == ["gc"]:
+                    if srv.jobs.running():
+                        return self._json(409, {"error": "a job is running; try again later"})
+                    from dub.store.gc import collect
+
+                    rep = collect(srv.ws, min_age_s=float(body.get("min_age_s", 600)),
+                                  dry_run=bool(body.get("dry_run")))  # fmt: skip
+                    return self._json(200, rep.as_dict())
             except (KeyError, ValueError) as e:
                 return self._json(400, {"error": str(e)})
             self._json(404, {"error": f"no route {self.path}"})

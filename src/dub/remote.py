@@ -268,6 +268,10 @@ class Dubd:
     def submit(self, body: dict[str, Any]) -> str:
         return self._json("POST", "/jobs", body)["job_id"]
 
+    def gc(self, min_age_s: float = 600, dry_run: bool = False) -> dict[str, Any]:
+        """Delete unreferenced files from the pod's CAS (network volume quota)."""
+        return self._json("POST", "/gc", {"min_age_s": min_age_s, "dry_run": dry_run}, 1800)
+
     def job(self, job_id: str, wait: float = 0, seen: int = 0, bundle: bool = False) -> dict:
         q = f"?wait={wait}&seen={seen}&bundle={int(bundle)}" if wait else ""
         return self._json("GET", f"/jobs/{job_id}{q}", timeout=wait + 30)

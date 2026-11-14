@@ -37,6 +37,7 @@ from dub.core.provider_api import ProviderError
 from dub.core.router import Router
 from dub.core.trace import Tracer
 from dub.store import Workspace
+from dub.store.gc import cas_keys
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -86,21 +87,6 @@ def _impl_version(m: ProviderManifest) -> str:
     return m.impl_version
 
 
-def _cas_keys(obj: Any) -> list[str]:
-    """All CAS keys referenced by a result (fields named *_key)."""
-    out: list[str] = []
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if k.endswith("_key") and isinstance(v, str) and v:
-                out.append(v)
-            else:
-                out.extend(_cas_keys(v))
-    elif isinstance(obj, list):
-        for v in obj:
-            out.extend(_cas_keys(v))
-    return out
-
-
 class Ctx:
     def __init__(
         self,
@@ -140,7 +126,7 @@ class Ctx:
         cached = self.ws.memo.get(key)
         if cached is None:
             return None
-        if not all(self.ws.cas.exists(k) for k in _cas_keys(cached.get("result"))):
+        if not all(self.ws.cas.exists(k) for k in cas_keys(cached.get("result"))):
             return None  # a referenced file was deleted: recompute
         return cached
 

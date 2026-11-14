@@ -11,6 +11,7 @@ dub review VIDEO --to vi         review page: listen to risky lines, fix them, r
 dub doctor                       show which providers can run here and the route matrix
 dub schema                       export the /v1 data contracts as JSON Schema
 dub jobs                         list jobs in the workspace
+dub gc [--remote]                delete cache files no result points to (frees disk)
 dub bench seg VIDEO --golden FILE --remote
                                  analyse a video (no dubbing) and score its sentence
                                  boundaries against the sentences really spoken
@@ -122,6 +123,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     j = sub.add_parser("jobs", help="list jobs in the workspace")
     _common(j)
+
+    g = sub.add_parser("gc", help="delete cache files that no stored result points to")
+    g.add_argument("--remote", action="store_true", help="on the GPU pod's network volume")
+    g.add_argument("--min-age-min", type=float, default=60, help="keep newer files (default 60)")
+    g.add_argument("--dry-run", action="store_true", help="only count")
+    _common(g)
 
     b = sub.add_parser("bench", help="measure a job against a reference")
     b.add_argument("what", choices=["seg"], help="seg: sentence segmentation F1")
@@ -309,6 +316,28 @@ def cmd_schema(a) -> int:
     return 0
 
 
+def cmd_gc(a) -> int:
+    if a.remote:
+        from dub import remote
+
+        state = remote.PodState.load(a.workspace)
+        if state is None:
+            print("no pod is running (dub up first)", file=sys.stderr)
+            return 2
+        rep = remote.Dubd(state.url, state.token).gc(a.min_age_min * 60, a.dry_run)
+    else:
+        from dub.store.gc import collect
+
+        rep = collect(Workspace.open(a.workspace), min_age_s=a.min_age_min * 60,
+                      dry_run=a.dry_run).as_dict()  # fmt: skip
+    verb = "would free" if a.dry_run else "freed"
+    print(f"{verb} {rep['freed_mb']} MB: {rep['deleted']} files deleted, {rep['kept']} kept, "
+          f"{rep['tmp_deleted']} temp files")  # fmt: skip
+    for e in rep["errors"]:
+        print("  error:", e)
+    return 0
+
+
 def cmd_bench(a) -> int:
     from dub.bench.seg import boundary_f1
 
@@ -370,6 +399,7 @@ def main(argv: list[str] | None = None) -> int:
         "schema": cmd_schema,
         "jobs": cmd_jobs,
         "bench": cmd_bench,
+        "gc": cmd_gc,
     }[a.cmd]
     return handler(a)
 

@@ -77,3 +77,24 @@ def test_new_default_fields_keep_old_keys():
 
     assert canonical_json(V1(a=1)) == canonical_json(V2(a=1))
     assert canonical_json(V2(a=1)) != canonical_json(V2(a=1, b=["x"]))
+
+
+def test_gc_deletes_only_unreferenced_old_files(tmp_path):
+    import os
+    import time
+
+    from dub.store import Workspace
+    from dub.store.gc import collect
+
+    ws = Workspace.open(tmp_path / "ws")
+    used = ws.cas.put_text("used", ".txt")
+    junk = ws.cas.put_text("junk", ".txt")
+    fresh = ws.cas.put_text("fresh junk", ".txt")
+    ws.memo.put("k1", {"op": "x", "result": {"nested": [{"audio_key": used}]}})
+    old = time.time() - 7200
+    for k in (used, junk):
+        os.utime(ws.cas.path(k), (old, old))
+    assert collect(ws, dry_run=True).deleted == 1 and ws.cas.exists(junk)
+    rep = collect(ws, min_age_s=3600)
+    assert rep.deleted == 1 and rep.freed_bytes == 4
+    assert ws.cas.exists(used) and ws.cas.exists(fresh) and not ws.cas.exists(junk)
