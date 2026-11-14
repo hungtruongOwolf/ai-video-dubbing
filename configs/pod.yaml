@@ -10,3 +10,4 @@ volume_id: null         # network volume holding envs, weights and the cache
 data_center: null       # must be the volume's data center
 repo: https://github.com/hungtruongOwolf/ai-video-dubbing.git
 claude_secret: claude_code_oauth_token   # Runpod secret with a `claude setup-token` token
+mps: false              # M6 experiment: CUDA MPS for the GPU workers

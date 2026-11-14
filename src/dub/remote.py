@@ -88,6 +88,7 @@ class PodConfig:
     idle_minutes: int = 10
     repo: str = "https://github.com/hungtruongOwolf/ai-video-dubbing.git"
     claude_secret: str | None = None
+    mps: bool = False  # M6 experiment: run the GPU workers under CUDA MPS
 
     @classmethod
     def load(cls, config_dir: Path) -> PodConfig:
@@ -323,6 +324,8 @@ def pod_body(cfg: PodConfig, gpu: str, ref: str, token: str, claude_secret: bool
         "DUB_IDLE_MINUTES": str(cfg.idle_minutes),
         "DUB_PORT": str(cfg.port),
     }
+    if cfg.mps:
+        env["DUB_MPS"] = "1"
     if claude_secret and cfg.claude_secret:
         # Runpod substitutes the stored secret when the pod boots.
         env["CLAUDE_CODE_OAUTH_TOKEN"] = "{{ RUNPOD_SECRET_" + cfg.claude_secret + " }}"

@@ -57,5 +57,12 @@ export DUB_ROOT=$ROOT DUB_REPO_DIR=$ROOT/repo
 # restart leaves its lock held for good (the volume keeps the dead holder's lock), and the
 # next worker waits on it forever. Nothing is running yet, so every lock is stale here.
 rm -rf "$ROOT/hf/hub/.locks"
+# M6 experiment (pod.local.yaml: mps: true): CUDA MPS lets the worker processes share the GPU
+# concurrently instead of time-slicing it. Every CUDA process started below inherits it.
+if [ "${DUB_MPS:-0}" = "1" ] && command -v nvidia-cuda-mps-control >/dev/null; then
+  export CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-mps-log
+  mkdir -p "$CUDA_MPS_PIPE_DIRECTORY" "$CUDA_MPS_LOG_DIRECTORY"
+  nvidia-cuda-mps-control -d && echo "== CUDA MPS daemon started" || echo "== CUDA MPS failed to start"
+fi
 echo "== starting dubd"
 exec "$ROOT/envs/core/bin/python" -m dub.pod
