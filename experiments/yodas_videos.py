@@ -38,6 +38,7 @@ UA = "dub-experiments/0.1 (research script; low volume)"
 GOLDEN = Path(__file__).parent / "golden"
 MINUTES = 5
 MAX_CER = 0.35  # subtitles that differ more than this from the speech are not a transcript
+MIN_REF = 15  # reference sentences in 5 minutes; fewer: the subtitles are not punctuated
 
 # (YouTube id, language, YODAS2 subset, shard, kind). Chosen from the subsets' text files:
 # native speakers (titles, content), sentence punctuation in the subtitles, >= 5 minutes.
@@ -191,7 +192,10 @@ def run(params: list[str], use: list[str], tag: str, only: set[str]) -> None:
         if not lang_f.exists():
             lang_f.write_text(_detect_lang(wav), encoding="utf-8")
         r["heard_lang"] = lang_f.read_text(encoding="utf-8").strip()
-        r["valid"] = r["heard_lang"] == lang and r["subs_cer"] <= MAX_CER
+        # unpunctuated subtitles give a handful of "sentences": no reference without hand labels
+        r["valid"] = (
+            r["heard_lang"] == lang and r["subs_cer"] <= MAX_CER and r["tol1"]["n_gold"] >= MIN_REF
+        )
         r.update({"lang": lang, "kind": kind, "golden": golden.name})
         results[vid] = r
     save_json(data_dir() / "results" / f"yodas{('_' + tag) if tag else ''}.json", results)

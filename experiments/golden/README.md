@@ -32,5 +32,6 @@ are the subtitles of the first ~5 minutes unchanged, the sentence ends placed by
 | `t5IDTECWpWM.txt` | https://www.youtube.com/watch?v=t5IDTECWpWM (monthly zodiac talk, zh) | CC BY 3.0 (YODAS2), subtitles by the uploader |
 
 Rule for the hand-placed ends, so the labels can be reproduced: an explicit `。！？` in the
-subtitles always ends a sentence (a `；` between two independent clauses too); at a cue end
-without punctuation, a sentence ends when the next cue starts a new statement.
+subtitles always ends a sentence (a `；` between two independent clauses too); where the
+subtitles have no mark (mostly at cue ends, also list items), a sentence ends when a new
+statement starts.
