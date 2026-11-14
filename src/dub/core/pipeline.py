@@ -484,6 +484,35 @@ async def run_job(
         voice_min_ms=q.voice_min_ms,
     )
 
+    accent_note: list[str] = []  # logged once: why the accent retry could not run
+
+    async def accent_retry(u: Unit, text: str, pred: int, seed: int, facts: dict, best):
+        """Every take carried the actor's accent (heard as the source language): one more
+        take from the engine the `accent-retry` route names. M8, experiments/accent.py on
+        a zh drama: OmniVoice clones were heard as Chinese on 22% of the lines (18% with
+        the best of 3 seeds), VieNeu-TTS on 3.7%, at a similar voice likeness (0.51 vs
+        0.53). Kept when it passes the gate or scores better."""
+        try:
+            take: SynthRes = await cx.call(
+                "tts.synthesize",
+                lambda m: synth_request(u, text, pred, seed, m),
+                facts={**facts, "take.accent_retry": True},
+                subject=u.id,
+            )
+        except (RoutingError, ProviderError) as e:
+            if not accent_note:
+                accent_note.append(str(e))
+                log(f"      accent retry unavailable: {str(e)[:160]}")
+            return best
+        trim: TrimRes = await cx.local(
+            "audio.trim", media_ops.trim, TrimReq(audio_key=take.audio_key), TrimRes,
+            subject=u.id,
+        )  # fmt: skip
+        res, words_r = await qa_take(u, trim.audio_key, text)
+        if res.passed or res.score > best[0].score:
+            return (res, take, trim, words_r)
+        return best
+
     def lid_ok() -> bool:
         """The source ASR detects the language (PhoWhisper, Kotoba force theirs)."""
         try:
@@ -846,6 +875,8 @@ async def run_job(
                             best = (res, take, take_trim, words_k)
                         if res.passed:
                             break
+                    if inline_qa and best[0] is not None and best[0].foreign:
+                        best = await accent_retry(u, text, pred, base_seed, facts, best)
                     qa, synth, trimmed, check_words = best
                     natural = pred if synth.exact else trimmed.dur_ms
                     fit = fit_unit(

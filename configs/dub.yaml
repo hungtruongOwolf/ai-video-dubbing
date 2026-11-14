@@ -27,6 +27,8 @@ qa:
   sim_ratio_min: 0.5           # voice similarity, relative to the speaker's own lines (E10: clones ~0.75)
   other_margin: 0.05           # fail when the take sounds more like another speaker
   twin_sim: 0.8                # ...unless that speaker's voice centroid is this close (similar voices)
+  source_lid: true             # M8: fail a take Whisper hears as the source language (an accent)
+  lid_min_ms: 1500             # ...when it is long enough for language identification
   voice_min_ms: 1200           # shorter takes are not judged on voice
   tail_min: 0.6                # share of the line's last quarter the ASR heard (truncation)
 
@@ -72,5 +74,9 @@ defaults:
 # `use` replaces the candidates; `require` filters them by capability.
 routes:
   tts.synthesize:
+    # M8: a line whose every take carries the actor's accent (heard as the source language
+    # by the QA gate) gets one take from VieNeu: 3.7% of a zh drama's lines heard as Chinese
+    # against OmniVoice's 22% (18% best of 3), voice likeness 0.51 vs 0.53 (experiments/accent.py)
+    - {id: accent-retry, when: {take.accent_retry: true}, use: [vieneu_v3_turbo]}
     - {id: short-line, when: {unit.slot_ms: {lt: 1300}}, require: {duration_control: exact}}
     - {id: weak-asr,   when: {unit.asr_conf: {lt: 0.6}}, require: {needs_ref_text: false}}

@@ -1,7 +1,9 @@
 # Vietnamese voice-cloning TTS: VieNeu-TTS v3 Turbo (48 kHz, GPU batching + CUDA graphs).
 # E1 (M4): 3x faster than OmniVoice, similar CER, but less like the speaker (ECAPA 0.52 vs
-# 0.59) and slow (3.7 syllables/s), so it stays a candidate. To make it the vi default: one
-# line in configs/langpacks/vi.yaml + `status: active` here; or --use for one run.
+# 0.59) and slow (3.7 syllables/s), so OmniVoice stays the vi default. M8: cloning Chinese
+# actors it carries far less of their accent (3.7% of lines heard as Chinese vs 22%), so the
+# `accent-retry` route (configs/dub.yaml) voices with it the lines whose OmniVoice takes all
+# sound foreign. Not in any chain: only that route (or --use) picks it.
 id: vieneu_v3_turbo
 op: [tts.synthesize]
 runtime: http
@@ -9,7 +11,7 @@ env: tts2
 impl: dub.providers.tts_vieneu:VieNeuTTS
 impl_version: "1"
 libs: [vieneu, transformers, torch]
-status: candidate
+status: active
 preload: false
 weights: {hf: pnnbao-ump/VieNeu-TTS-v3-Turbo}
 params:

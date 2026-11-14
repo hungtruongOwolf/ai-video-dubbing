@@ -118,7 +118,21 @@ one-word answers.
 
 ### Chinese accent
 
-(pending: `experiments/accent.py`)
+The voices are cloned from Chinese actors, and a cross-lingual clone keeps some of its
+actor's accent. `experiments/accent.py` voices the 82 dubbed lines of the drama again, with
+the job's own reference clips, and judges each take three ways: does Whisper (language
+auto) hear it as Chinese (or Japanese, or write CJK), PhoWhisper's CER (guarded against
+invented text), and ECAPA similarity to the reference.
+
+| Variant | Heard as zh/ja | CER mean | CER p90 | Similarity |
+|---|---:|---:|---:|---:|
+| OmniVoice, as the job did (seed 0) | 22.0% | 0.175 | 0.50 | 0.531 |
+| OmniVoice, classifier-free guidance 3.0 (default 2.0) | 29.3% | 0.164 | 0.50 | 0.529 |
+| OmniVoice, best of 3 seeds (not heard as zh first, then CER) | 18.3% | 0.123 | 0.43 | 0.532 |
+| VieNeu-TTS v3 Turbo, same references | (pending) | | | |
+
+Stronger guidance makes it worse. Choosing among three takes helps the words more than the
+accent: the accent is in the voice, not in the seed.
 
 ## 3. Unclear Vietnamese
 
@@ -190,4 +204,11 @@ and no handling of songs.
 
 ## Residual risks
 
-(pending)
+A one-pass run still has lines a human should hear. The report now opens with them:
+every line whose risk score (`dub.ops.risk`) reaches 3, sorted, with the reasons (the dub
+does not sound like its text, the end may be cut off, the voice sounds like someone else,
+sped up, the speaker was a guess, forms of address), and the run ends with one line such as
+`residual risks: 28 of 90 lines worth a listen (21 words, 7 cut off, 5 fast, 5 voice, 3
+address)`. The review page sorts by the same score.
+
+(final run: pending)

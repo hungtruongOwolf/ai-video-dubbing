@@ -120,3 +120,17 @@ def test_a_candidate_runs_only_when_named_on_the_command_line(cfg):
     assert "fake_tts" not in tr.chain
     r = Router(c, profile="final", overrides=[("tts.synthesize", ["fake_tts"])])
     assert r.route("tts.synthesize", {"tgt_lang": "vi"}).chain[0] == "fake_tts"
+
+
+def test_a_take_with_an_accent_is_retried_by_the_accent_route(cfg):
+    """The accent-retry rule (configs/dub.yaml) names VieNeu; it serves vi and en only, and
+    off the pod its worker is absent, which the pipeline reports and skips."""
+    rule = next(r for r in cfg.dub.routes["tts.synthesize"] if r.id == "accent-retry")
+    assert rule.use == ["vieneu_v3_turbo"]
+    r = Router(cfg, profile="final")
+    with pytest.raises(RoutingError, match="vieneu_v3_turbo: worker 'tts2' is not running"):
+        r.route("tts.synthesize", {"tgt_lang": "vi", "take.accent_retry": True})
+    with pytest.raises(RoutingError, match="language es"):
+        r.route("tts.synthesize", {"tgt_lang": "es", "take.accent_retry": True})
+    c = _cfg_with_tts(cfg)  # without the fact the langpack chain is used as before
+    assert Router(c, profile="final").route("tts.synthesize", {"tgt_lang": "vi"}).rule_id is None
