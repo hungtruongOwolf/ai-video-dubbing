@@ -1,0 +1,1048 @@
+{
+"video": "TikTok 7707275104924798249 (zh drama, 5:14), local file; cue times from the OCR of its burned-in subtitles (dub.hardsubs_ocr, v1)",
+"how": "who says each subtitle cue, judged from the script (question/answer, forms of address, scene); '?' = not sure, left out of the scores",
+"speakers": {
+"N": "the wet nurse",
+"I": "the woman who hires her",
+"H": "her husband",
+"S": "steward Sun",
+"G": "gatekeeper",
+"Y": "a maid (expressing milk)",
+"X": "a servant calling the nurse back",
+"W": "the master's wife (praises the shoes)",
+"M": "the master",
+"Z": "a servant reporting the husband"
+},
+"cues": [
+{
+"start_ms": 250,
+"end_ms": 1000,
+"who": "I"
+},
+{
+"start_ms": 1000,
+"end_ms": 1750,
+"who": "N"
+},
+{
+"start_ms": 1750,
+"end_ms": 2750,
+"who": "I"
+},
+{
+"start_ms": 2750,
+"end_ms": 3000,
+"who": "N"
+},
+{
+"start_ms": 3000,
+"end_ms": 3750,
+"who": "I"
+},
+{
+"start_ms": 4500,
+"end_ms": 4750,
+"who": "N"
+},
+{
+"start_ms": 5250,
+"end_ms": 6250,
+"who": "I"
+},
+{
+"start_ms": 6250,
+"end_ms": 7000,
+"who": "N"
+},
+{
+"start_ms": 7000,
+"end_ms": 7500,
+"who": "I"
+},
+{
+"start_ms": 7500,
+"end_ms": 8500,
+"who": "I"
+},
+{
+"start_ms": 8500,
+"end_ms": 9750,
+"who": "I"
+},
+{
+"start_ms": 9750,
+"end_ms": 10750,
+"who": "I"
+},
+{
+"start_ms": 10750,
+"end_ms": 11500,
+"who": "I"
+},
+{
+"start_ms": 11500,
+"end_ms": 12250,
+"who": "N"
+},
+{
+"start_ms": 12500,
+"end_ms": 13500,
+"who": "I"
+},
+{
+"start_ms": 13500,
+"end_ms": 14250,
+"who": "N"
+},
+{
+"start_ms": 14250,
+"end_ms": 15250,
+"who": "I"
+},
+{
+"start_ms": 15250,
+"end_ms": 16250,
+"who": "I"
+},
+{
+"start_ms": 16250,
+"end_ms": 17000,
+"who": "N"
+},
+{
+"start_ms": 22250,
+"end_ms": 22750,
+"who": "?"
+},
+{
+"start_ms": 22750,
+"end_ms": 23250,
+"who": "I"
+},
+{
+"start_ms": 23250,
+"end_ms": 24500,
+"who": "N"
+},
+{
+"start_ms": 25000,
+"end_ms": 26000,
+"who": "I"
+},
+{
+"start_ms": 26250,
+"end_ms": 26500,
+"who": "N"
+},
+{
+"start_ms": 26500,
+"end_ms": 27250,
+"who": "N"
+},
+{
+"start_ms": 27250,
+"end_ms": 28250,
+"who": "N"
+},
+{
+"start_ms": 28250,
+"end_ms": 29500,
+"who": "N"
+},
+{
+"start_ms": 29500,
+"end_ms": 30250,
+"who": "N"
+},
+{
+"start_ms": 30250,
+"end_ms": 30500,
+"who": "N"
+},
+{
+"start_ms": 30500,
+"end_ms": 31500,
+"who": "N"
+},
+{
+"start_ms": 32000,
+"end_ms": 32750,
+"who": "I"
+},
+{
+"start_ms": 32750,
+"end_ms": 33500,
+"who": "I"
+},
+{
+"start_ms": 33750,
+"end_ms": 35250,
+"who": "I"
+},
+{
+"start_ms": 35250,
+"end_ms": 36250,
+"who": "I"
+},
+{
+"start_ms": 36500,
+"end_ms": 37250,
+"who": "I"
+},
+{
+"start_ms": 37250,
+"end_ms": 38250,
+"who": "I"
+},
+{
+"start_ms": 38500,
+"end_ms": 39750,
+"who": "I"
+},
+{
+"start_ms": 40000,
+"end_ms": 41250,
+"who": "I"
+},
+{
+"start_ms": 41250,
+"end_ms": 42000,
+"who": "I"
+},
+{
+"start_ms": 43000,
+"end_ms": 44250,
+"who": "I"
+},
+{
+"start_ms": 44750,
+"end_ms": 45750,
+"who": "I"
+},
+{
+"start_ms": 46000,
+"end_ms": 47250,
+"who": "I"
+},
+{
+"start_ms": 48000,
+"end_ms": 49500,
+"who": "I"
+},
+{
+"start_ms": 50250,
+"end_ms": 51250,
+"who": "H"
+},
+{
+"start_ms": 51750,
+"end_ms": 53250,
+"who": "N"
+},
+{
+"start_ms": 53250,
+"end_ms": 53750,
+"who": "N"
+},
+{
+"start_ms": 53750,
+"end_ms": 54250,
+"who": "N"
+},
+{
+"start_ms": 54250,
+"end_ms": 55250,
+"who": "N"
+},
+{
+"start_ms": 55500,
+"end_ms": 56250,
+"who": "?"
+},
+{
+"start_ms": 56500,
+"end_ms": 57250,
+"who": "N"
+},
+{
+"start_ms": 57500,
+"end_ms": 58500,
+"who": "N"
+},
+{
+"start_ms": 58500,
+"end_ms": 60000,
+"who": "H"
+},
+{
+"start_ms": 60250,
+"end_ms": 62000,
+"who": "N"
+},
+{
+"start_ms": 62250,
+"end_ms": 63000,
+"who": "H"
+},
+{
+"start_ms": 63000,
+"end_ms": 64250,
+"who": "N"
+},
+{
+"start_ms": 64250,
+"end_ms": 65750,
+"who": "N"
+},
+{
+"start_ms": 66000,
+"end_ms": 67750,
+"who": "N"
+},
+{
+"start_ms": 68250,
+"end_ms": 69000,
+"who": "N"
+},
+{
+"start_ms": 69250,
+"end_ms": 71000,
+"who": "N"
+},
+{
+"start_ms": 71250,
+"end_ms": 72000,
+"who": "N"
+},
+{
+"start_ms": 72000,
+"end_ms": 73000,
+"who": "N"
+},
+{
+"start_ms": 73250,
+"end_ms": 74500,
+"who": "N"
+},
+{
+"start_ms": 74500,
+"end_ms": 75250,
+"who": "N"
+},
+{
+"start_ms": 76250,
+"end_ms": 77000,
+"who": "N"
+},
+{
+"start_ms": 77000,
+"end_ms": 77750,
+"who": "H"
+},
+{
+"start_ms": 77750,
+"end_ms": 78750,
+"who": "N"
+},
+{
+"start_ms": 78750,
+"end_ms": 79500,
+"who": "N"
+},
+{
+"start_ms": 80000,
+"end_ms": 81000,
+"who": "H"
+},
+{
+"start_ms": 81250,
+"end_ms": 82750,
+"who": "H"
+},
+{
+"start_ms": 83000,
+"end_ms": 83500,
+"who": "N"
+},
+{
+"start_ms": 85750,
+"end_ms": 86500,
+"who": "N"
+},
+{
+"start_ms": 86750,
+"end_ms": 87500,
+"who": "N"
+},
+{
+"start_ms": 87500,
+"end_ms": 88500,
+"who": "N"
+},
+{
+"start_ms": 88500,
+"end_ms": 89250,
+"who": "N"
+},
+{
+"start_ms": 89250,
+"end_ms": 89750,
+"who": "N"
+},
+{
+"start_ms": 89750,
+"end_ms": 90000,
+"who": "N"
+},
+{
+"start_ms": 90000,
+"end_ms": 91000,
+"who": "N"
+},
+{
+"start_ms": 91000,
+"end_ms": 92250,
+"who": "N"
+},
+{
+"start_ms": 92250,
+"end_ms": 93250,
+"who": "H"
+},
+{
+"start_ms": 93250,
+"end_ms": 94000,
+"who": "N"
+},
+{
+"start_ms": 94250,
+"end_ms": 95500,
+"who": "N"
+},
+{
+"start_ms": 96250,
+"end_ms": 97250,
+"who": "N"
+},
+{
+"start_ms": 97250,
+"end_ms": 98000,
+"who": "N"
+},
+{
+"start_ms": 98000,
+"end_ms": 99000,
+"who": "N"
+},
+{
+"start_ms": 99000,
+"end_ms": 100500,
+"who": "N"
+},
+{
+"start_ms": 101250,
+"end_ms": 102250,
+"who": "N"
+},
+{
+"start_ms": 106000,
+"end_ms": 106750,
+"who": "?"
+},
+{
+"start_ms": 106750,
+"end_ms": 107000,
+"who": "?"
+},
+{
+"start_ms": 107000,
+"end_ms": 107250,
+"who": "?"
+},
+{
+"start_ms": 107250,
+"end_ms": 107750,
+"who": "?"
+},
+{
+"start_ms": 107750,
+"end_ms": 109000,
+"who": "?"
+},
+{
+"start_ms": 109250,
+"end_ms": 112250,
+"who": "?"
+},
+{
+"start_ms": 113250,
+"end_ms": 114250,
+"who": "?"
+},
+{
+"start_ms": 114500,
+"end_ms": 115500,
+"who": "?"
+},
+{
+"start_ms": 119500,
+"end_ms": 120750,
+"who": "?"
+},
+{
+"start_ms": 121250,
+"end_ms": 122750,
+"who": "Y"
+},
+{
+"start_ms": 123000,
+"end_ms": 124250,
+"who": "Y"
+},
+{
+"start_ms": 124250,
+"end_ms": 125250,
+"who": "Y"
+},
+{
+"start_ms": 125250,
+"end_ms": 125500,
+"who": "Y"
+},
+{
+"start_ms": 125500,
+"end_ms": 126500,
+"who": "Y"
+},
+{
+"start_ms": 135500,
+"end_ms": 136000,
+"who": "X"
+},
+{
+"start_ms": 136250,
+"end_ms": 137250,
+"who": "X"
+},
+{
+"start_ms": 137500,
+"end_ms": 138750,
+"who": "X"
+},
+{
+"start_ms": 143500,
+"end_ms": 144000,
+"who": "N"
+},
+{
+"start_ms": 144000,
+"end_ms": 145000,
+"who": "N"
+},
+{
+"start_ms": 145000,
+"end_ms": 145750,
+"who": "N"
+},
+{
+"start_ms": 146000,
+"end_ms": 147250,
+"who": "S"
+},
+{
+"start_ms": 147500,
+"end_ms": 148500,
+"who": "N"
+},
+{
+"start_ms": 148500,
+"end_ms": 149750,
+"who": "S"
+},
+{
+"start_ms": 149750,
+"end_ms": 151000,
+"who": "S"
+},
+{
+"start_ms": 151000,
+"end_ms": 152500,
+"who": "S"
+},
+{
+"start_ms": 152750,
+"end_ms": 153250,
+"who": "S"
+},
+{
+"start_ms": 153250,
+"end_ms": 153500,
+"who": "S"
+},
+{
+"start_ms": 153750,
+"end_ms": 154000,
+"who": "S"
+},
+{
+"start_ms": 154000,
+"end_ms": 154750,
+"who": "S"
+},
+{
+"start_ms": 155250,
+"end_ms": 156000,
+"who": "S"
+},
+{
+"start_ms": 157000,
+"end_ms": 158000,
+"who": "G"
+},
+{
+"start_ms": 158000,
+"end_ms": 159250,
+"who": "H"
+},
+{
+"start_ms": 159250,
+"end_ms": 160750,
+"who": "H"
+},
+{
+"start_ms": 161000,
+"end_ms": 162250,
+"who": "G"
+},
+{
+"start_ms": 162500,
+"end_ms": 163500,
+"who": "H"
+},
+{
+"start_ms": 163500,
+"end_ms": 165000,
+"who": "H"
+},
+{
+"start_ms": 165250,
+"end_ms": 166000,
+"who": "G"
+},
+{
+"start_ms": 166000,
+"end_ms": 167250,
+"who": "?"
+},
+{
+"start_ms": 167250,
+"end_ms": 168750,
+"who": "?"
+},
+{
+"start_ms": 172250,
+"end_ms": 172500,
+"who": "?"
+},
+{
+"start_ms": 172500,
+"end_ms": 173750,
+"who": "?"
+},
+{
+"start_ms": 174000,
+"end_ms": 175000,
+"who": "?"
+},
+{
+"start_ms": 175250,
+"end_ms": 176750,
+"who": "?"
+},
+{
+"start_ms": 182250,
+"end_ms": 183250,
+"who": "H"
+},
+{
+"start_ms": 183500,
+"end_ms": 184000,
+"who": "?"
+},
+{
+"start_ms": 184000,
+"end_ms": 184750,
+"who": "N"
+},
+{
+"start_ms": 184750,
+"end_ms": 185750,
+"who": "H"
+},
+{
+"start_ms": 186000,
+"end_ms": 187000,
+"who": "H"
+},
+{
+"start_ms": 187000,
+"end_ms": 188250,
+"who": "H"
+},
+{
+"start_ms": 188750,
+"end_ms": 189750,
+"who": "H"
+},
+{
+"start_ms": 189750,
+"end_ms": 190750,
+"who": "N"
+},
+{
+"start_ms": 191750,
+"end_ms": 193250,
+"who": "N"
+},
+{
+"start_ms": 193250,
+"end_ms": 193750,
+"who": "N"
+},
+{
+"start_ms": 193750,
+"end_ms": 194000,
+"who": "N"
+},
+{
+"start_ms": 195000,
+"end_ms": 196000,
+"who": "N"
+},
+{
+"start_ms": 196000,
+"end_ms": 197250,
+"who": "N"
+},
+{
+"start_ms": 197750,
+"end_ms": 198750,
+"who": "N"
+},
+{
+"start_ms": 198750,
+"end_ms": 200000,
+"who": "N"
+},
+{
+"start_ms": 205250,
+"end_ms": 206250,
+"who": "X"
+},
+{
+"start_ms": 206500,
+"end_ms": 207500,
+"who": "X"
+},
+{
+"start_ms": 208250,
+"end_ms": 209250,
+"who": "X"
+},
+{
+"start_ms": 209250,
+"end_ms": 210000,
+"who": "X"
+},
+{
+"start_ms": 210250,
+"end_ms": 211250,
+"who": "X"
+},
+{
+"start_ms": 211500,
+"end_ms": 212250,
+"who": "N"
+},
+{
+"start_ms": 220500,
+"end_ms": 221750,
+"who": "W"
+},
+{
+"start_ms": 221750,
+"end_ms": 223250,
+"who": "W"
+},
+{
+"start_ms": 223500,
+"end_ms": 224500,
+"who": "N"
+},
+{
+"start_ms": 224750,
+"end_ms": 225750,
+"who": "N"
+},
+{
+"start_ms": 226000,
+"end_ms": 227250,
+"who": "N"
+},
+{
+"start_ms": 227250,
+"end_ms": 228250,
+"who": "W"
+},
+{
+"start_ms": 228250,
+"end_ms": 229250,
+"who": "N"
+},
+{
+"start_ms": 232000,
+"end_ms": 232250,
+"who": "M"
+},
+{
+"start_ms": 232250,
+"end_ms": 233750,
+"who": "M"
+},
+{
+"start_ms": 233750,
+"end_ms": 234000,
+"who": "M"
+},
+{
+"start_ms": 234000,
+"end_ms": 235500,
+"who": "M"
+},
+{
+"start_ms": 236000,
+"end_ms": 236750,
+"who": "M"
+},
+{
+"start_ms": 240500,
+"end_ms": 241250,
+"who": "N"
+},
+{
+"start_ms": 241750,
+"end_ms": 242250,
+"who": "Z"
+},
+{
+"start_ms": 242250,
+"end_ms": 243500,
+"who": "Z"
+},
+{
+"start_ms": 243500,
+"end_ms": 245000,
+"who": "Z"
+},
+{
+"start_ms": 245250,
+"end_ms": 246250,
+"who": "S"
+},
+{
+"start_ms": 247250,
+"end_ms": 248250,
+"who": "Z"
+},
+{
+"start_ms": 248750,
+"end_ms": 250250,
+"who": "S"
+},
+{
+"start_ms": 257500,
+"end_ms": 258500,
+"who": "H"
+},
+{
+"start_ms": 258500,
+"end_ms": 260000,
+"who": "H"
+},
+{
+"start_ms": 260750,
+"end_ms": 262000,
+"who": "H"
+},
+{
+"start_ms": 262250,
+"end_ms": 263250,
+"who": "H"
+},
+{
+"start_ms": 263750,
+"end_ms": 265250,
+"who": "H"
+},
+{
+"start_ms": 265750,
+"end_ms": 266500,
+"who": "N"
+},
+{
+"start_ms": 266500,
+"end_ms": 268500,
+"who": "H"
+},
+{
+"start_ms": 268500,
+"end_ms": 269750,
+"who": "N"
+},
+{
+"start_ms": 269750,
+"end_ms": 270750,
+"who": "N"
+},
+{
+"start_ms": 270750,
+"end_ms": 272000,
+"who": "N"
+},
+{
+"start_ms": 275250,
+"end_ms": 276250,
+"who": "?"
+},
+{
+"start_ms": 279500,
+"end_ms": 280000,
+"who": "?"
+},
+{
+"start_ms": 280000,
+"end_ms": 280250,
+"who": "?"
+},
+{
+"start_ms": 280500,
+"end_ms": 281750,
+"who": "?"
+},
+{
+"start_ms": 281750,
+"end_ms": 282000,
+"who": "?"
+},
+{
+"start_ms": 282500,
+"end_ms": 284000,
+"who": "?"
+},
+{
+"start_ms": 289500,
+"end_ms": 289750,
+"who": "N"
+},
+{
+"start_ms": 289750,
+"end_ms": 290250,
+"who": "N"
+},
+{
+"start_ms": 290250,
+"end_ms": 291500,
+"who": "N"
+},
+{
+"start_ms": 291750,
+"end_ms": 293500,
+"who": "N"
+},
+{
+"start_ms": 293500,
+"end_ms": 294250,
+"who": "N"
+},
+{
+"start_ms": 294250,
+"end_ms": 294500,
+"who": "N"
+},
+{
+"start_ms": 294750,
+"end_ms": 296000,
+"who": "N"
+},
+{
+"start_ms": 296750,
+"end_ms": 298250,
+"who": "N"
+},
+{
+"start_ms": 299500,
+"end_ms": 300500,
+"who": "?"
+},
+{
+"start_ms": 301000,
+"end_ms": 301750,
+"who": "S"
+},
+{
+"start_ms": 302250,
+"end_ms": 302500,
+"who": "S"
+},
+{
+"start_ms": 302750,
+"end_ms": 304250,
+"who": "S"
+},
+{
+"start_ms": 304250,
+"end_ms": 304750,
+"who": "S"
+},
+{
+"start_ms": 304750,
+"end_ms": 305000,
+"who": "S"
+},
+{
+"start_ms": 305000,
+"end_ms": 306500,
+"who": "S"
+},
+{
+"start_ms": 306500,
+"end_ms": 307500,
+"who": "S"
+},
+{
+"start_ms": 307500,
+"end_ms": 308500,
+"who": "S"
+},
+{
+"start_ms": 308750,
+"end_ms": 309500,
+"who": "?"
+},
+{
+"start_ms": 309750,
+"end_ms": 310250,
+"who": "?"
+},
+{
+"start_ms": 310250,
+"end_ms": 311000,
+"who": "?"
+},
+{
+"start_ms": 312750,
+"end_ms": 313750,
+"who": "?"
+}
+]
+}

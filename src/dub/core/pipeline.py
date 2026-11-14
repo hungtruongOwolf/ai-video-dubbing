@@ -19,6 +19,7 @@ import json
 import os
 import re
 import statistics
+import unicodedata
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -519,12 +520,13 @@ async def run_job(
         exact = m.caps.duration_control == "exact"
         return SynthReq(
             unit_id=u.id,
-            text=text,
+            # composed form: a decomposed Vietnamese tone mark is a separate token to a TTS
+            text=unicodedata.normalize("NFC", text),
             lang=spec.tgt_lang,
             speaker=u.speaker,
             seed=seed,
             voice_key=ref.audio_key if ref else None,
-            voice_text=ref.text if ref else None,
+            voice_text=unicodedata.normalize("NFC", ref.text) if ref and ref.text else None,
             # the voice's own silence comes on top, so its speech fills the planned length
             target_ms=exact_target_ms(u.slot_ms, pred, t.safe_ratio) + tts_pad.get(u.speaker, 0)
             if exact
