@@ -484,6 +484,14 @@ async def run_job(
         voice_min_ms=q.voice_min_ms,
     )
 
+    def lid_ok() -> bool:
+        """The source ASR detects the language (PhoWhisper, Kotoba force theirs)."""
+        try:
+            pid = cx.router.route("asr.transcribe", dict(cx.facts)).chain[0]
+        except Exception:  # noqa: BLE001 - no ASR: no accent check
+            return False
+        return not cx.params_for(cfg.providers[pid], "asr.transcribe").get("language")
+
     async def qa_take(u: Unit, audio_key: str, text: str) -> tuple[qa_ops.QaResult, list[Word]]:
         """Back-check ASR + speaker embedding of one take, judged against the QA limits."""
         ref = refs.for_speaker(u.speaker)
@@ -520,6 +528,21 @@ async def run_job(
             centroids={r.speaker: r.centroid for r in refs.refs if r.centroid},
             dur_ms=clip16.dur_ms,
         )
+        if (
+            q.source_lid
+            and clip16.dur_ms >= q.lid_min_ms
+            and base_lang(src_lang) != base_lang(spec.tgt_lang)
+            and lid_ok()
+        ):
+            try:
+                lid: WordTimeline = await cx.call(
+                    "asr.transcribe", TranscribeReq(audio_key=clip16.audio_key, lang="auto"),
+                    subject=u.id,
+                )  # fmt: skip
+                if lid.words and base_lang(lid.lang) == base_lang(src_lang):
+                    res.mark_foreign(lid.lang)
+            except (RoutingError, ProviderError) as e:
+                log(f"      accent check skipped for {u.id}: {str(e)[:120]}")
         return res, heard
 
     # LLM in parallel with TTS (M5): as soon as a window is translated, its lines are voiced

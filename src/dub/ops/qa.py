@@ -44,12 +44,18 @@ class QaResult:
     passed: bool
     reasons: list[str] = field(default_factory=list)
     closest: str | None = None  # the speaker whose centroid is closest to the take
+    foreign: bool = False  # heard as the source language (an accent heard as foreign)
+
+    def mark_foreign(self, lang: str) -> None:
+        self.foreign = True
+        self.passed = False
+        self.reasons.append(f"accent: heard as {lang}")
 
     @property
     def score(self) -> float:
         """Higher is better: used to pick among takes when none passes."""
         sim = 1.0 if self.sim_ratio is None else min(self.sim_ratio, 1.2)
-        return -2.0 * self.cer + 0.5 * sim + 0.5 * self.tail
+        return -2.0 * self.cer + 0.5 * sim + 0.5 * self.tail - (0.5 if self.foreign else 0.0)
 
     def as_dict(self) -> dict:
         return {

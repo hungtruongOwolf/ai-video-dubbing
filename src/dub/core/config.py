@@ -155,6 +155,11 @@ class QaCfg(Cfg):
     sim_ratio_min: float = 0.5  # voice similarity / the speaker's own similarity
     other_margin: float = 0.05  # fail when another speaker's centroid is closer by this much
     twin_sim: float = 0.8  # ...unless the two centroids are this close (similar voices)
+    # M8: fail a take that Whisper (language auto) hears as the SOURCE language: a cloned
+    # voice carrying its actor's accent. Takes shorter than lid_min_ms are not judged
+    # (language identification is unreliable on a second of speech).
+    source_lid: bool = False
+    lid_min_ms: int = 1500
     voice_min_ms: int = 1200  # shorter takes are not judged on voice
     tail_min: float = 0.6  # share of the line's last quarter that the ASR heard
 
