@@ -5,11 +5,11 @@ Every true line is matched to the dubbed units that overlap it in time.
 
 - Speaker swaps: found speakers are mapped to the characters by majority; a line whose units
   carry another character's voice is a swap.
-- Forms of address (vi): a line is correct when it contains no generic pronoun ("tôi", "bạn",
-  "cậu"...) and every kinship word in it is one the speaker may use: the expected self/other
-  terms for this listener, or how the speaker names the other characters (third person, e.g.
-  the mother telling her son to help "ông"). Lines without any such word count as correct
-  (Vietnamese often drops pronouns). The full table is written for a manual review.
+- Forms of address (vi), automatic part: a line is wrong when it contains a generic pronoun
+  ("tôi", "bạn", "cậu"...: nobody in this family uses them) or calls someone with the wrong
+  kinship word ("Ông ơi" to the mother). Other kinship words are not judged automatically:
+  "con" is also a classifier ("con rồng") and "ông" is also the grandfather in the third
+  person ("giúp ông cắt bánh"). Every run was also read line by line (see the M4 notes).
 
 Usage: uv run python experiments/e10_address.py JOB_DIR
 """
@@ -71,12 +71,10 @@ def main() -> None:
         )
         toks = _tokens(text)
         exp = table[f"{spk}>{to}"]
-        allowed = set(exp["self"]) | set(exp["other"])
-        for key, v in table.items():  # how this speaker names the other characters
-            if key.startswith(f"{spk}>"):
-                allowed |= set(v["other"])
         generic = sorted({w for w in toks if w in GENERIC})
-        wrong = sorted({w for w in toks if w in KIN and w not in allowed})
+        # vocatives "X ơi": X must be how this speaker addresses this listener
+        vocs = re.findall(r"(\w+)\s+ơi", unicodedata.normalize("NFC", text).lower())
+        wrong = sorted({v for v in vocs if v in KIN and v not in exp["other"]})
         ok = not generic and not wrong
         n_addr += 1
         addr_ok += ok

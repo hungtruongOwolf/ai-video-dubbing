@@ -339,6 +339,9 @@ async def run_job(
                 probs = address_ops.check_line(u, tr.target, tr, sheet.cast, spec.tgt_lang, generic)
                 if probs:
                     found[u.id] = "; ".join(probs)
+        for uid, why in address_ops.listener_issues(units, translations).items():
+            if uid not in ue.text:
+                found[uid] = f"{found[uid]}; {why}" if uid in found else why
         for uid, why in address_ops.consistency(units, translations, sheet.cast).items():
             if uid not in ue.text:
                 found[uid] = f"{found[uid]}; {why}" if uid in found else why

@@ -43,6 +43,27 @@ def test_line_check_against_the_cast_sheet():
     assert check_line(_unit(3, 70000), later.target, later, cast, "vi", GENERIC) == []
 
 
+def test_question_answered_by_the_next_speaker_sets_the_listener():
+    from dub.ops.address import listener_issues
+
+    u1 = Unit(id="a", speaker="S3", sentence_ids=[], start_ms=0, end_ms=2000,
+              text="Can Tom listen to the story too?", n_words=7)  # fmt: skip
+    u2 = Unit(id="b", speaker="S2", sentence_ids=[], start_ms=2300, end_ms=4000,
+              text="Only if he finishes first.", n_words=5)  # fmt: skip
+    trs = {"a": _tr(0, "Ông ơi...", "S1", "cháu", "ông")}
+    trs["a"] = trs["a"].model_copy(update={"unit_id": "a"})
+    out = listener_issues([u1, u2], trs)
+    assert "addressed to S2" in out["a"]
+
+
+def test_generic_pronoun_without_a_known_listener():
+    family = CastSheet(relations=_cast().relations[:2])  # kinship terms only
+    tr = _tr(9, "Ông đã hứa thì tôi luôn giữ lời.", None)
+    assert check_line(_unit(9), tr.target, tr, family, "vi", GENERIC)
+    # with a formal relation that uses "tôi", the same line is not flagged without a listener
+    assert check_line(_unit(9), tr.target, tr, _cast(), "vi", GENERIC) == []
+
+
 def test_alternatives_and_notes_in_the_cast_sheet():
     from dub.ops.address import matches
 

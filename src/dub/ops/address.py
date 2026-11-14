@@ -8,7 +8,10 @@ A line is flagged when:
 - it uses a generic pronoun ("tôi", "bạn", "cậu", "mày"...) where the relation calls for
   kinship terms (the langpack lists the generic words and the address words of a language);
 - (whole-script pass) its terms differ from what the same speaker uses for the same listener
-  in most other lines, while no change of relation (`since_ms`) explains it.
+  in most other lines, while no change of relation (`since_ms`) explains it;
+- it is a question answered right away by another speaker, but declares someone else as its
+  listener (turn-taking: "Can Tom listen too?" followed by the mother's answer is addressed to
+  the mother, whoever spoke before).
 
 Flagged lines are translated again with the problem stated (final profile, up to 2 rounds),
 and what remains is shown at the top of the review page. Nothing here needs a model.
@@ -72,6 +75,18 @@ def check_line(
 ) -> list[str]:
     exp = expected(cast, unit.speaker, tr.listener, lang, unit.start_ms)
     if exp is None:
+        # Listener unknown: a speaker whose every relation uses kinship terms must still not
+        # fall back to a generic pronoun ("Ông đã hứa thì tôi luôn giữ lời").
+        mine = [r.address[lang] for r in cast.relations if r.speaker == unit.speaker
+                and lang in r.address]  # fmt: skip
+        terms = (
+            set().union(*(options(a.self_term) | options(a.other_term) for a in mine))
+            if mine
+            else set()
+        )
+        stray = sorted({t for t in tokens(text) if t in generic and t not in terms})
+        if mine and stray and not (terms & generic):
+            return [f"generic pronoun {', '.join(repr(t) for t in stray)} in a kinship relation"]
         return []
     issues = []
     for role, used, want in (
@@ -128,3 +143,27 @@ def consistency(
 def _compatible(a: tuple[str, str], b: tuple[str, str]) -> bool:
     """A line may drop one of the two terms (Vietnamese often omits the pronoun)."""
     return all(x == y or not x or not y for x, y in zip(a, b, strict=True))
+
+
+def answered_by(units: list[Unit], i: int, max_gap_ms: int = 2000) -> str | None:
+    """The speaker who answers unit i right away, if unit i is a question."""
+    u = units[i]
+    if not u.text.rstrip().endswith(("?", "？")) or i + 1 >= len(units):
+        return None
+    nxt = units[i + 1]
+    if nxt.speaker != u.speaker and nxt.start_ms - u.end_ms <= max_gap_ms:
+        return nxt.speaker
+    return None
+
+
+def listener_issues(units: list[Unit], translations: dict[str, Translation]) -> dict[str, str]:
+    out = {}
+    for i, u in enumerate(units):
+        tr = translations.get(u.id)
+        who = answered_by(units, i)
+        if tr and who and tr.listener and tr.listener != who:
+            out[u.id] = (
+                f"listener: this question is answered right away by {who}, so it is addressed "
+                f"to {who}, not {tr.listener}; use the address terms for {u.speaker} -> {who}"
+            )
+    return out
