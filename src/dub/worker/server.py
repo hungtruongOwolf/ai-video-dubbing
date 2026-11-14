@@ -170,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         a.env, [p for p in a.providers.split(",") if p], cfg, CAS(Path(a.workspace) / "cas")
     )
     if a.preload:
-        for pid in sorted(state.allowed):
+        for pid in sorted(p for p in state.allowed if cfg.providers[p].preload):
             t0 = time.perf_counter()
             with state.lock:
                 state.instance(pid)

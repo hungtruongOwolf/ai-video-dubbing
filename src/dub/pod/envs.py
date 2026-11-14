@@ -159,7 +159,8 @@ class EnvManager:
                 return
             try:
                 health = get_json(f"{url}/v1/health", timeout=5)
-                if set(health.get("loaded", [])) >= set(e.providers):
+                wanted = {p for p in e.providers if self.cfg.providers[p].preload}
+                if set(health.get("loaded", [])) >= wanted:
                     self._register(e.name, url)
                     self._set(e, "ready", f"{time.time() - e.started_at:.0f}s")
                     return

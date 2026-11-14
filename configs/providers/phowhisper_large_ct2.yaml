@@ -6,6 +6,7 @@ runtime: http
 env: asr
 impl: dub.providers.asr_whisper:FasterWhisperASR
 impl_version: "1"
+preload: false  # only needed for Vietnamese sources: load on first use, save VRAM
 weights: {hf: kiendt/PhoWhisper-large-ct2, revision: abceb098c94235c16414dda9e1aada82ebcf6288}
 params:
   model: kiendt/PhoWhisper-large-ct2
