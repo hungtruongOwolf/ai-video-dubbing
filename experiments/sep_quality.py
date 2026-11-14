@@ -120,8 +120,11 @@ def run(long_key: str | None) -> None:
                         db_path=Path("/tmp/exp.sqlite"))  # fmt: skip
     cas = ws.cas
     mixes = make(cas)
-    res: dict = {}
+    out = data_dir() / "results" / "sep_quality.json"
+    res: dict = json.loads(out.read_text(encoding="utf-8")) if out.exists() else {}
     for label, params in SETTINGS.items():
+        if label in res:
+            continue  # measured by an earlier (interrupted) run
         rows = []
         for m in mixes:
             st = run_worker("sep", "mel_roformer", "audio.separate", {"audio_key": m["mix"]},
@@ -130,6 +133,8 @@ def run(long_key: str | None) -> None:
             ins = read_wav(cas.path(st["instrumental_key"]))[0].mean(axis=1)
             speech = read_wav(cas.path(m["speech"]))[0][:, 0]
             music = read_wav(cas.path(m["music"]))[0][:, 0]
+            for k in (st["vocals_key"], st["instrumental_key"]):
+                cas.path(k).unlink(missing_ok=True)  # experiment output: keep the quota free
             rows.append({"music": m["music"], "db_below": m["db_below"],
                          "vocals_si_sdr": si_sdr(voc, speech),
                          "bed_si_sdr": si_sdr(ins, music)})  # fmt: skip
@@ -140,11 +145,13 @@ def run(long_key: str | None) -> None:
         }
         if long_key:
             t = time.time()
-            run_worker("sep", "mel_roformer", "audio.separate", {"audio_key": long_key},
-                       params=params)  # fmt: skip
+            st = run_worker("sep", "mel_roformer", "audio.separate", {"audio_key": long_key},
+                            params=params)  # fmt: skip
             res[label]["seconds_60min"] = round(time.time() - t, 1)
+            for k in (st["vocals_key"], st["instrumental_key"]):
+                cas.path(k).unlink(missing_ok=True)  # 1.4 GB per hour of audio
         print(label, {k: v for k, v in res[label].items() if k != "rows"}, flush=True)
-        save_json(data_dir() / "results" / "sep_quality.json", res)
+        save_json(out, res)
 
 
 def main() -> None:
