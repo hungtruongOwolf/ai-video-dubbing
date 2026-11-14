@@ -156,7 +156,12 @@ def fit_unit(
     next_: Neighbor | None,
     t: TimingCfg,
     media_end_ms: int | None = None,
+    rate_ref_ms: int | None = None,
 ) -> Fit:
+    """Place a clip in its slot. `natural_ms` bounds how much it may be squeezed; the
+    reported rate (and the "fast" flag) is measured against `rate_ref_ms` when given: the
+    line at the average speaking rate, without the extra time a short line is planned
+    (Langpack.short_boost), which would otherwise read as a speed-up."""
     slot = slot_end - slot_start
     k = 0.5 if t.strict else 1.0
     early_cap, late_cap = t.early_start_ms * k, t.late_end_ms * k
@@ -197,7 +202,7 @@ def fit_unit(
             stretch = clip_ms / final_len
             if final_len > avail + 1:
                 flags.append("overflow")
-    rate = natural_ms / max(final_len, 1)
+    rate = (rate_ref_ms or natural_ms) / max(final_len, 1)
     if rate > t.rate_p95 + 1e-9:
         flags.append("fast")
     return Fit(

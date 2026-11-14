@@ -616,12 +616,16 @@ async def run_job(
             return False
         return cfg.providers[pid].caps.duration_control == "exact"
 
-    def planned_fit(u: Unit, pred: int, prev, nxt) -> Fit:
+    def linear(text: str) -> int:
+        """The line at the average rate: what speed-ups are measured against."""
+        return predict_ms(text, tgt_lp.speech_unit, tgt_lp.units_per_s)
+
+    def planned_fit(u: Unit, pred: int, prev, nxt, text: str | None = None) -> Fit:
         """The fit of an exact-duration take, known before synthesis: its length is planned."""
         return fit_unit(
             slot_start=u.start_ms, slot_end=u.end_ms, natural_ms=pred,
             clip_ms=exact_target_ms(u.slot_ms, pred, t.safe_ratio), prev=prev, next_=nxt, t=t,
-            media_end_ms=media.duration_ms,
+            media_end_ms=media.duration_ms, rate_ref_ms=linear(text) if text else None,
         )  # fmt: skip
 
     def will_rewrite(u: Unit, text: str, pred: int) -> bool:
@@ -632,7 +636,7 @@ async def run_job(
             and not ue.is_protected(u.id)
             and count_units(text, tgt_lp.speech_unit) > NO_REWRITE_UNITS
             and engine_exact(u)
-            and planned_fit(u, pred, None, None).rate > t.rate_p95
+            and planned_fit(u, pred, None, None, text).rate > t.rate_p95
         )
 
     voiced_by_id = {u.id: u for u in voiced}
@@ -836,7 +840,7 @@ async def run_job(
                 rewritable = profile.llm_rewrite and not ue.is_protected(u.id) and not short
                 if rewritable and engine_exact(u):
                     while rewrites < profile.max_rewrites:
-                        planned = planned_fit(u, pred, prev, nxt)
+                        planned = planned_fit(u, pred, prev, nxt, text)
                         if planned.rate <= t.rate_p95:
                             break
                         rewrites += 1
@@ -888,9 +892,11 @@ async def run_job(
                         next_=nxt,
                         t=t,
                         media_end_ms=media.duration_ms,
+                        rate_ref_ms=linear(text) if synth.exact else None,
                     )
                     if (
                         fit.rate > t.rate_p95
+                        and count_units(text, tgt_lp.speech_unit) > NO_REWRITE_UNITS
                         and profile.llm_rewrite
                         and rewrites < profile.max_rewrites
                         and not ue.is_protected(u.id)

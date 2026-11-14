@@ -39,6 +39,7 @@ CUE_PAD_MS = 300  # a word this close to a cue belongs to it
 UNCAPTIONED_MIN = 0.7  # share of a speech piece outside the cues that makes it a line
 GENDER_SURE = 0.8  # voice gender confidence above which a mismatch counts
 MAX_GENDER_CONFLICT = 0.15  # share of lines; above it the attribution is not used
+UNSURE_INFORMATIVE = 0.5  # above this share of guessed lines, 'guessed' says nothing
 _ENDS = set(".?!。？！…")
 
 
@@ -200,8 +201,10 @@ def fuse(
         1 for ln, who in zip(lines_, attr.speaker, strict=True) if main[names[who]] != ln.voice
     )
     stats["unsure"] = sum(1 for s in attr.sure if not s)
+    # flagged for review only when the LLM told guesses apart: one run marked every line
     pairs = zip(lines_, attr.sure, strict=True)
-    stats["unsure_spans"] = [(ln.start_ms, ln.end_ms) for ln, ok in pairs if not ok]
+    spans = [(ln.start_ms, ln.end_ms) for ln, ok in pairs if not ok]
+    stats["unsure_spans"] = spans if len(spans) <= UNSURE_INFORMATIVE * len(lines_) else []
     stats["names"] = {names[c.id]: c.who for c in attr.characters if c.id in names}
     stats["kinds"] = {names[c.id]: c.kind for c in attr.characters
                       if c.id in names and c.kind != "person"}  # fmt: skip
