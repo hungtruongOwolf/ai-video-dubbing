@@ -27,6 +27,20 @@ def _norm(term: str | None) -> str:
     return unicodedata.normalize("NFC", (term or "").strip().lower())
 
 
+def options(term: str | None) -> set[str]:
+    """The cast sheet may give alternatives and notes: "cháu / cháu yêu", "con (Linda)"."""
+    term = re.sub(r"\([^)]*\)", " ", term or "")
+    parts = re.split(r"\s*(?:/|,|;|hoặc|or)\s*", term)
+    return {_norm(p) for p in parts if _norm(p)}
+
+
+def matches(used: str | None, want: str | None) -> bool:
+    """A used term matches an expected one, or extends it ("cháu yêu" for "cháu")."""
+    u = _norm(re.sub(r"\([^)]*\)", " ", used or ""))
+    opts = options(want)
+    return not opts or not u or any(u == o or u.split()[0] == o.split()[0] for o in opts)
+
+
 def tokens(text: str) -> list[str]:
     return [_norm(t) for t in re.findall(r"\w+", unicodedata.normalize("NFC", text))]
 
@@ -64,9 +78,10 @@ def check_line(
         ("self", tr.self_term, exp.self_term),
         ("other", tr.other_term, exp.other_term),
     ):
-        if used and want and _norm(used) != _norm(want):
+        if used and want and not matches(used, want):
             issues.append(f"{role} term '{used}' but the cast sheet says '{want}'")
-    wanted = {_norm(exp.self_term), _norm(exp.other_term)}
+    wanted = options(exp.self_term) | options(exp.other_term)
+    wanted |= {w.split()[0] for w in wanted if w}
     stray = sorted({t for t in tokens(text) if t in generic and t not in wanted})
     if stray and (wanted - generic - {""}):
         issues.append(f"generic pronoun {', '.join(repr(t) for t in stray)} in a kinship relation")

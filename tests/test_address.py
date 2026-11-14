@@ -43,6 +43,13 @@ def test_line_check_against_the_cast_sheet():
     assert check_line(_unit(3, 70000), later.target, later, cast, "vi", GENERIC) == []
 
 
+def test_alternatives_and_notes_in_the_cast_sheet():
+    from dub.ops.address import matches
+
+    assert matches("cháu", "cháu / cháu yêu") and matches("cháu yêu", "cháu")
+    assert matches("con", "con (Linda)") and not matches("bố", "con (Linda)")
+
+
 def test_whole_script_consistency_flags_the_odd_line_out():
     units = [_unit(i, i * 3000) for i in range(5)]
     trs = {f"u{i}": _tr(i, "...", "S1", "cháu", "ông") for i in range(4)}

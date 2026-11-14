@@ -6,7 +6,7 @@ For every line return:
 - target: a natural translation whose length is close to target_units.
 - short: a condensed version of about 75-85% of target_units that keeps the core meaning.
 - long: a fuller version of about 110-120% of target_units; if nothing useful can be added, repeat target.
-- listener: who the line is spoken to (a speaker id, "audience", or null), decided from turn order and content.
+- listener: who the line is spoken to (a speaker id, "audience", or null). A name or title in the line ("Mom,", "Grandpa,") decides it. Without one, use turn-taking: a question or request is usually addressed to the speaker who answers it next, and a reply to the speaker it answers. Check "before" and "after".
 - self_term and other_term: the forms of address you actually used (null if none).
 - note: anything a reviewer should know, else null.
 
