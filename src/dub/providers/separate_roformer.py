@@ -30,23 +30,33 @@ class MelRoformer:
     def __init__(self, manifest: ProviderManifest):
         self.manifest = manifest
         self.sep: Any = None
+        self.loaded: tuple = ()
 
     def load(self, ctx: RunCtx) -> None:
         from audio_separator.separator import Separator
 
         model_dir = os.environ.get("DUB_MODELS", str(ctx.cas.root.parent / "models"))
+        p = ctx.params
+        # batch_size: chunks run through the model at once (same output, more throughput)
+        mdxc = {"segment_size": 256, "override_model_segment_size": False,
+                "batch_size": p.get("batch_size"), "overlap": None, "pitch_shift": 0}  # fmt: skip
         self.sep = Separator(
             output_dir=str(ctx.cas.root / "tmp"),
             model_file_dir=str(Path(model_dir) / "audio-separator"),
             output_format="WAV",
             sample_rate=48000,
+            mdxc_params=mdxc,
         )
-        self.sep.load_model(model_filename=ctx.params.get("model", DEFAULT_MODEL))
+        self.sep.load_model(model_filename=p.get("model", DEFAULT_MODEL))
+        self.loaded = (p.get("model", DEFAULT_MODEL), p.get("batch_size"))
 
     def run(self, op: str, req: SeparateReq, ctx: RunCtx) -> Stems:
         if op != "audio.separate":
             raise ProviderError(f"{self.manifest.id} does not implement {op}", kind="unsupported")
-        if self.sep is None:
+        if self.sep is None or self.loaded != (
+            ctx.params.get("model", DEFAULT_MODEL),
+            ctx.params.get("batch_size"),
+        ):
             self.load(ctx)
         out_dir = Path(tempfile.mkdtemp(prefix="sep-", dir=ctx.cas.root / "tmp"))
         try:
