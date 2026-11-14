@@ -6,6 +6,6 @@ env: sep
 impl: dub.providers.separate_roformer:MelRoformer
 impl_version: "1"
 weights: {name: vocals_mel_band_roformer.ckpt}
-params: {model: vocals_mel_band_roformer.ckpt, batch_size: 8}   # M5: same output, 155 -> 118 s per hour
+params: {model: vocals_mel_band_roformer.ckpt}
 limits: {max_concurrency: 1}
 description: Splits the mix into vocals (speech) and instrumental (the bed the dub is mixed over).

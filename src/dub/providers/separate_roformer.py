@@ -37,18 +37,27 @@ class MelRoformer:
 
         model_dir = os.environ.get("DUB_MODELS", str(ctx.cas.root.parent / "models"))
         p = ctx.params
-        # batch_size: chunks run through the model at once (same output, more throughput)
+        precision = p.get("precision", "fp32")  # fp32 | autocast | fp16 (native)
         mdxc = {"segment_size": 256, "override_model_segment_size": False,
-                "batch_size": p.get("batch_size"), "overlap": None, "pitch_shift": 0}  # fmt: skip
+                "batch_size": None, "overlap": p.get("overlap"), "pitch_shift": 0}  # fmt: skip
         self.sep = Separator(
             output_dir=str(ctx.cas.root / "tmp"),
             model_file_dir=str(Path(model_dir) / "audio-separator"),
             output_format="WAV",
-            sample_rate=48000,
+            # The rate the mix is loaded (resampled) at. The model was trained at 44.1 kHz;
+            # run() resamples the stems to 48 kHz anyway.
+            sample_rate=int(p.get("sample_rate", 48000)),
             mdxc_params=mdxc,
+            use_autocast=precision == "autocast",
+            use_native_fp16=precision == "fp16",
         )
         self.sep.load_model(model_filename=p.get("model", DEFAULT_MODEL))
-        self.loaded = (p.get("model", DEFAULT_MODEL), p.get("batch_size"))
+        self.loaded = self._key(p)
+
+    @staticmethod
+    def _key(p: dict) -> tuple:
+        return (p.get("model", DEFAULT_MODEL), p.get("sample_rate", 48000),
+                p.get("precision", "fp32"), p.get("overlap"))  # fmt: skip
 
     def offload(self) -> None:
         """Weights to CPU memory (1.9 GB freed in 0.6 s; back in 0.1 s, against 14.9 s to load)."""
@@ -67,10 +76,7 @@ class MelRoformer:
     def run(self, op: str, req: SeparateReq, ctx: RunCtx) -> Stems:
         if op != "audio.separate":
             raise ProviderError(f"{self.manifest.id} does not implement {op}", kind="unsupported")
-        if self.sep is None or self.loaded != (
-            ctx.params.get("model", DEFAULT_MODEL),
-            ctx.params.get("batch_size"),
-        ):
+        if self.sep is None or self.loaded != self._key(ctx.params):
             self.load(ctx)
         out_dir = Path(tempfile.mkdtemp(prefix="sep-", dir=ctx.cas.root / "tmp"))
         try:
