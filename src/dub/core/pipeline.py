@@ -1078,7 +1078,7 @@ async def run_job(
         calls=len(cx.stats),
         cache_hits=sum(1 for s in cx.stats if s.hit),
     )
-    _write_outputs(
+    summary = _write_outputs(
         job_dir,
         cx,
         tracer,
@@ -1099,6 +1099,7 @@ async def run_job(
         addr,
         _unsure_units(units, speaker_stats.get("unsure_spans", [])),
     )
+    log(f"      {summary}")
     # the voice references used (clip key, transcript): review, experiments, re-voicing
     (job_dir / "refs.json").write_text(refs.model_dump_json(indent=1), encoding="utf-8")
     cx.flush_stats()
@@ -1666,7 +1667,7 @@ def _write_outputs(
     purity,
     addr,
     speaker_unsure: set[str] | None = None,
-) -> None:
+) -> str:
     tracer.save(job_dir / "trace.json")
     with open(job_dir / "routes.jsonl", "w", encoding="utf-8") as f:
         for r in cx.routes:
@@ -1708,9 +1709,60 @@ def _write_outputs(
     )
     (job_dir / "segmentation.json").write_text(seg.model_dump_json(indent=1), encoding="utf-8")
     (job_dir / "metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
-    (job_dir / "report.md").write_text(
-        render_report(cx, seg, sheet, placements, tgt_track, tgt_lp, metrics), encoding="utf-8"
-    )
+    report = render_report(cx, seg, sheet, placements, tgt_track, tgt_lp, metrics)
+    risks = residual_risks(rows)
+    gap = "\n\n"
+    head, _, rest = report.partition(gap)  # the risks right under the title
+    (job_dir / "report.md").write_text(head + gap + "\n".join(risks) + gap + rest, encoding="utf-8")
+    return risk_summary(rows)
+
+
+RISK_REVIEW = 3.0  # a line this risky is worth a listen
+
+
+def _risk_kind(reason: str) -> str:
+    """The family of a risk reason, for the summary."""
+    for key, kind in (
+        ("CER", "words"),
+        ("voice", "voice"),
+        ("end of the line", "cut off"),
+        ("who says it", "speaker guessed"),
+        ("another voice", "mixed voices"),
+        ("sped up", "fast"),
+        ("does not fit", "overflow"),
+        ("forms of address", "address"),
+        ("not translated", "untranslated"),
+    ):
+        if key in reason:
+            return kind
+    return "other"  # fmt: skip
+
+
+def risk_summary(rows: list[dict]) -> str:
+    """One line for the end of a run: how many lines are worth a listen, and why."""
+    risky = [r for r in rows if r["risk"] >= RISK_REVIEW and not r["edited"]]
+    if not risky:
+        return f"residual risks: none of {len(rows)} lines above {RISK_REVIEW:g}"
+    # lines per kind (a line counts once per kind; minor reasons are not listed)
+    kinds = Counter(k for r in risky for k in {_risk_kind(x) for x in r["risk_reasons"]}
+                    if k != "other")  # fmt: skip
+    why = ", ".join(f"{n} {k}" for k, n in kinds.most_common())
+    return f"residual risks: {len(risky)} of {len(rows)} lines worth a listen ({why})"
+
+
+def residual_risks(rows: list[dict], top: int = 15) -> list[str]:
+    """The report's first section: what is left to check after a one-pass run (M8)."""
+    out = ["## Residual risks", "", risk_summary(rows).capitalize() + ".", ""]
+    risky = sorted((r for r in rows if r["risk"] >= RISK_REVIEW and not r["edited"]),
+                   key=lambda r: -r["risk"])  # fmt: skip
+    for r in risky[:top]:
+        u = r["unit"]
+        text = (r["placement"] or {}).get("text") or u["text"]
+        out.append(f"- {u['start_ms'] / 1000:7.1f} s `{u['id']}` risk {r['risk']}: {text[:60]} "
+                   f"({'; '.join(r['risk_reasons'])})")  # fmt: skip
+    if len(risky) > top:
+        out.append(f"- ... {len(risky) - top} more in units.json (the review page sorts by risk)")
+    return out
 
 
 def _pct(values: list[float], q: float) -> float:

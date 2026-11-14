@@ -121,3 +121,23 @@ def test_text_a_short_clip_cannot_hold_is_dropped():
     assert [w.w for w in kept] == ["cay", "rồi."]  # 600 ms holds at most 5.8 syllables
     long_clip = plausible(heard, 3000, "Gầy rồi.", "syllable", " ")
     assert long_clip == heard  # 3 s can hold all of it: a real insertion, judged as such
+
+
+def test_residual_risks_list_the_lines_worth_a_listen():
+    from dub.core.pipeline import residual_risks, risk_summary
+
+    def row(i, risk, reasons, edited=False):
+        unit = {"id": f"u{i}", "start_ms": i * 1000, "text": f"line {i}"}
+        return {"unit": unit, "placement": {"text": f"dòng {i}"}, "risk": risk,
+                "risk_reasons": reasons, "edited": edited}  # fmt: skip
+
+    rows = [row(1, 8.0, ["the dub does not sound like the text (CER 80%)", "very short line"]),
+            row(2, 4.0, ["who says it is a guess (the script does not show it)"]),
+            row(3, 9.0, ["the dub does not sound like the text (CER 90%)"], edited=True),
+            row(4, 0.5, ["very short line"])]  # fmt: skip
+    assert risk_summary(rows) == (
+        "residual risks: 2 of 4 lines worth a listen (1 words, 1 speaker guessed)"
+    )
+    out = residual_risks(rows)
+    assert out[0] == "## Residual risks" and "`u1` risk 8.0: dòng 1" in out[4]
+    assert not any("`u3`" in ln for ln in out)  # a human already looked at it
