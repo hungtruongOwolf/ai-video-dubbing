@@ -112,6 +112,7 @@ class JobSpec:
     export: bool = True  # False: stop after the mixed tiles (fast preview while editing)
     analysis_only: bool = False  # stop after segmentation (benchmarks: dub bench seg)
     confirm_cast: bool = False  # stop after the cast sheet, for the user to correct it
+    fresh: bool = False  # recompute every step, ignoring the cache (dub bench speed --fresh)
 
 
 @dataclass
@@ -162,6 +163,7 @@ async def run_job(
         job_id=job_id,
         log=log,
         facts={"src_lang": spec.src_lang, "tgt_lang": spec.tgt_lang, "profile": profile_name},
+        fresh=spec.fresh,
     )
     ws.db.upsert_job(
         job_id,

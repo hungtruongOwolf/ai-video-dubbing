@@ -155,3 +155,8 @@ def test_bench_speed_reports_stages_lanes_and_ops(demo, tmp_path, capsys):
     assert [s["stage"][:5] for s in rep["stages"]] == [f"[{k}/7]" for k in range(1, 8)]
     assert rep["wall_s"] > 0 and rep["media_s"] > 50 and rep["gpu_util_mean"] is None
     assert sum(s["wall_s"] for s in rep["stages"]) <= rep["wall_s"] + 0.5
+    # --fresh: a second run recomputes everything instead of reading the cache
+    assert main([*args, "--fresh"]) == 0
+    job = next((tmp_path / "ws" / "jobs").iterdir())
+    names = [e["name"] for e in json.loads((job / "trace.json").read_text())["traceEvents"]]
+    assert "tts.synthesize" in names and not any(n.endswith("(cache)") for n in names)

@@ -100,6 +100,7 @@ class Ctx:
         job_id: str,
         facts: dict[str, Any],
         log: Callable[[str], None] = print,
+        fresh: bool = False,
     ):
         self.cfg = cfg
         self.ws = ws
@@ -109,6 +110,7 @@ class Ctx:
         self.job_id = job_id
         self.facts = facts
         self.log = log
+        self.fresh = fresh  # benchmarks: recompute everything (results are still stored)
         self.routes: list[v1.RouteTrace] = []
         self.stats: list[CallStat] = []
         self._prompt_cache: dict[str, str] = {}
@@ -124,6 +126,8 @@ class Ctx:
         return {"prompt_file": name, "prompt_hash": self._prompt_cache[name]}
 
     def _lookup(self, key: str) -> dict[str, Any] | None:
+        if self.fresh:
+            return None
         cached = self.ws.memo.get(key)
         if cached is None:
             return None

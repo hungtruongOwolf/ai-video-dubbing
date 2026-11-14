@@ -144,6 +144,9 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--golden", type=Path, help="seg: reference, one sentence per line")
     b.add_argument("--to", dest="tgt", default="vi", help="speed: target language (default vi)")
     b.add_argument("--profile", default=None, help="speed: draft | final")
+    b.add_argument(
+        "--fresh", action="store_true", help="speed: recompute every step (ignore the cache)"
+    )
     b.add_argument("--tol", type=int, default=1, help="tolerance in words (default 1)")
     b.add_argument("--from", dest="src", default="auto", help="spoken language")
     b.add_argument("--remote", action="store_true", help="analyse on the GPU pod")
@@ -387,7 +390,7 @@ def cmd_bench_speed(a) -> int:
     else:  # a media file: dub it first (cached stages are reused, so bench a fresh run)
         opts = RunOptions(
             video=a.target, tgt=a.tgt, src=a.src, profile=a.profile, remote=a.remote,
-            fake=a.fake, config_dir=a.config_dir, use=a.use,
+            fake=a.fake, config_dir=a.config_dir, use=a.use, fresh=a.fresh,
         )  # fmt: skip
         job = run_video(opts, Workspace.open(a.workspace), log=print).job_dir
     media_s = None
