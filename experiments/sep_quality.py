@@ -102,7 +102,7 @@ def make(cas) -> list[dict]:
             mix = speech + m
             peak = max(1.0, float(np.abs(mix).max()) / 0.95)
             keys = {}
-            for kind, sig in (("mix", mix / peak), ("speech", speech / peak), ("music", m / peak)):
+            for kind, sig in (("mix", mix / peak), ("speech", speech / peak), ("bed", m / peak)):
                 tmp = cas.tmp_path(".wav")
                 write_wav(tmp, np.stack([sig, sig], axis=1).astype(np.float32), SR)
                 keys[kind] = cas.put_file(tmp, move=True)
@@ -132,7 +132,7 @@ def run(long_key: str | None) -> None:
             voc = read_wav(cas.path(st["vocals_key"]))[0].mean(axis=1)
             ins = read_wav(cas.path(st["instrumental_key"]))[0].mean(axis=1)
             speech = read_wav(cas.path(m["speech"]))[0][:, 0]
-            music = read_wav(cas.path(m["music"]))[0][:, 0]
+            music = read_wav(cas.path(m["bed"]))[0][:, 0]
             for k in (st["vocals_key"], st["instrumental_key"]):
                 cas.path(k).unlink(missing_ok=True)  # experiment output: keep the quota free
             rows.append({"music": m["music"], "db_below": m["db_below"],

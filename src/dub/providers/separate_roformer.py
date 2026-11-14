@@ -8,6 +8,9 @@ Runs in the `sep` worker env on the GPU pod.
 
 Manifest params:
     model: audio-separator model filename (default: Kim's vocals Mel-Band RoFormer)
+    sample_rate: rate the mix is loaded at (default 44100, the model's training rate)
+    precision: fp32 | autocast (default) | fp16
+    overlap: chunk overlap (default: the model's)
 """
 
 from __future__ import annotations
@@ -37,7 +40,7 @@ class MelRoformer:
 
         model_dir = os.environ.get("DUB_MODELS", str(ctx.cas.root.parent / "models"))
         p = ctx.params
-        precision = p.get("precision", "fp32")  # fp32 | autocast | fp16 (native)
+        precision = p.get("precision", "autocast")  # fp32 | autocast | fp16 (native)
         mdxc = {"segment_size": 256, "override_model_segment_size": False,
                 "batch_size": None, "overlap": p.get("overlap"), "pitch_shift": 0}  # fmt: skip
         self.sep = Separator(
@@ -46,7 +49,7 @@ class MelRoformer:
             output_format="WAV",
             # The rate the mix is loaded (resampled) at. The model was trained at 44.1 kHz;
             # run() resamples the stems to 48 kHz anyway.
-            sample_rate=int(p.get("sample_rate", 48000)),
+            sample_rate=int(p.get("sample_rate", 44100)),
             mdxc_params=mdxc,
             use_autocast=precision == "autocast",
             use_native_fp16=precision == "fp16",
@@ -56,8 +59,8 @@ class MelRoformer:
 
     @staticmethod
     def _key(p: dict) -> tuple:
-        return (p.get("model", DEFAULT_MODEL), p.get("sample_rate", 48000),
-                p.get("precision", "fp32"), p.get("overlap"))  # fmt: skip
+        return (p.get("model", DEFAULT_MODEL), p.get("sample_rate", 44100),
+                p.get("precision", "autocast"), p.get("overlap"))  # fmt: skip
 
     def offload(self) -> None:
         """Weights to CPU memory (1.9 GB freed in 0.6 s; back in 0.1 s, against 14.9 s to load)."""

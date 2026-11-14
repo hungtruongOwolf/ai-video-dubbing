@@ -4,8 +4,12 @@ op: [audio.separate]
 runtime: http
 env: sep
 impl: dub.providers.separate_roformer:MelRoformer
-impl_version: "1"
+impl_version: "2"
 weights: {name: vocals_mel_band_roformer.ckpt}
-params: {model: vocals_mel_band_roformer.ckpt}
+# Post-M6 (experiments/sep_quality.py, 6 synthetic mixes + the 60-min speech): loading the
+# mix at the model's 44.1 kHz instead of 48 kHz: vocals SI-SDR 20.93 -> 21.51 dB, bed 12.42 ->
+# 13.02 dB; autocast: same SI-SDR to 0.01 dB, 146.8 -> 88.5 s per hour (outputs differ by at
+# most 1.8e-4, so it is really on; native fp16 86.1 s, within noise, keeps more ops in fp16).
+params: {model: vocals_mel_band_roformer.ckpt, sample_rate: 44100, precision: autocast}
 limits: {max_concurrency: 1}
 description: Splits the mix into vocals (speech) and instrumental (the bed the dub is mixed over).
