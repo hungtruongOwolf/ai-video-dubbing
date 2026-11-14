@@ -73,6 +73,7 @@ from dub.core.ctx import Ctx
 from dub.core.executor import Executor
 from dub.core.router import Router
 from dub.core.trace import Tracer
+from dub.ops import address as address_ops
 from dub.ops import diarize as diar_ops
 from dub.ops import edits as edits_ops
 from dub.ops import media as media_ops
@@ -292,7 +293,7 @@ async def run_job(
     for u in units:
         groups.setdefault(base_index.get((u.parent_ids or [u.id])[0], 0) // size, []).append(u)
 
-    async def translate_window(k: int, win: list[Unit]) -> None:
+    async def translate_window(k: int, win: list[Unit], feedback: dict | None = None) -> None:
         i = k * size
         before = base_units[max(0, i - ctx_n) : i]
         after = base_units[i + size : i + size + ctx_n]
@@ -305,12 +306,39 @@ async def run_job(
             context=sheet.subset_for(before + win + after),
             speech_unit=tgt_lp.speech_unit,
             units_per_s=tgt_lp.units_per_s,
+            feedback={u.id: feedback[u.id] for u in win if feedback and u.id in feedback},
         )
         batch: TranslationBatch = await cx.call("mt.translate", req, subject=f"w{k:04d}")
         for tr in batch.items:
             translations[tr.unit_id] = tr
 
     await asyncio.gather(*(translate_window(k, w) for k, w in sorted(groups.items())))
+
+    # Forms of address: rule check per line + whole-script consistency; the final profile
+    # translates the windows with problems again, telling the translator what was wrong.
+    generic = {g.lower() for g in tgt_lp.address_generic}
+
+    def address_issues() -> dict[str, str]:
+        found: dict[str, str] = {}
+        for u in units:
+            tr = translations.get(u.id)
+            if tr and u.id not in ue.text:
+                probs = address_ops.check_line(u, tr.target, tr, sheet.cast, spec.tgt_lang, generic)
+                if probs:
+                    found[u.id] = "; ".join(probs)
+        for uid, why in address_ops.consistency(units, translations, sheet.cast).items():
+            if uid not in ue.text:
+                found[uid] = f"{found[uid]}; {why}" if uid in found else why
+        return found
+
+    addr = address_issues()
+    for _round in range(2 if profile.llm_rewrite else 0):
+        if not addr:
+            break
+        log(f"      forms of address: {len(addr)} lines to fix, translating their windows again")
+        todo = {k: w for k, w in groups.items() if any(u.id in addr for u in w)}
+        await asyncio.gather(*(translate_window(k, w, addr) for k, w in sorted(todo.items())))
+        addr = address_issues()
     untranslated = {u.id for u in units if u.id not in translations}
     for u in units:  # never crash on a window the LLM answered partially: flag it instead
         if u.id in untranslated:
@@ -493,6 +521,8 @@ async def run_job(
                         lang=spec.tgt_lang, words=_scale(check_words, 1 / max(fit.stretch, 1e-6))
                     )
             flags = list(fit.flags) + (["untranslated"] if u.id in untranslated else [])
+            if u.id in addr:
+                flags.append("address")
             if qa is not None and not qa.passed:
                 flags.append("qa_failed")
             return Placement(
@@ -630,6 +660,7 @@ async def run_job(
         tiles,
     )
     metrics.update(speaker_metrics(diar, purity, qas, refs))
+    metrics["address_flagged"] = len(addr)
     result = JobResult(
         job_id=job_id,
         job_dir=job_dir,
@@ -665,6 +696,7 @@ async def run_job(
         backcheck_text,
         {uid: q.as_dict() for uid, q in qas.items()},
         purity,
+        addr,
     )
     cx.flush_stats()
     ws.db.upsert_job(
@@ -805,6 +837,7 @@ def _write_outputs(
     backcheck_text,
     qa_rows,
     purity,
+    addr,
 ) -> None:
     tracer.save(job_dir / "trace.json")
     with open(job_dir / "routes.jsonl", "w", encoding="utf-8") as f:
@@ -819,7 +852,7 @@ def _write_outputs(
         edited = u.id in ue.text or u.id in ue.seed or u.id in ue.speaker or u.id in ue.nudge
         risk, why = risk_ops.score(
             u, p, tr, edited=edited, cer=backcheck_cer.get(u.id), qa=qa_rows.get(u.id),
-            purity=purity.get(u.id),
+            purity=purity.get(u.id), address=addr.get(u.id),
         )  # fmt: skip
         rows.append(
             {
@@ -835,6 +868,7 @@ def _write_outputs(
                 "backcheck_text": backcheck_text.get(u.id),
                 "qa": qa_rows.get(u.id),
                 "purity": purity.get(u.id),
+                "address_issue": addr.get(u.id),
             }
         )
     (job_dir / "tiles.json").write_text(

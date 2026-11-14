@@ -216,6 +216,7 @@ def translate_prompt(req: TranslateReq) -> str:
                 "seconds": round(u.slot_ms / 1000, 2),
                 "target_units": max(1, round(u.slot_ms / 1000 * req.units_per_s)),
                 "text": u.text,
+                **({"fix": req.feedback[u.id]} if u.id in req.feedback else {}),
             }
             for u in req.units
         ],

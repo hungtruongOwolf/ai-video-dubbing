@@ -99,6 +99,8 @@ class Langpack(Cfg):
     segment: SegmentCfg = Field(default_factory=SegmentCfg)
     subs: SubsCfg = Field(default_factory=SubsCfg)
     chains: dict[str, list[str]] = Field(default_factory=dict)  # op -> preferred providers
+    # Pronouns that are wrong where a relation calls for kinship terms (dub.ops.address).
+    address_generic: list[str] = Field(default_factory=list)
 
     def segment_params(self) -> SegmentParams:
         s = self.segment

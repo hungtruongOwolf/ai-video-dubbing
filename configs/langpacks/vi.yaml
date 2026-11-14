@@ -7,6 +7,8 @@ units_per_s: 4.7               # E7: OmniVoice (cross-lingual clone) loses words
 joiner: " "
 segment: {max_unit_s: 15, target_unit_s: 7, min_unit_s: 1.0, hard_pause_s: 1.5}
 subs: {cpl: 42, cps: 17, max_lines: 2}
+# Generic pronouns: wrong when the cast sheet gives kinship terms (ông/cháu, mẹ/con, anh/em...).
+address_generic: [tôi, tao, tớ, mình, mày, cậu, bạn, ta]
 chains:
   asr.transcribe: [phowhisper_large_ct2, whisper_large_v3]   # Whisper-v3 alone has WER ~40% on vi
   tts.synthesize: [omnivoice]                                # incumbent; challengers enter via the swap gate

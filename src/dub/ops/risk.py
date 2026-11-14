@@ -13,8 +13,12 @@ from dub.contracts.v1 import Placement, Translation, Unit
 
 def score(unit: Unit, placement: Placement | None, tr: Translation | None,
           edited: bool = False, cer: float | None = None, qa: dict | None = None,
-          purity: float | None = None) -> tuple[float, list[str]]:  # fmt: skip
+          purity: float | None = None, address: str | None = None,
+          ) -> tuple[float, list[str]]:  # fmt: skip
     s, why = 0.0, []
+    if address:
+        s += 3
+        why.append(f"forms of address: {address}")
     if cer is not None and cer > 0.15:
         s += min(cer, 1.0) * 8
         why.append(f"the dub does not sound like the text (CER {cer:.0%})")

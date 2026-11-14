@@ -300,6 +300,7 @@ class TranslateReq(Model):
     context: ContextSheet
     speech_unit: Literal["syllable", "char", "word"] = "syllable"
     units_per_s: float = 4.5  # estimated speaking rate of the target language
+    feedback: dict[str, str] = Field(default_factory=dict)  # unit id -> problem to fix
 
 
 class Translation(Model):

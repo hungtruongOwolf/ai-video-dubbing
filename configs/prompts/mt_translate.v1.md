@@ -17,5 +17,7 @@ Rules:
 - Write numbers, units and symbols the way they are spoken.
 - No explanations, brackets or stage directions inside the lines.
 - Return exactly one item per unit_id in "lines", with the same unit_id.
+- A line with "fix" was translated before and a checker found that problem in it (usually the
+  forms of address). Correct it; keep the other lines as they were unless the fix requires it.
 
 Return only the structured result.

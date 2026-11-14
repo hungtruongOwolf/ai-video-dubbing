@@ -33,7 +33,8 @@ from experiments.common import data_dir, run_worker, save_json  # noqa: E402
 AMI_WAV = "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/ES2004a/audio/ES2004a.Mix-Headset.wav"
 AMI_RTTM = "https://raw.githubusercontent.com/pyannote/AMI-diarization-setup/main/only_words/rttms/test/ES2004a.rttm"
 AMI_SECONDS = 600
-THRESHOLDS = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+THRESHOLDS = [0.7, 0.75, 0.8, 0.85, 0.9]
+MIN_SHARES = [0.02, 0.05]
 FRAME = 10
 
 
@@ -140,10 +141,11 @@ def main() -> None:
         n_true = len({t[0] for t in truth})
         row = {"single_speaker": score(truth, [("S1", 0, dur)], dur)}
         for th in THRESHOLDS:
-            d = run_worker("tts", "ecapa_cluster", "audio.diarize", {"audio_key": v16},
-                           params={"threshold": th})  # fmt: skip
-            hyp = [(t["speaker"], t["start_ms"], t["end_ms"]) for t in d["turns"]]
-            row[f"ecapa@{th}"] = score(truth, hyp, dur)
+            for ms in MIN_SHARES:
+                d = run_worker("tts", "ecapa_cluster", "audio.diarize", {"audio_key": v16},
+                               params={"threshold": th, "min_share": ms})  # fmt: skip
+                hyp = [(t["speaker"], t["start_ms"], t["end_ms"]) for t in d["turns"]]
+                row[f"ecapa@{th}/{ms}"] = score(truth, hyp, dur)
         d = run_worker("tts", "ecapa_cluster", "audio.diarize",
                        {"audio_key": v16, "speakers_hint": n_true})  # fmt: skip
         row["ecapa@k=true"] = score(truth, [(t["speaker"], t["start_ms"], t["end_ms"])
