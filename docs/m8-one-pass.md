@@ -17,7 +17,7 @@ otherwise: RTX PRO 4500 Blackwell (32 GB, $0.72/h), zh → vi, final profile.
 
 | Change | Measured on the TikTok drama | Kept? |
 |---|---|---|
-| Who says each line read from the script (`text.speakers`) | speaker changes that change voice: 4% (default clustering), 22% (after the re-clustering loop) → 90%, precision 87%; B-cubed F1 0.42 / 0.54 → 0.81 | yes |
+| Who says each line read from the script (`text.speakers`) | speaker changes that change voice: 4% (default clustering), 22% (after the re-clustering loop) → 82-90% over two runs, precision 87-91%; B-cubed F1 0.42 / 0.54 → 0.71-0.81 | yes |
 | Re-clustering finer when the cast sheet finds several people under one voice (M8 first try) | 2 → 5 voices but changes 22% → 24%; QA pass 0.91 → 0.84 | replaced by the above |
 | Burned-in subtitles (OCR on the laptop) correct the transcript | 61 characters fixed; ASR vs subtitles CER 8.8% | yes |
 | A line with no subtitle over it stays original | kept real answers in Chinese ("没谁啊") | only for songs and background voices now |
