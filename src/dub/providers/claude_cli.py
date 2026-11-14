@@ -322,6 +322,17 @@ def to_batch(out: LLMTranslation, req: TranslateReq) -> TranslationBatch:
         for ln in out.lines
         if ln.unit_id in wanted
     ]
+    # Every line must come back, translated: a missing or empty line would otherwise be voiced
+    # in the source language. Retryable: the core asks again (the answer varies).
+    got = {t.unit_id for t in items if t.target.strip()}
+    missing = sorted(wanted - got)
+    if missing:
+        raise ProviderError(
+            f"translation incomplete: {len(missing)} of {len(wanted)} lines missing or empty "
+            f"({', '.join(missing[:5])})",
+            kind="bad_output",
+            retryable=True,
+        )
     return TranslationBatch(items=items)
 
 

@@ -239,3 +239,17 @@ def test_llm_sentence_boundaries_in_windows(cfg, ctx, calls):
     assert len(seen) == 3
     first = seen[0]["stdin"]
     assert "w1{1} <pause 0.9 s>" in first and "[DECIDE]" in first and "Context after:" in first
+
+
+def test_an_incomplete_translation_is_a_retryable_error(cfg, ctx, calls):
+    calls(ok({"lines": [{"unit_id": "u1", "listener": None, "self_term": None,
+                         "other_term": None, "target": "Xin chào.", "short": "Chào.",
+                         "long": "Xin chào bạn.", "note": None}]}))  # fmt: skip
+    req = TranslateReq(
+        src_lang="en", tgt_lang="vi",
+        units=[unit("u1", "S1", "Hello.", 0), unit("u2", "S1", "Bye.", 3000)],
+        context=ContextSheet(),
+    )  # fmt: skip
+    with pytest.raises(ProviderError) as e:
+        ClaudeCLI(cfg.providers["claude_cli"]).run("mt.translate", req, ctx)
+    assert e.value.kind == "bad_output" and e.value.retryable and "u2" in str(e.value)
