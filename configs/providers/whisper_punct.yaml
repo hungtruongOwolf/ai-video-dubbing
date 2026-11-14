@@ -1,0 +1,25 @@
+# Candidate (M7): Whisper large-v3's words (sequential decoding, as whisper_large_v3) plus the
+# sentence punctuation of a second, batched pass over VAD chunks where both passes heard the
+# same words. For Vietnamese the batched donor raised sentence F1 from 0.687 to 0.779; this
+# tests whether other source languages gain the same way. One copy of the model on the GPU.
+id: whisper_punct
+op: [asr.transcribe]
+runtime: http
+env: asr
+impl: dub.providers.asr_whisper:PunctTransferASR
+impl_version: "1"
+libs: [faster-whisper]
+status: candidate
+preload: false
+weights: {hf: Systran/faster-whisper-large-v3, revision: edaa852ec7e145841d8ffdb056a99866b5f0a478}
+params:
+  model: Systran/faster-whisper-large-v3
+  revision: edaa852ec7e145841d8ffdb056a99866b5f0a478
+  compute_type: float16
+  beam_size: 5
+  punct_model: Systran/faster-whisper-large-v3
+  punct_revision: edaa852ec7e145841d8ffdb056a99866b5f0a478
+  punct_batch_size: 16
+limits: {max_concurrency: 32, max_batch: 16}
+license: MIT
+description: Whisper words with the sentence punctuation of a batched Whisper pass.

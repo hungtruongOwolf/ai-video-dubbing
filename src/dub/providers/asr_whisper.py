@@ -204,7 +204,7 @@ class FasterWhisperASR:
 
 # ---------------------------------------------------------------- punctuation transfer
 
-SENTENCE_MARKS = ".?!"
+SENTENCE_MARKS = ".?!。？！"  # full-width marks: Whisper writes them for zh/ja
 
 
 def transfer_punct(words: list[Word], donor: list[Word], window_ms: int = 60_000,

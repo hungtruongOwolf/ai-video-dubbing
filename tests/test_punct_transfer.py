@@ -80,3 +80,20 @@ def test_providers_with_the_same_weights_share_one_model(monkeypatch):
     assert b.model.model.model_is_loaded and b.model.model.loads == 1
     a.restore()  # already back: no second load
     assert a.model.model.loads == 1
+
+
+def test_full_width_marks_are_transferred_too():
+    """zh/ja: Whisper writes 。？！; one character per word."""
+    from dub.contracts.v1 import Word
+    from dub.providers.asr_whisper import transfer_punct
+
+    def ws(chars, step=200):
+        return [Word(w=c, start_ms=i * step, end_ms=i * step + 150) for i, c in enumerate(chars)]
+
+    ours = ws(list("我们今天聊聊这个话题吧"))
+    donor = ws(list("我们今天聊聊。这个话题吧？"))
+    donor = [w for w in donor if w.w not in "。？"]
+    donor[5] = donor[5].model_copy(update={"w": "聊。"})
+    donor[-1] = donor[-1].model_copy(update={"w": "吧？"})
+    out = transfer_punct(ours, donor)
+    assert "".join(w.w for w in out) == "我们今天聊聊。这个话题吧？"

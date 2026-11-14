@@ -11,7 +11,7 @@ subs: {cpl: 42, cps: 17, max_lines: 2}
 address_generic: [tôi, tao, tớ, mày, cậu, bạn]   # not mình/ta: also "we/our" (nhà mình)
 chains:
   # M7: PhoWhisper's words + Whisper large-v3's punctuation where both heard the same words:
-  # sentence F1 0.687 -> 0.724 on 8 videos (7 better, 1 worse). E6 (M4): Whisper alone
+  # sentence F1 0.687 -> 0.779 on 8 videos (7 better, 1 worse). E6 (M4): Whisper alone
   # invents sentences on hard audio, so its words are never used.
   asr.transcribe: [phowhisper_punct, phowhisper_large_ct2, whisper_large_v3]
   asr.backcheck: [phowhisper_large_ct2, whisper_large_v3]   # words only, batched (M5)

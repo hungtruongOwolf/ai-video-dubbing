@@ -1,6 +1,6 @@
 # Vietnamese source ASR (M7): PhoWhisper's words and times + Whisper large-v3's sentence
 # punctuation where both heard the same words. PhoWhisper writes no punctuation and SaT then
-# guesses; with the transfer, sentence F1 0.687 -> 0.724 on 8 real videos (7 better, 1 worse:
+# guesses; with the transfer, sentence F1 0.687 -> 0.779 on 8 real videos (7 better, 1 worse:
 # a 1945 recording). Both models are shared with phowhisper_large_ct2 / whisper_large_v3 in
 # the asr worker (one copy each on the GPU).
 id: phowhisper_punct
@@ -20,6 +20,9 @@ params:
   beam_size: 5
   punct_model: Systran/faster-whisper-large-v3
   punct_revision: edaa852ec7e145841d8ffdb056a99866b5f0a478
+  # The donor decodes VAD chunks in batches: on 8 vi videos F1 0.724 (sequential donor) ->
+  # 0.779, and 34.2 s instead of 54.3 s per 10 min (PhoWhisper alone: 26.9 s).
+  punct_batch_size: 16
 caps: {langs: [vi]}
 limits: {max_concurrency: 32, max_batch: 16}
 license: MIT (conversions); PhoWhisper BSD-3-Clause; Whisper MIT
