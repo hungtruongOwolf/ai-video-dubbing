@@ -174,4 +174,6 @@ def fuse(
     )
     stats["unsure"] = sum(1 for s in attr.sure if not s)
     stats["names"] = {names[c.id]: c.who for c in attr.characters if c.id in names}
+    stats["kinds"] = {names[c.id]: c.kind for c in attr.characters
+                      if c.id in names and c.kind != "person"}  # fmt: skip
     return turns, stats

@@ -354,13 +354,13 @@ async def run_job(
     for w in warnings:
         log(f"      edit skipped: {w}")
     voiced = ue.apply_to_units(units)  # speaker and slot edits
-    if hardsub_stats:  # no subtitle over a line that the subtitles would carry: not dialogue
-        auto = [uid for uid in hardsub_ops.uncaptioned(voiced, spec.hardsubs,
-                hardsub_stats["hardsub_coverage"]) if uid not in ue.dub_forced]  # fmt: skip
-        ue.original.update(auto)
-        hardsub_stats["auto_original"] = len(auto)
+    auto = _not_dialogue(voiced, spec.hardsubs, hardsub_stats, speaker_stats)
+    auto = [uid for uid in auto if uid not in ue.dub_forced]
+    ue.original.update(auto)
+    if hardsub_stats or speaker_stats.get("applied"):
+        speaker_stats["auto_original"] = len(auto)
         if auto:
-            log(f"      {len(auto)} lines without subtitles kept original (songs, background)")
+            log(f"      {len(auto)} lines kept original (songs, background voices)")
     # Speaker embedding of every line: picks the most typical reference clip per speaker and
     # gives the QA gate each speaker's centroid. Purity: share of a line spoken by its speaker.
     emb: Embeddings = await cx.call(
@@ -1012,7 +1012,10 @@ async def run_job(
     metrics.update(speaker_metrics(diar, purity, qas, refs))
     metrics.update(level_stats)
     metrics.update(hardsub_stats)
-    metrics.update({f"speakers_{k}": v for k, v in speaker_stats.items() if k != "names"})
+    metrics.update({f"speakers_{k}": v for k, v in speaker_stats.items()
+                    if k not in ("names", "kinds", "auto_original")})  # fmt: skip
+    if "auto_original" in speaker_stats:
+        metrics["auto_original"] = speaker_stats["auto_original"]
     if auditions:  # how much the audition changed the voices (see _audition_voices)
         metrics["audition_switched"] = sum(1 for a in auditions if a.chosen)
         gains = [
@@ -1177,6 +1180,33 @@ CALIB_MAX_PAD_MS = 800
 DIAR_STEP = 0.1
 DIAR_FLOOR = 0.7
 DIAR_FINER_MIN_SHARE = 0.03
+
+
+def _not_dialogue(
+    units: list[Unit],
+    cues: list[HardsubCue],
+    hardsub_stats: dict[str, Any],
+    speaker_stats: dict[str, Any],
+) -> list[str]:
+    """Lines kept in the original audio: songs, and voices that are not part of the speech.
+
+    With lines attributed (text.speakers): a song is never dubbed; a background voice (a
+    crowd, a TV) is not when no subtitle carries it; a person's line always is, subtitled or
+    not ("没谁啊", an answer the subtitles left out, had stayed in Chinese). Without it: a line
+    with no subtitle over it, when the subtitles carry the dialogue elsewhere.
+    """
+    uncaptioned: set[str] = set()
+    if hardsub_stats:
+        uncaptioned = set(hardsub_ops.uncaptioned(units, cues, hardsub_stats["hardsub_coverage"]))
+    if not speaker_stats.get("applied"):
+        return [u.id for u in units if u.id in uncaptioned]
+    kinds = speaker_stats.get("kinds", {})
+    return [
+        u.id
+        for u in units
+        if kinds.get(u.speaker) == "singing"
+        or (kinds.get(u.speaker) == "background" and u.id in uncaptioned)
+    ]
 
 
 def _turn_spans(turns: list[Turn], per_speaker: int = 5) -> tuple[list[tuple[int, int]], list[str]]:

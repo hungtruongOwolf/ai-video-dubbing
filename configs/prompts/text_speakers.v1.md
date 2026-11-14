@@ -18,9 +18,13 @@ background, sometimes a line the subtitles left out.
 Return:
 - `characters`: everyone who speaks, with an id (P1, P2...), `who` (their role or name as the
   dialogue shows it, in English, e.g. "the wet nurse", "her husband", "Steward Sun", "the
-  interviewer", "narrator", "background song") and their gender (`unknown` if the dialogue and
-  the voices do not show it). Characters listed as known keep their ids; add new ones after
-  them.
+  interviewer", "narrator", "background song"), their gender (`unknown` if the dialogue and
+  the voices do not show it) and their `kind`: `person` for anyone taking part in the video's
+  speech (dialogue, narration, an interview), `singing` for a song (lyrics), `background` for
+  voices that are not part of it (a crowd, a TV or radio in the scene). Songs and background
+  voices are left in the original language, so a line someone says to someone, even a short
+  one ("Nobody.", "Ten taels?") missing from the subtitles, is a `person`'s. Characters listed
+  as known keep their ids; add new ones after them.
 - `lines`: for every line between [DECIDE] and [/DECIDE], its index, the character who says
   it, and `sure` (false when you are guessing).
 
@@ -36,7 +40,8 @@ How to decide:
   because they share a voice label, and do not invent a new character for a line that the
   people already in the scene can say.
 - Singing and background voices that are not part of the dialogue get their own character
-  ("background song", "crowd"), never a character of the story.
+  ("background song", "crowd") of kind `singing` or `background`, never a character of the
+  story. Lyrics read like a poem or a chorus and do not answer anyone.
 - A monologue, a lecture, a narrated video: one character, unless the words show someone
   else speaking (a question from the audience, a quoted interview played in the video).
 - When the words do not show who speaks, follow the voice label: give the line to the

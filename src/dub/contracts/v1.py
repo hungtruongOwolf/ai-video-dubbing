@@ -178,6 +178,9 @@ class Character(Model):
     id: str
     who: str  # role or name, as the dialogue shows it
     gender: Gender = "unknown"
+    # singing: a song (never dubbed); background: voices that are not part of the dialogue
+    # (a crowd, a TV), kept original when no subtitle carries them
+    kind: Literal["person", "singing", "background"] = "person"
 
 
 class Attribution(Model):

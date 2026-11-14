@@ -147,6 +147,7 @@ class LLMCharacter(_S):
     id: str
     who: str
     gender: Gender
+    kind: Literal["person", "singing", "background"]
 
 
 class LLMWho(_S):
@@ -301,7 +302,7 @@ def speakers_prompt(
         f"age band {v.age_band}"
         for v in req.voices
     ]
-    chars = [f"- {c.id}: {c.who} ({c.gender})" for c in known]
+    chars = [f"- {c.id}: {c.who} ({c.gender}, {c.kind})" for c in known]
     nl = "\n"
     parts = [
         f"Language: {req.lang}",
@@ -325,7 +326,7 @@ def merge_speakers(
     chars = {c.id: c for c in known}
     for c in out.characters:
         if c.id not in chars:
-            chars[c.id] = Character(id=c.id, who=c.who, gender=c.gender)
+            chars[c.id] = Character(id=c.id, who=c.who, gender=c.gender, kind=c.kind)
     got = {x.line: x for x in out.lines if a <= x.line < b}
     missing = [i for i in range(a, b) if i not in got]
     if len(missing) > max(2, 0.1 * (b - a)):

@@ -104,3 +104,28 @@ def test_a_one_word_answer_survives_segmentation_when_turns_are_lines():
 
     assert speakers(False) == ["S1", "S2", "S1"]
     assert set(speakers(True)) == {"S1"}  # the answer went back to the asker
+
+
+def test_songs_stay_original_and_uncaptioned_answers_are_dubbed():
+    from dub.contracts.v1 import Unit
+    from dub.core.pipeline import _not_dialogue
+
+    def u(uid, spk, s, e):
+        return Unit(id=uid, speaker=spk, sentence_ids=["s"], start_ms=s, end_ms=e, text="x",
+                    n_words=1)  # fmt: skip
+
+    units = [
+        u("a", "S1", 0, 2000),
+        u("b", "S2", 3000, 4000),  # "没谁啊": no cue over it
+        u("c", "S3", 5000, 8000),
+        u("d", "S4", 9000, 10000),
+    ]  # a song; a crowd, no cue
+    cues = [HardsubCue(start_ms=0, end_ms=2000, text="一"), HardsubCue(start_ms=8500,
+            end_ms=8800, text="二")]  # fmt: skip
+    hs = {"hardsub_coverage": 0.9}
+    # without attribution: every uncaptioned line stays original
+    assert _not_dialogue(units, cues, hs, {}) == ["b", "c", "d"]
+    st = {"applied": True, "kinds": {"S3": "singing", "S4": "background"}}
+    assert _not_dialogue(units, cues, hs, st) == ["c", "d"]
+    # no subtitles at all: a song still stays original, a background voice is dubbed
+    assert _not_dialogue(units, [], {}, st) == ["c"]

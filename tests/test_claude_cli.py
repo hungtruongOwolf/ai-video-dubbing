@@ -266,12 +266,13 @@ def test_speakers_in_windows_keep_character_ids(cfg, ctx, monkeypatch):
     lines = [SpeakerLine(start_ms=i * 1000, end_ms=i * 1000 + 800, text=t,
                          voice="S2" if i == 4 else "S1") for i, t in enumerate(texts)]  # fmt: skip
     answers = iter([
-        {"characters": [{"id": "P1", "who": "the employer", "gender": "female"},
-                        {"id": "P2", "who": "the wet nurse", "gender": "female"}],
+        {"characters": [{"id": "P1", "who": "the employer", "gender": "female", "kind": "person"},
+                        {"id": "P2", "who": "the wet nurse", "gender": "female", "kind": "person"}],
          "lines": [{"line": 0, "speaker": "P1", "sure": True},
                    {"line": 1, "speaker": "P2", "sure": True},
                    {"line": 2, "speaker": "P1", "sure": True}]},
-        {"characters": [{"id": "P3", "who": "her husband", "gender": "male"}],
+        {"characters": [{"id": "P3", "who": "her husband", "gender": "male",
+                         "kind": "person"}],
          "lines": [{"line": 4, "speaker": "P3", "sure": True}]},  # line 3 left out
     ])  # fmt: skip
     seen = []
@@ -295,4 +296,4 @@ def test_speakers_in_windows_keep_character_ids(cfg, ctx, monkeypatch):
     assert [c.id for c in res.characters] == ["P1", "P2", "P3"]
     assert "0 [00:00.0] V1: How many months?" in seen[0]
     assert "- V1: sounds female" in seen[0] and "- none yet" in seen[0]
-    assert "- P2: the wet nurse (female)" in seen[1] and "Context before:" in seen[1]
+    assert "- P2: the wet nurse (female, person)" in seen[1] and "Context before:" in seen[1]
