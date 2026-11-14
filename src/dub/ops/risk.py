@@ -14,8 +14,12 @@ from dub.contracts.v1 import Placement, Translation, Unit
 def score(unit: Unit, placement: Placement | None, tr: Translation | None,
           edited: bool = False, cer: float | None = None, qa: dict | None = None,
           purity: float | None = None, address: str | None = None,
+          speaker_unsure: bool = False,
           ) -> tuple[float, list[str]]:  # fmt: skip
     s, why = 0.0, []
+    if speaker_unsure:
+        s += 2
+        why.append("who says it is a guess (the script does not show it)")
     if address:
         s += 3
         why.append(f"forms of address: {address}")

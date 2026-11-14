@@ -111,3 +111,13 @@ def test_reference_edges_avoid_a_neighbour_and_short_speakers_are_pooled(tmp_pat
     assert np.abs(lead).max() < 0.25  # it does not start inside S2's louder 300 Hz line
     s2 = bank.for_speaker("S2")
     assert s2.seconds >= 3.6 and s2.text.count("line") >= 3  # pooled short lines
+
+
+def test_text_a_short_clip_cannot_hold_is_dropped():
+    from dub.ops.qa import plausible
+
+    heard = _words("cay rồi. hàng trăm triệu tập theo khuynh hướng vô sản trong")
+    kept = plausible(heard, 600, "Gầy rồi.", "syllable", " ")
+    assert [w.w for w in kept] == ["cay", "rồi."]  # 600 ms holds at most 5.8 syllables
+    long_clip = plausible(heard, 3000, "Gầy rồi.", "syllable", " ")
+    assert long_clip == heard  # 3 s can hold all of it: a real insertion, judged as such

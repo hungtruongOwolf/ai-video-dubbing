@@ -4,9 +4,11 @@ Very short dub lines (0.4-1.3 s) came out garbled on a zh -> vi drama. Our lengt
 linear (syllables / units_per_s); OmniVoice's own estimator gives short texts much more time
 (below ~2 s it returns 50 * (frames / 50) ** (1/3) frames). Here short Vietnamese lines of 1-6
 syllables are voiced at several multiples of the linear plan, with the reference voices of
-the E1 set, and back-checked (PhoWhisper): CER per multiple and length.
+the E1 set (English, Chinese) and, with `--refs`, the voices of a finished job (a zh drama),
+and back-checked (PhoWhisper; text a clip that short cannot hold is dropped first,
+`dub.ops.qa.plausible`): CER per multiple and length. Every take's transcript is saved.
 
-Pod (workers running):  envs/core/bin/python experiments/short_lines.py
+Pod (workers running):  envs/core/bin/python experiments/short_lines.py [--refs JOB/refs.json]
 """
 
 from __future__ import annotations
@@ -20,14 +22,15 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from dub.contracts.v1 import Word  # noqa: E402
 from experiments.common import data_dir, run_worker, save_json  # noqa: E402
 
 LINES = [
-    "Gầy rồi.", "Đốt rồi sao?", "Tạ lão gia!", "Đợi mẹ về.", "Thưởng!", "Vâng ạ.",
-    "Cực không em?", "A Nguyên.", "Đi đi, nhanh lên.", "Ừ, con ở một mình.",
-    "Không được đâu.", "Hay quá.", "Mau lên đi.", "Thế thì tốt rồi.", "Ngươi tìm ai?",
-    "Biết rồi.", "Được rồi.", "Cảm ơn anh.", "Con ngủ đi.", "Ai đó?",
+    "Trai.", "Thưởng!", "Gầy rồi.", "Vâng ạ.", "Đốt rồi sao?", "Đợi mẹ về.",
+    "Ngươi tìm ai?", "Tám lạng.", "Đi đi, nhanh lên.", "Thế thì tốt rồi.",
+    "Ừ, con ở một mình.", "Không có ai nói cả đâu.",
 ]  # fmt: skip
+E1_VOICES = ("e1_main_f", "e1_zh_voice")
 MULTIPLES = [1.0, 1.3, 1.6, 2.0, 2.5]
 UNITS_PER_S = 4.7
 
@@ -40,15 +43,24 @@ def _ws():
 
 
 def main() -> None:
+    import argparse
+
     from dub.contracts.v1 import AudioReq, TrimReq
     from dub.ops import media
     from dub.ops.align import cer
+    from dub.ops.qa import plausible
     from dub.ops.timing import count_units
 
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--refs", type=Path, help="refs.json of a finished job: its voices too")
+    a = ap.parse_args()
     cas = _ws().cas
     voices = []
+    if a.refs:
+        for r in json.loads(a.refs.read_text(encoding="utf-8"))["refs"]:
+            voices.append((f"job_{r['speaker']}", r["audio_key"], r["text"]))
     for f in sorted(data_dir().glob("e1_*.*")):
-        if f.suffix not in (".wav", ".flac"):
+        if f.suffix not in (".wav", ".flac") or f.stem not in E1_VOICES:
             continue
         tmp = cas.tmp_path(".wav")
         media.run_ffmpeg(["-i", str(f), "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le", str(tmp)])
@@ -73,18 +85,27 @@ def main() -> None:
                 k16 = media.to_mono16k(AudioReq(audio_key=tr.audio_key), cas).audio_key
                 heard = run_worker("asr", "phowhisper_large_ct2", "asr.backcheck",
                                    {"audio_key": k16, "lang": "vi"})  # fmt: skip
-                e = cer(line, " ".join(w["w"] for w in heard["words"]))
+                words = [Word.model_validate(w) for w in heard["words"]]
+                kept = plausible(words, tr.dur_ms, line, "syllable", " ")
+                e = min(1.0, cer(line, " ".join(w.w for w in kept)))
                 errs.append(e)
-                rows.append({"line": line, "syl": syl, "target_ms": target, "cer": round(e, 3)})
+                rows.append({"line": line, "syl": syl, "voice": vname, "target_ms": target,
+                             "dur_ms": tr.dur_ms, "cer": round(e, 3),
+                             "heard": " ".join(w.w for w in words)})  # fmt: skip
         by_syl = {}
         for r in rows:
             by_syl.setdefault(r["syl"], []).append(r["cer"])
+        ok_by: dict = {}
+        for r in rows:
+            ok_by.setdefault(r["syl"], []).append(r["cer"] <= 0.15)
         res[str(m)] = {
             "cer_mean": round(float(np.mean(errs)), 3),
             "ok_share": round(float(np.mean([e <= 0.15 for e in errs])), 3),
             "cer_by_syllables": {k: round(float(np.mean(v)), 3) for k, v in sorted(by_syl.items())},
+            "ok_by_syllables": {k: round(float(np.mean(v)), 2) for k, v in sorted(ok_by.items())},
+            "rows": rows,
         }
-        print(m, json.dumps(res[str(m)]), flush=True)
+        print(m, json.dumps({k: v for k, v in res[str(m)].items() if k != "rows"}), flush=True)
         save_json(data_dir() / "results" / "short_lines.json", res)
 
 

@@ -499,6 +499,9 @@ async def run_job(
             TranscribeReq(audio_key=clip16.audio_key, lang=spec.tgt_lang, expected_text=text),
             subject=u.id,
         )
+        # what a clip this short can hold (Whisper invents text on sub-second clips)
+        heard = qa_ops.plausible(check.words, clip16.dur_ms, text, tgt_lp.speech_unit,
+                                 tgt_lp.joiner)  # fmt: skip
         vec = None
         if ref and ref.centroid:
             e: Embeddings = await cx.call(
@@ -507,7 +510,7 @@ async def run_job(
             vec = e.vectors[0]
         res = qa_ops.judge(
             text,
-            check.words,
+            heard,
             tgt_lp.joiner,
             vec,
             ref.centroid if ref else None,
@@ -517,7 +520,7 @@ async def run_job(
             centroids={r.speaker: r.centroid for r in refs.refs if r.centroid},
             dur_ms=clip16.dur_ms,
         )
-        return res, check.words
+        return res, heard
 
     # LLM in parallel with TTS (M5): as soon as a window is translated, its lines are voiced
     # ahead (take 0, trimmed, QA'd when the profile judges takes inline). The real voicing
@@ -1016,7 +1019,7 @@ async def run_job(
     metrics.update(level_stats)
     metrics.update(hardsub_stats)
     metrics.update({f"speakers_{k}": v for k, v in speaker_stats.items()
-                    if k not in ("names", "kinds", "auto_original")})  # fmt: skip
+                    if k not in ("names", "kinds", "auto_original", "unsure_spans")})  # fmt: skip
     if "auto_original" in speaker_stats:
         metrics["auto_original"] = speaker_stats["auto_original"]
     if auditions:  # how much the audition changed the voices (see _audition_voices)
@@ -1065,6 +1068,7 @@ async def run_job(
         {uid: q.as_dict() for uid, q in qas.items()},
         purity,
         addr,
+        _unsure_units(units, speaker_stats.get("unsure_spans", [])),
     )
     # the voice references used (clip key, transcript): review, experiments, re-voicing
     (job_dir / "refs.json").write_text(refs.model_dump_json(indent=1), encoding="utf-8")
@@ -1185,6 +1189,17 @@ REF_TEXT_OK = 0.15  # a clip heard within this CER of its line's text is clean
 DIAR_STEP = 0.1
 DIAR_FLOOR = 0.7
 DIAR_FINER_MIN_SHARE = 0.03
+
+
+def _unsure_units(units: list[Unit], spans: list[tuple[int, int]]) -> set[str]:
+    """Units holding most of a line whose speaker the attribution only guessed."""
+    out = set()
+    for s0, e0 in spans:
+        for u in units:
+            ov = min(u.end_ms, e0) - max(u.start_ms, s0)
+            if ov > 0.5 * max(1, e0 - s0):
+                out.add(u.id)
+    return out
 
 
 def _not_dialogue(
@@ -1620,6 +1635,7 @@ def _write_outputs(
     qa_rows,
     purity,
     addr,
+    speaker_unsure: set[str] | None = None,
 ) -> None:
     tracer.save(job_dir / "trace.json")
     with open(job_dir / "routes.jsonl", "w", encoding="utf-8") as f:
@@ -1635,6 +1651,7 @@ def _write_outputs(
         risk, why = risk_ops.score(
             u, p, tr, edited=edited, cer=backcheck_cer.get(u.id), qa=qa_rows.get(u.id),
             purity=purity.get(u.id), address=addr.get(u.id),
+            speaker_unsure=u.id in (speaker_unsure or set()),
         )  # fmt: skip
         rows.append(
             {

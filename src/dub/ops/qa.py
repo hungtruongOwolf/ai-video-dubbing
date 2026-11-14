@@ -86,6 +86,35 @@ def cosine(a: list[float], b: list[float]) -> float:
     return num / (na * nb) if na and nb else 0.0
 
 
+# Fastest speech a clip can hold, per speech unit: syllables (vi), characters (zh, ja), words.
+MAX_UNITS_PER_S = {"syllable": 8.0, "char": 10.0, "word": 5.0}
+
+
+def plausible(words: list[Word], dur_ms: int, expected: str, unit: str, joiner: str) -> list[Word]:
+    """The words a back-check can really have heard in a clip this long.
+
+    Whisper models invent text on very short clips: PhoWhisper heard a 600 ms "Gầy rồi." as
+    "cay rồi. hàng trăm triệu tập theo khuynh hướng vô sản trong..." (M8). Nobody says that in
+    600 ms. When the transcript holds more speech units than the clip can (MAX_UNITS_PER_S,
+    plus one), the run of consecutive words that fits and is closest to the expected text is
+    kept; the rest was never in the audio.
+    """
+    from dub.ops.timing import count_units
+
+    cap = dur_ms / 1000 * MAX_UNITS_PER_S.get(unit, 8.0) + 1
+    if not words or count_units(join_words(words, joiner), unit) <= cap:
+        return words
+    best, best_err = words[:0], 2.0
+    for i in range(len(words)):
+        for j in range(i + 1, len(words) + 1):
+            if count_units(join_words(words[i:j], joiner), unit) > cap:
+                break
+            err = cer(expected, join_words(words[i:j], joiner))
+            if err < best_err:
+                best, best_err = words[i:j], err
+    return list(best)
+
+
 def judge(
     text: str,
     words: list[Word],
