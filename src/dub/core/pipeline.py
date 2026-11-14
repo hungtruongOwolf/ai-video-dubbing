@@ -38,8 +38,8 @@ from dub.contracts.v1 import (
     Edit,
     Embeddings,
     EmbedReq,
-    LevelReq,
-    LevelRes,
+    LineLevel,
+    LineLevelReq,
     MasterReq,
     MediaInfo,
     Placement,
@@ -592,6 +592,7 @@ async def run_job(
     checks: dict[str, WordTimeline] = {}  # unit id -> back-check words (relative to the clip)
     qas: dict[str, qa_ops.QaResult] = {}
     trims: dict[str, TrimRes] = {}
+    levels: dict[str, LineLevel] = {}  # unit id -> its level and the original's (mix gains)
     by_id = {u.id: u for u in units}
     backchecks: list[asyncio.Task] = []
 
@@ -745,6 +746,17 @@ async def run_job(
                     checks[u.id] = WordTimeline(
                         lang=spec.tgt_lang, words=_scale(check_words, 1 / max(fit.stretch, 1e-6))
                     )
+            if cfg.dub.mix.match_level:  # its level and the original's (gains at the end)
+                levels[u.id] = await cx.local(
+                    "audio.line_level",
+                    level_ops.line_level,
+                    LineLevelReq(
+                        vocals_key=stems.vocals_key, slot_start_ms=u.start_ms,
+                        slot_end_ms=u.end_ms, audio_key=stretched.audio_key,
+                    ),
+                    LineLevel,
+                    subject=u.id,
+                )  # fmt: skip
             flags = list(fit.flags) + (["untranslated"] if u.id in untranslated else [])
             if u.id in addr:
                 flags.append("address")
@@ -781,22 +793,18 @@ async def run_job(
     dub_m4a_key = None
     tiles: list[Tile] = []
     level_stats: dict[str, Any] = {}
-    if placements and cfg.dub.mix.match_level:
-        lv: LevelRes = await cx.local(
-            "audio.match_level",
-            level_ops.match_levels,
-            LevelReq(
-                vocals_key=stems.vocals_key,
-                placements=placements,
-                max_dev_db=cfg.dub.mix.level_max_dev_db,
-                max_gain_db=cfg.dub.mix.level_max_gain_db,
-            ),
-            LevelRes,
+    if placements and levels:
+        gains = level_ops.gains_for(
+            levels,
+            {p.unit_id: p.speaker for p in placements},
+            cfg.dub.mix.level_max_dev_db,
+            cfg.dub.mix.level_max_gain_db,
         )
         placements = [
-            p.model_copy(update={"gain_db": lv.gains_db.get(p.unit_id, 0.0)}) for p in placements
+            p.model_copy(update={"gain_db": gains.get(p.unit_id, 0.0)}) for p in placements
         ]
-        level_stats = level_ops.level_metrics(lv)
+        level_stats = level_ops.level_metrics(levels, gains)
+    export: asyncio.Task | None = None
     if placements:
         tile_reqs = [
             TileReq(
@@ -822,21 +830,21 @@ async def run_job(
                 )
             )
         )
-        if spec.export:
-            full: AudioRes = await cx.local(
-                "audio.concat",
-                mix_ops.concat,
-                ConcatReq(keys=[x.audio_key for x in tiles]),
-                AudioRes,
-            )
-            dub_audio_key = full.audio_key
-            m4a: AudioRes = await cx.local(
-                "audio.master",
-                mix_ops.master,
-                MasterReq(audio_key=full.audio_key, loudness_lufs=cfg.dub.mix.loudness_lufs),
-                AudioRes,
-            )
-            dub_m4a_key = m4a.audio_key
+        if spec.export:  # in the background: the subtitles are written meanwhile
+
+            async def export_audio(keys: list[str]) -> tuple[str, str]:
+                full: AudioRes = await cx.local(
+                    "audio.concat", mix_ops.concat, ConcatReq(keys=keys), AudioRes
+                )
+                m4a: AudioRes = await cx.local(
+                    "audio.master",
+                    mix_ops.master,
+                    MasterReq(audio_key=full.audio_key, loudness_lufs=cfg.dub.mix.loudness_lufs),
+                    AudioRes,
+                )
+                return full.audio_key, m4a.audio_key
+
+            export = asyncio.create_task(export_audio([x.audio_key for x in tiles]))
         await checking
         tgt_items = [
             SubItem(
@@ -874,6 +882,8 @@ async def run_job(
     tgt_track, src_track = await asyncio.gather(
         subs_for(spec.tgt_lang, tgt_items), subs_for(src_lang, src_items)
     )
+    if export is not None:
+        dub_audio_key, dub_m4a_key = await export
 
     # ---------------------------------------------------------------- outputs for review
     backcheck_text = {uid: join_words(c.words, tgt_lp.joiner) for uid, c in checks.items()}

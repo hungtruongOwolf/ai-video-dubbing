@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from dub.contracts.v1 import LevelReq, Placement, TileReq
+from dub.contracts.v1 import LineLevelReq, Placement, TileReq
 from dub.ops.audio_io import read_wav, write_wav
-from dub.ops.level import active_level_db, level_metrics, match_levels
+from dub.ops.level import active_level_db, gains_for, level_metrics, line_level
 from dub.ops.mix import mix_tile
 from dub.store.cas import CAS
 
@@ -46,41 +46,47 @@ def _placement(uid: str, spk: str, slot: tuple[int, int], key: str) -> Placement
     )  # fmt: skip
 
 
+def _levels(cas, tmp_path, vocals, clips, slots):
+    vkey = _put(cas, tmp_path, "vocals.wav", vocals)
+    out = {}
+    for i, (clip, (a, b)) in enumerate(zip(clips, slots, strict=True)):
+        key = _put(cas, tmp_path, f"c{i}.wav", clip)
+        req = LineLevelReq(vocals_key=vkey, slot_start_ms=a, slot_end_ms=b, audio_key=key)
+        out[f"u{i}"] = line_level(req, cas)
+    return out
+
+
 def test_lines_follow_the_original_levels(tmp_path):
     cas = CAS(tmp_path / "cas")
     # original: a normal line, a shout (+12 dB), an aside (-8 dB), then a slot with no voice
     levels = [0.05, 0.05 * 4, 0.05 * 0.4, 0.0]
     vocals = np.concatenate([_tone(2.0, a) for a in levels])
-    vkey = _put(cas, tmp_path, "vocals.wav", vocals)
     # the TTS returned every line at the same level
-    clips = [_put(cas, tmp_path, f"c{i}.wav", _tone(1.5, 0.2)) for i in range(4)]
-    ps = [_placement(f"u{i}", "S1", (i * 2000, i * 2000 + 2000), clips[i]) for i in range(4)]
-    res = match_levels(LevelReq(vocals_key=vkey, placements=ps, max_dev_db=10.0), cas)
-    g = res.gains_db
-    assert res.src_db["u3"] is None
-    # relative levels: shout +12 dB, but at most max_dev (10) above the speaker median
-    median = np.median([res.src_db[u] for u in ("u0", "u1", "u2")])
+    lv = _levels(
+        cas,
+        tmp_path,
+        vocals,
+        [_tone(1.5, 0.2)] * 4,
+        [(i * 2000, i * 2000 + 2000) for i in range(4)],
+    )
+    g = gains_for(lv, {f"u{i}": "S1" for i in range(4)}, max_dev_db=10.0)
+    assert lv["u3"].src_db is None
+    median = np.median([lv[u].src_db for u in ("u0", "u1", "u2")])
     assert abs(median - _db(0.05)) < 0.1
+    # relative levels: the shout is +12 dB, but at most max_dev (10) above the speaker median
     assert abs((g["u1"] - g["u0"]) - 10.0) < 0.1
     assert abs((g["u2"] - g["u0"]) - 20 * np.log10(0.4)) < 0.1
     assert abs(g["u0"] - (_db(0.05) - _db(0.2))) < 0.1  # -12 dB: TTS was louder
     assert abs(g["u3"] - g["u0"]) < 0.01  # unmeasurable original: the speaker's median
-    m = level_metrics(res)
+    m = level_metrics(lv, g)
     assert abs(m["level_offset_db_p50"] - 12.04) < 0.1
     assert m["level_corr_raw"] == 0.0  # the raw TTS levels did not follow the original at all
 
 
 def test_gain_is_capped(tmp_path):
     cas = CAS(tmp_path / "cas")
-    vkey = _put(cas, tmp_path, "v.wav", _tone(2.0, 0.5))
-    ckey = _put(cas, tmp_path, "c.wav", _tone(1.0, 0.005))  # 40 dB quieter
-    res = match_levels(
-        LevelReq(
-            vocals_key=vkey, placements=[_placement("u", "S", (0, 2000), ckey)], max_gain_db=15
-        ),
-        cas,
-    )
-    assert res.gains_db["u"] == 15.0
+    lv = _levels(cas, tmp_path, _tone(2.0, 0.5), [_tone(1.0, 0.005)], [(0, 2000)])  # 40 dB
+    assert gains_for(lv, {"u0": "S"}, max_gain_db=15)["u0"] == 15.0
 
 
 def test_mix_applies_the_line_gain(tmp_path):
