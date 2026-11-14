@@ -125,3 +125,21 @@ def test_final_profile_runs_the_qa_gate_take_by_take(demo, tmp_path):
     assert all(u["qa"] and u["qa"]["passed"] for u in units)
     m = json.loads((job / "metrics.json").read_text(encoding="utf-8"))
     assert m["qa_passed"] == 1.0 and m["speakers"] >= 1 and "ref_sim" in m
+
+
+def test_confirm_cast_stops_before_translation_then_corrections_apply(demo, tmp_path, capsys):
+    ws = tmp_path / "ws"
+    assert run(demo, ws, "--confirm-cast") == 0
+    out = capsys.readouterr().out
+    assert "# Cast sheet" in out and "translating" not in out and "dub edit" in out
+    job = next((ws / "jobs").iterdir())
+    assert (job / "cast.md").exists() and not (job / "units.json").exists()
+    assert main(["edit", str(demo), "--to", "vi", "--workspace", str(ws),
+                 "cast", "S1", "name=Ana", "gender=female"]) == 0  # fmt: skip
+    capsys.readouterr()
+    assert run(demo, ws) == 0
+    out = capsys.readouterr().out
+    assert "translating" in out
+    cast = json.loads((job / "cast.json").read_text(encoding="utf-8"))["cast"]
+    s1 = next(s for s in cast["speakers"] if s["id"] == "S1")
+    assert s1["name"] == "Ana" and s1["gender"] == "female" and s1["locked"]

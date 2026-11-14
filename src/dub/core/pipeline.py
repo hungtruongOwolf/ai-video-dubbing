@@ -111,6 +111,7 @@ class JobSpec:
     edits: list[Edit] = field(default_factory=list)  # human edits (see dub.ops.edits)
     export: bool = True  # False: stop after the mixed tiles (fast preview while editing)
     analysis_only: bool = False  # stop after segmentation (benchmarks: dub bench seg)
+    confirm_cast: bool = False  # stop after the cast sheet, for the user to correct it
 
 
 @dataclass
@@ -293,6 +294,9 @@ async def run_job(
         ContextReq(src_lang=src_lang, tgt_lang=spec.tgt_lang, units=base_units, voices=diar.voices),
     )
     sheet = edits_ops.apply_cast(sheet, edits)  # the user's corrections win
+    if spec.confirm_cast:
+        return _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, voiced, src_lang, media,
+                            profile_name)  # fmt: skip
 
     # ---------------------------------------------------------------- Phase B: translate
     log("[5/7] translating")
@@ -775,6 +779,63 @@ def _analysis_result(cx, tracer, ws, job_id, job_dir, spec, seg, src_lang, media
     ws.db.upsert_job(
         job_id, source=spec.source_name, src_lang=src_lang, tgt_lang=spec.tgt_lang,
         profile="analysis", status="done",
+    )  # fmt: skip
+    return JobResult(
+        job_id=job_id, job_dir=job_dir, src_lang=src_lang, tgt_lang=spec.tgt_lang,
+        dub_audio_key=None, dub_m4a_key=None, subs={}, a48k_key=media.a48k_key,
+        metrics=metrics, redone=dict(Counter(st.op for st in cx.stats if not st.hit)),
+        calls=len(cx.stats), cache_hits=sum(1 for s in cx.stats if s.hit),
+    )  # fmt: skip
+
+
+def cast_markdown(sheet: ContextSheet, units: list[Unit], tgt_lang: str) -> str:
+    """The cast sheet for a human to check: who is who (with talk time and first lines, to
+    recognise them) and how each pair addresses each other in the target language."""
+    talk: dict[str, list[Unit]] = {}
+    for u in units:
+        talk.setdefault(u.speaker, []).append(u)
+    out = ["# Cast sheet", "", "| id | name | gender | age | role | talk | first lines |",
+           "|---|---|---|---|---|---|---|"]  # fmt: skip
+    rows = {s.id: s for s in sheet.cast.speakers}
+    for spk in sorted(set(rows) | set(talk)):
+        s = rows.get(spk)
+        us = talk.get(spk, [])
+        secs = sum(u.end_ms - u.start_ms for u in us) / 1000
+        first = " / ".join(u.text for u in us[:2]).replace("|", "/")
+        cells = [spk, s.name or "" if s else "", s.gender if s else "", s.age_band if s else "",
+                 (s.role or "").replace("|", "/") if s else ""]  # fmt: skip
+        mark = " (confirmed)" if s and s.locked else ""
+        out.append(f"| {' | '.join(cells)}{mark} | {secs:.0f} s, {len(us)} lines | {first[:120]} |")
+    out += [
+        "",
+        f"## How they address each other ({tgt_lang})",
+        "",
+        "| speaker > listener | relation | self | other | since |",
+        "|---|---|---|---|---|",
+    ]
+    for r in sheet.cast.relations:
+        a = r.address.get(tgt_lang)
+        out.append(
+            f"| {r.speaker} > {r.listener} | {(r.relation or '').replace('|', '/')} | "
+            f"{a.self_term if a else ''} | {a.other_term if a else ''} | "
+            f"{r.since_ms / 1000:.0f} s |"
+        )
+    return "\n".join(out) + "\n"
+
+
+def _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, units, src_lang, media,
+                 profile_name) -> JobResult:  # fmt: skip
+    """Stop at the cast sheet (`dub run --confirm-cast`): everything so far is cached, so the
+    full run after the corrections starts at translation."""
+    tracer.save(job_dir / "trace.json")
+    (job_dir / "cast.json").write_text(sheet.model_dump_json(indent=2), encoding="utf-8")
+    (job_dir / "cast.md").write_text(cast_markdown(sheet, units, spec.tgt_lang), encoding="utf-8")
+    metrics = {"speakers": len(sheet.cast.speakers), "units": len(units)}
+    (job_dir / "metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
+    cx.flush_stats()
+    ws.db.upsert_job(
+        job_id, source=spec.source_name, src_lang=src_lang, tgt_lang=spec.tgt_lang,
+        profile=profile_name, status="cast",
     )  # fmt: skip
     return JobResult(
         job_id=job_id, job_dir=job_dir, src_lang=src_lang, tgt_lang=spec.tgt_lang,

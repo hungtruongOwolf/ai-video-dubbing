@@ -81,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     r.add_argument("--speakers", type=int, default=None, help="number of speakers, if known")
     r.add_argument("--subs-only", action="store_true", help="subtitles only, no voice")
+    r.add_argument(
+        "--confirm-cast",
+        action="store_true",
+        help="stop after the cast sheet (who is who, forms of address) so you can correct it",
+    )
     r.add_argument("--out-dir", type=Path, default=None, help="default: <video folder>/<name>.dub")
     _common(r)
 
@@ -167,7 +172,7 @@ def _opts(a, **over) -> RunOptions:
         video=a.video, tgt=a.tgt, src=a.src, profile=a.profile, remote=a.remote, fake=a.fake,
         use=a.use, transcript=getattr(a, "transcript", None),
         speakers=getattr(a, "speakers", None), subs_only=getattr(a, "subs_only", False),
-        config_dir=a.config_dir, **over,
+        confirm_cast=getattr(a, "confirm_cast", False), config_dir=a.config_dir, **over,
     )  # fmt: skip
 
 
@@ -182,6 +187,16 @@ def cmd_run(a) -> int:
     except RoutingError as e:
         print(f"error: {e}", file=sys.stderr)
         return 3
+    if a.confirm_cast:
+        print("\n" + (out.job_dir / "cast.md").read_text(encoding="utf-8"))
+        v, to = a.video, a.tgt
+        print(
+            "Correct it, then run again without --confirm-cast (the analysis is cached):\n"
+            f"  dub edit {v} --to {to} cast S2 gender=female name=Linda\n"
+            f"  dub edit {v} --to {to} cast S1>S2 self_term=mẹ other_term=con\n"
+            f"  dub run {v} --to {to}"
+        )
+        return 0
     finish(opts, out, a.out_dir)
     return 0
 

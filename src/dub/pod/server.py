@@ -52,6 +52,7 @@ JOB_FILES = {
     "trace.json",
     "units.json",
     "cast.json",
+    "cast.md",
     "routes.jsonl",
     "tiles.json",
     "metrics.json",
@@ -95,6 +96,7 @@ class Jobs:
             edits=[Edit.model_validate(e) for e in body.get("edits", [])],
             export=bool(body.get("export", True)),
             analysis_only=bool(body.get("analysis_only", False)),
+            confirm_cast=bool(body.get("confirm_cast", False)),
         )
         overrides = overrides_for(self.cfg, list(body.get("use", [])), bool(body.get("fake")))
         job_id = uuid.uuid4().hex[:12]

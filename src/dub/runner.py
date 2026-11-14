@@ -34,6 +34,7 @@ class RunOptions:
     subs_only: bool = False
     export: bool = True
     analysis_only: bool = False  # stop after segmentation (dub bench seg)
+    confirm_cast: bool = False  # stop after the cast sheet (dub run --confirm-cast)
     config_dir: Path | None = None
 
 
@@ -102,7 +103,7 @@ def run_video(opts: RunOptions, ws: Workspace, log: Callable[[str], None] = prin
         audio_key=audio_key, source_name=video.name, tgt_lang=opts.tgt, src_lang=opts.src,
         profile=opts.profile, transcript_key=transcript_key_for(ws, opts, log),
         speakers_hint=opts.speakers, subs_only=opts.subs_only, edits=edits, export=opts.export,
-        analysis_only=opts.analysis_only,
+        analysis_only=opts.analysis_only, confirm_cast=opts.confirm_cast,
     )  # fmt: skip
     if opts.remote:
         return _run_remote(opts, ws, spec, log)
@@ -144,7 +145,7 @@ def _run_remote(opts: RunOptions, ws: Workspace, spec: JobSpec, log) -> RunOutpu
         "tgt_lang": spec.tgt_lang, "src_lang": spec.src_lang, "profile": spec.profile,
         "speakers_hint": spec.speakers_hint, "subs_only": spec.subs_only,
         "use": opts.use, "fake": opts.fake, "export": spec.export,
-        "analysis_only": spec.analysis_only,
+        "analysis_only": spec.analysis_only, "confirm_cast": spec.confirm_cast,
         "edits": [e.model_dump(mode="json") for e in spec.edits],
     }  # fmt: skip
     if spec.transcript_key:
