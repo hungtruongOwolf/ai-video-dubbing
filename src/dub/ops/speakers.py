@@ -31,6 +31,7 @@ from dub.contracts.v1 import (
     Turn,
     Word,
 )
+from dub.ops import hardsubs as hardsub_ops
 
 LINE_PAUSE_MS = 300  # a silence this long ends a phrase
 LINE_MAX_MS = 8000  # a longer phrase is cut at its longest inner pause
@@ -99,30 +100,56 @@ def lines(
     joiner: str = " ",
     min_cue_conf: float = 0.6,
 ) -> list[SpeakerLine]:
-    """The phrases of the dialogue, in time order (see the module doc)."""
-    pieces = _pieces(words, turns, joiner)
+    """The phrases of the dialogue, in time order (see the module doc).
+
+    With subtitles, a cue's line spans the ASR words aligned to it by their characters
+    (`hardsubs.align_words`), so a turn ends where its last word ends, not where the picture
+    changed; a cue no word matched keeps its own times."""
     out: list[SpeakerLine] = []
     cues = [c for c in cues or [] if c.conf >= min_cue_conf and c.text.strip()]
-    if cues:
-        for c in cues:
-            if out and out[-1].text == c.text and c.start_ms - out[-1].end_ms <= CUE_PAD_MS:
-                out[-1] = out[-1].model_copy(update={"end_ms": c.end_ms})
-                continue
-            out.append(SpeakerLine(start_ms=c.start_ms, end_ms=c.end_ms, text=c.text,
-                                   voice=voice_under(c.start_ms, c.end_ms, turns)))  # fmt: skip
-        for p in pieces:
+    if not cues:
+        for p in _pieces(words, turns, joiner):
             t0, t1 = p[0].start_ms, p[-1].end_ms
-            covered = sum(_overlap(w, c) for w in p for c in cues)
-            spoken = sum(max(1, w.end_ms - w.start_ms) for w in p)
+            out.append(SpeakerLine(start_ms=t0, end_ms=t1, text=_text(p, joiner),
+                                   voice=voice_under(t0, t1, turns)))  # fmt: skip
+        return out
+    groups: list[list[int]] = []  # one line per run of identical consecutive cues
+    for j, c in enumerate(cues):
+        last = cues[groups[-1][-1]] if groups else None
+        if last and last.text == c.text and c.start_ms - last.end_ms <= CUE_PAD_MS:
+            groups[-1].append(j)
+        else:
+            groups.append([j])
+    owner = hardsub_ops.align_words(words, cues, min_conf=0.0)
+    line_of = {j: g for g, js in enumerate(groups) for j in js}
+    spans: dict[int, list[int]] = {}
+    for i, o in enumerate(owner):
+        if o is not None:
+            spans.setdefault(line_of[o], []).append(i)
+    for g, js in enumerate(groups):
+        ws_ = spans.get(g)
+        if ws_:
+            t0 = min(words[i].start_ms for i in ws_)
+            t1 = max(words[i].end_ms for i in ws_)
+        else:
+            t0, t1 = cues[js[0]].start_ms, cues[js[-1]].end_ms
+        out.append(SpeakerLine(start_ms=t0, end_ms=t1, text=cues[js[0]].text,
+                               voice=voice_under(t0, t1, turns)))  # fmt: skip
+    # speech no cue holds: runs of unaligned words, kept when they lie outside the cues' time
+    run: list[Word] = []
+    for w, o in [*zip(words, owner, strict=True), (None, 0)]:
+        if w is not None and o is None:
+            run.append(w)
+            continue
+        for p in _pieces(run, turns, joiner) if run else []:
+            t0, t1 = p[0].start_ms, p[-1].end_ms
+            covered = sum(_overlap(x, c) for x in p for c in cues)
+            spoken = sum(max(1, x.end_ms - x.start_ms) for x in p)
             if 1 - min(1.0, covered / spoken) >= UNCAPTIONED_MIN:
                 voice = voice_under(t0, t1, turns)
                 out.append(SpeakerLine(start_ms=t0, end_ms=t1, text=_text(p, joiner), voice=voice,
                                        captioned=False))  # fmt: skip
-    else:
-        for p in pieces:
-            t0, t1 = p[0].start_ms, p[-1].end_ms
-            out.append(SpeakerLine(start_ms=t0, end_ms=t1, text=_text(p, joiner),
-                                   voice=voice_under(t0, t1, turns)))  # fmt: skip
+        run = []
     return sorted(out, key=lambda ln: (ln.start_ms, ln.end_ms))
 
 

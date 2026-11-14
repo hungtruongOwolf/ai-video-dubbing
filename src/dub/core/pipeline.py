@@ -383,12 +383,15 @@ async def run_job(
             units=[u for u in voiced if u.id not in ue.original] or voiced,
             unit_vectors=unit_vectors,
             purity=purity,
-            candidates=1 if spec.subs_only else max(1, cfg.dub.voice.audition),
+            # M8: a few clips per speaker; the one whose words the ASR hears as the line wins
+            candidates=1 if spec.subs_only else max(REF_CANDIDATES, cfg.dub.voice.audition),
         ),  # fmt: skip
         RefBank,
     )
     if not spec.subs_only:
-        refs = await _retranscribe_refs(cx, refs, src_lang, src_lp.joiner, log)
+        refs = await _retranscribe_refs(
+            cx, refs, src_lang, src_lp.joiner, log, keep_alternates=cfg.dub.voice.audition > 1
+        )
     if edits:
         log(f"      {len(edits)} human edits applied")
     # Voice hints for the cast sheet (age, gender): weak evidence, the dialogue outranks it.
@@ -1177,6 +1180,8 @@ def _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, units, src_lang, 
 CALIB_MAX_PAD_MS = 800
 # Diarization again when the cast sheet finds several people under one speaker id (M8: a
 # TikTok drama of ~6 characters came out as 2 voices at 0.85; 0.75 gave 5).
+REF_CANDIDATES = 3  # reference clips tried per speaker (M8)
+REF_TEXT_OK = 0.15  # a clip heard within this CER of its line's text is clean
 DIAR_STEP = 0.1
 DIAR_FLOOR = 0.7
 DIAR_FINER_MIN_SHARE = 0.03
@@ -1300,14 +1305,25 @@ def _foreign_script(tgt_lang: str) -> re.Pattern | None:
 
 
 async def _retranscribe_refs(
-    cx: Ctx, refs: RefBank, lang: str, joiner: str, log: Callable[[str], None]
+    cx: Ctx,
+    refs: RefBank,
+    lang: str,
+    joiner: str,
+    log: Callable[[str], None],
+    keep_alternates: bool = True,
 ) -> RefBank:
-    """Each reference's transcript, from the cut clip itself (M8).
+    """Each reference's transcript, from the cut clip itself (M8), and the cleanest clip.
 
     OmniVoice is primed with the reference audio *and* its text; when they disagree (a unit's
     text for a clip whose edges moved, or several lines joined) the clone can speak part of
     the reference text, in the source language, inside the dub. The source ASR hears the
-    clip again; an empty result keeps the old text."""
+    clip again; an empty result keeps the old text.
+
+    A clip the ASR hears far from its line's text holds something else too: a laugh, another
+    voice, the edge of the next line. Every take of the master's lines of a zh drama began
+    with two extra syllables ("sát nhến") from a reference clip with laughter (CER 0.31 between
+    clip and line). So, of a speaker's candidate clips in rank order, the first heard within
+    REF_TEXT_OK of its line is used, else the one heard closest."""
 
     async def one(ref: VoiceRef) -> VoiceRef:
         clip16: AudioRes = await cx.local(
@@ -1326,14 +1342,25 @@ async def _retranscribe_refs(
         text = join_words(heard.words, joiner).strip()
         return ref.model_copy(update={"text": text}) if text else ref
 
-    new_refs = list(await asyncio.gather(*(one(r) for r in refs.refs)))
-    new_alt = list(await asyncio.gather(*(one(r) for r in refs.alternates)))
-    for old, new in zip(refs.refs, new_refs, strict=True):
-        if old.text != new.text:
-            err = cer(old.text, new.text)
-            log(f"      reference of {new.speaker}: transcript redone from the clip "
-                f"(differed from the line text by CER {err:.2f})")  # fmt: skip
-    return RefBank(refs=new_refs, alternates=new_alt)
+    olds = [*refs.refs, *refs.alternates]
+    news = list(await asyncio.gather(*(one(r) for r in olds)))
+    by: dict[str, list[tuple[float, VoiceRef]]] = {}
+    for old, new in zip(olds, news, strict=True):  # refs first: rank order per speaker
+        by.setdefault(new.speaker, []).append((cer(old.text, new.text), new))
+    chosen: list[VoiceRef] = []
+    rest: list[VoiceRef] = []
+    for r in refs.refs:
+        cands = by[r.speaker]
+        ok = [i for i, (e, _) in enumerate(cands) if e <= REF_TEXT_OK]
+        k = ok[0] if ok else min(range(len(cands)), key=lambda i: cands[i][0])
+        err, best = cands[k]
+        chosen.append(best)
+        rest += [c for i, (_, c) in enumerate(cands) if i != k]
+        if k or err > 0:
+            which = f"clip {k + 1} of {len(cands)}" if len(cands) > 1 else "the clip"
+            log(f"      reference of {r.speaker}: {which}, heard as its line within CER "
+                f"{err:.2f}; its transcript is what the ASR heard")  # fmt: skip
+    return RefBank(refs=chosen, alternates=rest if keep_alternates else [])
 
 
 @dataclass

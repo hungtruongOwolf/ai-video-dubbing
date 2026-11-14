@@ -56,7 +56,25 @@ def test_subtitle_cues_are_the_lines_plus_the_speech_no_cue_covers():
         ("三个", True),
         ("啦啦啦", False),
     ]
-    assert out[1].end_ms == 1900
+    assert (out[1].start_ms, out[1].end_ms) == (1000, 1600)  # the words, not the picture
+
+
+def test_a_word_goes_to_the_cue_its_characters_match_not_the_one_on_screen():
+    # the reply's cue left the screen 300 ms late: by time, 主 would join the question
+    cues = [
+        HardsubCue(start_ms=0, end_ms=1500, text="那你啥时候能回来", conf=0.95),
+        HardsubCue(start_ms=1500, end_ms=3000, text="主家许我回来", conf=0.95),
+    ]
+    words = [w(ch, 100 * i, 100 * i + 90, False) for i, ch in enumerate("那你啥时候能回来")]
+    words += [w(ch, 1200 + 150 * i, 1200 + 150 * i + 140, False)
+              for i, ch in enumerate("主家许我回来")]  # fmt: skip
+    turns = [Turn(speaker="S1", start_ms=0, end_ms=3000)]
+    out = sp.lines(words, turns, cues, joiner="")
+    assert [(ln.text, ln.start_ms) for ln in out] == [
+        ("那你啥时候能回来", 0),
+        ("主家许我回来", 1200),
+    ]
+    assert out[0].end_ms == 790
 
 
 def attribution(ids, genders):

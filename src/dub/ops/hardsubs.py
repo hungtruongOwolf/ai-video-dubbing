@@ -30,6 +30,7 @@ INSERT_CONF = 0.95  # adding characters needs a surer reading than replacing the
 COVER_PAD_MS = 300  # a word this close to a cue counts as captioned
 CAPTIONED_MIN = 0.7  # coverage above which the subtitles are taken to carry the dialogue
 UNIT_MIN_COVER = 0.2  # a unit under this share of captioned time is not dialogue
+ALIGN_MAX_GAP_MS = 1000  # a word aligned to a cue lies at most this far outside its time
 
 
 def _content(text: str) -> list[int]:
@@ -118,3 +119,60 @@ def uncaptioned(units: list[Unit], cues: list[HardsubCue], coverage: float) -> l
         if u.end_ms > u.start_ms
         and _covered(u.start_ms, u.end_ms, cues) / (u.end_ms - u.start_ms) < UNIT_MIN_COVER
     ]
+
+
+def align_words(
+    words: list[Word], cues: list[HardsubCue], min_conf: float = 0.6
+) -> list[int | None]:
+    """The cue each word is said in, by aligning the characters (not the times).
+
+    Cue times come from frames sampled at 4 fps and from when the producer switched the
+    subtitle: a few hundred ms off the speech. Split by time, a reply took the first character
+    of the next speaker's line ("...回来? 主" for "主家许我..."). The characters of the words and
+    of the cues are aligned window by window (as in `correct`); a word takes the cue most of
+    its matched characters belong to, None when none matched.
+    """
+    out: list[int | None] = [None] * len(words)
+    idx = [i for i, c in enumerate(cues) if c.conf >= min_conf and _content(c.text)]
+    if not words or not idx:
+        return out
+    end = max(words[-1].end_ms, cues[idx[-1]].end_ms)
+    for ws in range(0, end + 1, WINDOW_MS):
+        we = ws + WINDOW_MS
+        asr: list[int] = []  # word index of each content char
+        a_seq: list[str] = []
+        for i, w in enumerate(words):
+            if ws <= w.start_ms < we:
+                for k in _content(w.w):
+                    asr.append(i)
+                    a_seq.append(_fold(w.w[k]))
+        owner: list[int] = []  # cue index of each content char
+        o_seq: list[str] = []
+        for j in idx:
+            c = cues[j]
+            if ws <= (c.start_ms + c.end_ms) // 2 < we:
+                for k in _content(c.text):
+                    owner.append(j)
+                    o_seq.append(_fold(c.text[k]))
+        if not asr or not owner:
+            continue
+        votes: dict[int, dict[int, int]] = {}
+        sm = difflib.SequenceMatcher(None, o_seq, a_seq, autojunk=False)
+        for tag, o1, o2, a1, a2 in sm.get_opcodes():
+            if tag not in ("equal", "replace"):
+                continue
+            for t in range(a2 - a1):  # replace runs of other lengths: spread proportionally
+                o = o1 + (t * (o2 - o1)) // max(1, a2 - a1)
+                v = votes.setdefault(asr[a1 + t], {})
+                v[owner[o]] = v.get(owner[o], 0) + 1
+        for i, v in votes.items():
+            j = max(v, key=lambda j: (v[j], -j))
+            w, c = words[i], cues[j]
+            # a substitution far from the cue's time pairs unrelated characters (a song
+            # against the next subtitle): not an alignment
+            if (
+                c.start_ms - ALIGN_MAX_GAP_MS <= w.start_ms
+                and w.end_ms <= c.end_ms + ALIGN_MAX_GAP_MS
+            ):
+                out[i] = j
+    return out
