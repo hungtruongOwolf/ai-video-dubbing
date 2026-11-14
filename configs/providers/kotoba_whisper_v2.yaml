@@ -1,0 +1,19 @@
+# Japanese speech-to-text: Kotoba-Whisper v2.0 (distilled Whisper large-v3 trained on Japanese), CT2.
+id: kotoba_whisper_v2
+op: [asr.transcribe, asr.backcheck]
+runtime: http
+env: asr
+impl: dub.providers.asr_whisper:FasterWhisperASR
+impl_version: "3"
+preload: false  # only needed for Japanese sources: load on first use
+weights: {hf: kotoba-tech/kotoba-whisper-v2.0-faster, revision: f44edd35eaeb2274e85ac7b31fb2c6f59ff1c4bc}
+params:
+  model: kotoba-tech/kotoba-whisper-v2.0-faster
+  revision: f44edd35eaeb2274e85ac7b31fb2c6f59ff1c4bc
+  language: ja
+  compute_type: float16
+  beam_size: 5
+caps: {langs: [ja]}
+limits: {max_concurrency: 1}
+license: MIT
+description: Japanese ASR with word timestamps (candidate; E6 decides).

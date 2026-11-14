@@ -1,0 +1,101 @@
+"""Experiment E6: which ASR per source language, and should it hear the mix or the vocals?
+
+Material: the 11 real videos of real_videos.py (first ~5 minutes, human subtitles in the
+spoken language). For each video the ASR runs on the original mix (16 kHz) and on the
+separated vocals, with every candidate model for that language:
+- whisper_large_v3 for all languages;
+- phowhisper_large_ct2 for Vietnamese;
+- kotoba_whisper_v2 for Japanese.
+Score: CER against the subtitles (letters and digits only, case and punctuation ignored).
+Subtitles are not always verbatim, so compare columns; the absolute level includes their
+own deviations.
+
+Laptop:  uv run python experiments/e6_asr.py prep        (uploads the references, prints a key)
+Pod:     envs/core/bin/python experiments/e6_asr.py run --input KEY
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from experiments.common import data_dir, run_worker, save_json  # noqa: E402
+
+MODELS = {
+    "en": ["whisper_large_v3"],
+    "es": ["whisper_large_v3"],
+    "vi": ["phowhisper_large_ct2", "whisper_large_v3"],
+    "zh": ["whisper_large_v3"],
+    "ja": ["kotoba_whisper_v2", "whisper_large_v3"],
+}
+
+
+def prep() -> None:
+    from dub import remote
+
+    root = data_dir() / "realvid"
+    index = json.loads((root / "index.json").read_text(encoding="utf-8"))
+    sources = json.loads(Path("dub-workspace/sources.json").read_text(encoding="utf-8"))
+    by_path = {str(Path(k).resolve()): v["audio_key"] for k, v in sources.items()}
+    items = []
+    for vid, v in index.items():
+        key = by_path.get(str(Path(v["media"]).resolve()))
+        if not key:
+            print("no uploaded audio for", vid)
+            continue
+        ref = (root / f"{vid}.transcript.txt").read_text(encoding="utf-8")
+        items.append({"id": vid, "lang": v["lang"], "audio_key": key, "reference": ref})
+    path = root / "e6_input.json"
+    path.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+    state = remote.PodState.load(Path("dub-workspace"))
+    key = remote.Dubd(state.url, state.token).upload(path, ".json")
+    print(key)
+
+
+def run(input_key: str) -> None:
+    from dub.contracts.v1 import AudioReq, DecodeReq
+    from dub.ops import media
+    from dub.ops.align import cer
+    from dub.store import Workspace
+
+    ws = Workspace.open(Path(os.environ.get("DUB_ROOT", "/workspace/dub")) / "ws",
+                        db_path=Path("/tmp/exp.sqlite"))  # fmt: skip
+    cas = ws.cas
+    items = json.loads(cas.read_text(input_key))
+    results = {}
+    for it in items:
+        info = media.decode(DecodeReq(src_key=it["audio_key"]), cas)
+        stems = run_worker("sep", "mel_roformer", "audio.separate", {"audio_key": info.a48k_key})
+        vocals = media.to_mono16k(AudioReq(audio_key=stems["vocals_key"]), cas).audio_key
+        row = {}
+        for model in MODELS[it["lang"]]:
+            for name, key in (("mix", info.a16k_key), ("vocals", vocals)):
+                tl = run_worker(
+                    "asr", model, "asr.transcribe", {"audio_key": key, "lang": it["lang"]}
+                )
+                joiner = "" if it["lang"] in ("zh", "ja") else " "
+                heard = joiner.join(w["w"] for w in tl["words"])
+                row[f"{model}/{name}"] = round(cer(it["reference"], heard), 4)
+        results[it["id"]] = {"lang": it["lang"], **row}
+        print(it["id"], row, flush=True)
+    save_json(data_dir() / "results" / "e6.json", results)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("step", choices=["prep", "run"])
+    ap.add_argument("--input")
+    a = ap.parse_args()
+    if a.step == "prep":
+        prep()
+    else:
+        run(a.input)
+
+
+if __name__ == "__main__":
+    main()
