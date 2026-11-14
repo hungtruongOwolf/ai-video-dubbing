@@ -22,7 +22,7 @@ Any language pair, in any direction.
 | **M3** Segmentation + timing | SaT sentence boundaries, VAD-snapped slots (onset error 10 ms), measured speech rates, subtitles per script and timed on the dub | **done** |
 | **M4** Speakers + routing | Diarization (ECAPA), one cloned voice per speaker, QA gate with takes, forms-of-address checker, cast corrections, second TTS engine (VieNeu) | **done** |
 | **M5** Throughput | Continuous batching on the GPU, LLM in parallel with TTS, 24 GB profile, many languages from one analysis: a 60-min video in 14 min (final) / 8 min (draft) | **done** |
-| M6 GPU lab | Optional performance experiments | optional |
+| **M6** GPU lab | Models parked in CPU memory between jobs (kept), CUDA MPS (−6.5%, opt-in), community cloud (priced, not built) | **done** (optional) |
 
 Details: [docs/roadmap.md](docs/roadmap.md).
 
@@ -108,7 +108,7 @@ Speech is still faked, but the context pass (summary, glossary, cast sheet) and 
 | `dub edit VIDEO --to LANG ACTION ...` | Record an edit from the terminal (text, regen, speaker, nudge, split, merge, lock, undo, cast) |
 | `dub bench seg VIDEO --golden FILE --remote` | Analyse a video (no dubbing) and score its sentence boundaries against the sentences really spoken |
 | `dub bench speed VIDEO --to LANG --remote [--fresh]` | Dub a video and show where the time goes: stages, lanes, ops, GPU utilisation |
-| `dub gc [--remote]` | Delete cache files no stored result points to (frees laptop or volume space) |
+| `dub gc [--remote] [--older-than-hours N]` | Delete cache files no stored result points to; with `--older-than-hours`, also forget older audio results (transcripts and translations stay) |
 | `dub doctor` | Show which providers can run on this machine and the route matrix |
 | `dub schema` | Export the `/v1` data contracts as JSON Schema |
 | `dub jobs` | List jobs in the workspace |
@@ -146,6 +146,7 @@ docs/               architecture, configuration, roadmap, milestone notes
 - [docs/m3-segmentation-timing.md](docs/m3-segmentation-timing.md): sentence boundaries, slot snapping, speaking rates, subtitles per script; the experiments behind them
 - [docs/m4-speakers-routing.md](docs/m4-speakers-routing.md): diarization, voices and the QA gate, forms of address, ASR per language, the second TTS engine
 - [docs/m5-throughput.md](docs/m5-throughput.md): where the time of a 60-minute video goes and what made it faster
+- [docs/m6-gpu-lab.md](docs/m6-gpu-lab.md): GPU experiments (CPU-memory offload, MPS, community cloud)
 - [experiments/README.md](experiments/README.md): how to re-run the measurements
 - [docs/claude-subscription.md](docs/claude-subscription.md): translating with `claude -p`
 - [docs/roadmap.md](docs/roadmap.md): milestones and exit criteria

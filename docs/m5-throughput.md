@@ -99,6 +99,16 @@ reruns, resumes and edits reuse it; only a line recomputed after its cache entry
 change, to an equally valid take. The architecture's rule ("the scheduler changes when, not
 what") now carries this one measured exception, for 3.9× TTS throughput.
 
+## The volume
+
+A fresh 60-minute run leaves several GB of WAVs in the pipeline cache (stems, decoded audio,
+takes, stretched clips, tiles); after a day of benchmarks the 50 GB volume was full again and
+a run failed writing the separated vocals. `dub gc --older-than-hours N` now forgets the
+stored results older than N hours that point to files (audio) and sweeps; transcripts,
+segmentations and translations stay, so a video evicted that way recomputes its audio steps
+but not its LLM calls. First use: 9103 results forgotten, 9.1 GB freed. On the pod the sweep
+runs in the background and the laptop polls (it outlasted the proxy's 100 s request limit).
+
 ## Phase A: what was tried and not kept
 
 Phase A (separation ∥ ASR, 179 s) is now the largest fixed cost of a draft.
