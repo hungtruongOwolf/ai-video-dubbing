@@ -20,6 +20,7 @@ from typing import Any
 from dub.contracts.v1 import TranscribeReq, Word, WordTimeline
 from dub.core.config import ProviderManifest
 from dub.core.provider_api import ProviderError, RunCtx
+from dub.ops.audio_io import read_wav
 
 
 class FasterWhisperASR:
@@ -47,8 +48,13 @@ class FasterWhisperASR:
         p = ctx.params
         forced = p.get("language")
         lang = forced or (None if req.lang in ("", "auto") else req.lang)
+        # Pass decoded samples: our input is already a 16 kHz mono WAV, and this avoids
+        # faster-whisper's PyAV decoder (newer PyAV releases broke its call signature).
+        audio, sr = read_wav(ctx.cas.path(req.audio_key))
+        if sr != 16000:
+            raise ProviderError(f"expected 16 kHz audio, got {sr} Hz", kind="bad_input")
         segments, info = self.model.transcribe(
-            str(ctx.cas.path(req.audio_key)),
+            audio.mean(axis=1),
             language=lang,
             word_timestamps=True,
             vad_filter=bool(p.get("vad_filter", True)),
