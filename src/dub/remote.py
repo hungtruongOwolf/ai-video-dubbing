@@ -33,6 +33,8 @@ import yaml
 API = "https://api.runpod.io/v2"
 PART_BYTES = 32 * 1024 * 1024  # under the proxy's 100 MB request limit
 CAPACITY_HINTS = (
+    "no longer any instances",
+    "instances available",
     "no available",
     "not available",
     "insufficient",
@@ -79,7 +81,7 @@ class PodConfig:
     gpus: list[str]
     volume_id: str | None
     data_center: str | None
-    min_cuda: str = "12.8"
+    min_cuda: str | None = "12.8"
     container_disk_gb: int = 30
     port: int = 8000
     idle_minutes: int = 10
@@ -285,13 +287,15 @@ def pod_body(cfg: PodConfig, gpu: str, ref: str, token: str, claude_secret: bool
         "name": f"dub-{time.strftime('%m%d-%H%M')}",
         "image": cfg.image,
         "cloud": "SECURE",
-        "gpu": {"id": gpu, "count": 1, "minCudaVersion": cfg.min_cuda},
+        "gpu": {"id": gpu, "count": 1},
         "disk": cfg.container_disk_gb,
         "ports": [f"{cfg.port}/http"],
         "env": env,
         "entrypoint": ["/bin/bash", "-c"],
         "cmd": [boot],
     }
+    if cfg.min_cuda:
+        body["gpu"]["minCudaVersion"] = cfg.min_cuda
     if cfg.volume_id:
         body["mounts"] = {"network": [{"volumeId": cfg.volume_id, "path": "/workspace"}]}
     if cfg.data_center:
