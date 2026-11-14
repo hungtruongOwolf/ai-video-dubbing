@@ -88,12 +88,14 @@ def _cues(text: dict[str, str]) -> list[tuple[float, float, str]]:
 
 
 def fetch(only: set[str]) -> None:
+    """Shards -> the first MINUTES of each candidate, its cues and reference sentences. Done
+    when <id>.cues.json exists; a full-length /tmp/<id>.wav from an earlier try is reused."""
     from experiments.real_videos import sentences_from_punctuation
 
     root = _root()
     by_shard: dict[tuple[str, str], list[tuple]] = {}
     for c in CANDIDATES:
-        if (not only or c[0] in only or c[1] in only) and not (root / f"{c[0]}.wav").exists():
+        if (not only or c[0] in only or c[1] in only) and not (root / f"{c[0]}.cues.json").exists():
             by_shard.setdefault((c[2], c[3]), []).append(c)
     for (subset, shard), cands in sorted(by_shard.items()):
         text_f = root / f"{subset}-{shard}.json"
@@ -101,25 +103,27 @@ def fetch(only: set[str]) -> None:
             _curl(f"{HF}/{subset}/text/{shard}.json", text_f)
         texts = {v["audio_id"]: v["text"] for v in json.loads(text_f.read_text(encoding="utf-8"))}
         tar = Path("/tmp") / f"yodas-{subset}-{shard}.tar.gz"  # container disk, not the volume
-        print(f"{subset}/{shard}: downloading audio for {', '.join(c[0] for c in cands)}",
-              flush=True)  # fmt: skip
-        _curl(f"{HF}/{subset}/audio/{shard}.tar.gz", tar)
+        missing = [c[0] for c in cands if not Path(f"/tmp/{c[0]}.wav").exists()]
         try:
+            if missing:
+                print(f"{subset}/{shard}: downloading audio for {', '.join(missing)}", flush=True)
+                _curl(f"{HF}/{subset}/audio/{shard}.tar.gz", tar)
+                for vid in missing:
+                    subprocess.run(["tar", "xzf", str(tar), "--no-same-owner", "-C", "/tmp",
+                                    f"./{vid}.wav"], check=True)  # fmt: skip
             for vid, lang, *_ in cands:
-                subprocess.run(["tar", "xzf", str(tar), "--no-same-owner", "-C", "/tmp",
-                                f"./{vid}.wav"], check=True)  # fmt: skip
                 cues = [c for c in _cues(texts[vid]) if c[1] <= MINUTES * 60]
                 end = cues[-1][1] + 0.5
                 subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", f"/tmp/{vid}.wav", "-t",
                                 f"{end:.2f}", "-ac", "1", "-c:a", "pcm_s16le",
                                 str(root / f"{vid}.wav")], check=True)  # fmt: skip
                 Path(f"/tmp/{vid}.wav").unlink()
-                save_json(root / f"{vid}.cues.json", cues)
                 transcript = " ".join(c[2] for c in cues)
                 if lang == "zh":  # the rules split zh at full-width marks only
                     transcript = transcript.replace("?", "？").replace("!", "！")
                 sents = sentences_from_punctuation(transcript, lang)
                 (root / f"{vid}.golden.txt").write_text("\n".join(sents), encoding="utf-8")
+                save_json(root / f"{vid}.cues.json", cues)
                 print(f"  {vid} {lang} {end / 60:.1f} min, {len(cues)} cues, "
                       f"{len(sents)} sentences by punctuation", flush=True)  # fmt: skip
         finally:
