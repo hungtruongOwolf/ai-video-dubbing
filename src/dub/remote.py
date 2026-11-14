@@ -365,11 +365,12 @@ def pod_up(
         log(f"[up] reusing pod {state.pod_id} ({state.gpu})")
         ref = git_ref(repo_root)
         if ref != state.ref:
-            # New code: change DUB_REF; Runpod restarts the container in place (same machine,
-            # no stock risk) and the bootstrap checks out the new commit.
+            # New code: change DUB_REF and the start command (it downloads bootstrap.sh at a
+            # ref); Runpod restarts the container in place (same machine, no stock risk) and the
+            # bootstrap checks out the new commit.
             has_secret = "CLAUDE_CODE_OAUTH_TOKEN" in (pod.get("env") or {})
-            env = pod_body(cfg, state.gpu, ref, state.token, has_secret)["env"]
-            api.update_pod(state.pod_id, {"env": env})
+            body = pod_body(cfg, state.gpu, ref, state.token, has_secret)
+            api.update_pod(state.pod_id, {"env": body["env"], "cmd": body["cmd"]})
             log(f"[up] updating the pod's code {state.ref[:8]} -> {ref[:8]} (container restart)")
             state.ref = ref
             state.save(ws_root)

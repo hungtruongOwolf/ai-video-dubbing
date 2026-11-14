@@ -4,7 +4,8 @@
 set -uo pipefail
 ROOT=${DUB_ROOT:-/workspace/dub}
 mkdir -p "$ROOT"/bin "$ROOT"/logs "$ROOT"/envs
-exec > >(tee -a "$ROOT/logs/bootstrap.log") 2>&1
+# (the re-executed copy below is already logged by the first one)
+[ -n "${DUB_BOOTSTRAP_FROM_REPO:-}" ] || exec > >(tee -a "$ROOT/logs/bootstrap.log") 2>&1
 echo "== bootstrap $(date -u +%FT%TZ) pod=${RUNPOD_POD_ID:-local} ref=${DUB_REF:-main}"
 
 # The uv cache lives on the volume and venvs hold symlinks into it (see pod/setup_env.sh):
@@ -42,6 +43,12 @@ else
   git clone --quiet "$REPO_URL" "$ROOT/repo" || fail "git clone"
 fi
 git -C "$ROOT/repo" checkout --quiet --force "${DUB_REF:-origin/main}" || fail "git checkout ${DUB_REF:-}"
+# The pod's start command fetched this script at the ref the pod was created with; go on with
+# the copy of the commit just checked out, so bootstrap changes reach running pods too.
+if [ -z "${DUB_BOOTSTRAP_FROM_REPO:-}" ]; then
+  export DUB_BOOTSTRAP_FROM_REPO=1
+  exec bash "$ROOT/repo/pod/bootstrap.sh"
+fi
 
 # 4. the core env runs dubd; worker envs are installed by dubd in the background
 bash "$ROOT/repo/pod/setup_env.sh" core || fail "core env"
