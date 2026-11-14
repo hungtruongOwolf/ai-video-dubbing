@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -144,22 +143,26 @@ def _run_remote(opts: RunOptions, ws: Workspace, spec: JobSpec, log) -> RunOutpu
     log(f"[laptop] job {job_id} submitted to pod {state.pod_id}")
     seen = 0
     while True:
-        job = dubd.job(job_id)
+        job = dubd.job(job_id, wait=20, seen=seen)  # returns as soon as something happens
         for line in job["log"][seen:]:
             log(f"[pod] {line}")
         seen = len(job["log"])
         if job["status"] in ("done", "error"):
             break
-        time.sleep(1.5)
     if job["status"] == "error":
         raise RuntimeError(f"job failed on the pod: {job['error']}")
     r = job["result"]
     job_dir = ws.job_dir(r["job_dir"])
-    for name in ("report.md", "trace.json", "units.json", "cast.json", "routes.jsonl",
-                 "tiles.json"):  # fmt: skip
-        dubd.download(f"/jobs/{job_id}/files/{name}", job_dir / name)
-    tgt_srt = dubd.download(f"/cas/{r['subs'][r['tgt_lang']]}", job_dir / "tgt.srt")
-    src_srt = dubd.download(f"/cas/{r['subs'][r['src_lang'] + '.src']}", job_dir / "src.srt")
+    files = dubd.bundle(job_id)
+    for name, text in files.items():
+        if not name.startswith("subs:"):
+            (job_dir / name).write_text(text, encoding="utf-8")
+    tgt_srt = job_dir / "tgt.srt"
+    src_srt = job_dir / "src.srt"
+    tgt_srt.write_text(files[f"subs:{r['tgt_lang']}"], encoding="utf-8")
+    src_srt.write_text(files[f"subs:{r['src_lang']}.src"], encoding="utf-8")
+    if "seconds" in r:
+        log(f"[pod] job took {r['seconds']} s on the pod")
     dub_audio = None
     if r.get("dub_m4a_key"):
         log("[laptop] downloading the dubbed audio")

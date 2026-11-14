@@ -45,8 +45,18 @@ class EditStore:
         return effective(self.all())
 
     def add(self, unit_id: str, field: str, value: Any = None) -> Edit:
-        e = Edit(id=f"{time.time_ns():020d}-{secrets.token_hex(2)}", unit_id=unit_id,
-                 field=field, value=value, ts=time.time())  # fmt: skip
+        # Ids sort in creation order: strictly increasing even when two edits land on the same
+        # clock tick (Windows clocks can return the same nanosecond value twice).
+        existing = self.all()
+        last = int(existing[-1].id.split("-")[0]) if existing else 0
+        ns = max(time.time_ns(), last + 1)
+        e = Edit(
+            id=f"{ns:020d}-{secrets.token_hex(2)}",
+            unit_id=unit_id,
+            field=field,
+            value=value,
+            ts=time.time(),
+        )
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path, "a", encoding="utf-8") as f:
             f.write(e.model_dump_json() + "\n")

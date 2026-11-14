@@ -29,6 +29,7 @@ import shutil
 import threading
 import time
 import traceback
+import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Callable
@@ -110,6 +111,7 @@ class Jobs:
                 self._log(job_id, "waiting for the model workers to finish loading")
                 self.envs.settled.wait()
             job["status"] = "running"
+            t0 = time.perf_counter()
             res = asyncio.run(
                 run_job(
                     self.cfg, self.ws, spec, overrides=overrides, log=lambda m: self._log(job_id, m)
@@ -126,6 +128,7 @@ class Jobs:
                 "a48k_key": res.a48k_key,
                 "warnings": res.warnings,
                 "redone": res.redone,
+                "seconds": round(time.perf_counter() - t0, 2),
                 "calls": res.calls,
                 "cache_hits": res.cache_hits,
             }
@@ -136,6 +139,15 @@ class Jobs:
             job["status"] = "error"
         finally:
             self.touch()
+
+    def wait(self, job_id: str, timeout_s: float, seen: int) -> None:
+        """Block until the job ends, logs past `seen` lines, or the timeout (long-poll)."""
+        deadline = time.time() + min(timeout_s, 25)  # stay under proxy timeouts
+        while time.time() < deadline:
+            j = self.jobs.get(job_id)
+            if j is None or j["status"] in ("done", "error") or len(j["log"]) > seen:
+                return
+            time.sleep(0.05)
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         with self.lock:
@@ -261,6 +273,10 @@ def make_handler(srv: DubServer):
             if secrets.compare_digest(self.headers.get("Authorization", ""), f"Bearer {srv.token}"):
                 srv.touch()
                 return True
+            # Drain the body first: replying while the client is still sending resets the
+            # connection on some platforms.
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            self.close_connection = True
             self._json(401, {"error": "missing or wrong token"})
             return False
 
@@ -271,6 +287,10 @@ def make_handler(srv: DubServer):
             if not self._authed():
                 return
             if len(parts) == 2 and parts[0] == "jobs" and _ID.match(parts[1]):
+                query = self.path.partition("?")[2]
+                q = {k: v[0] for k, v in urllib.parse.parse_qs(query).items()}
+                if "wait" in q:
+                    srv.jobs.wait(parts[1], float(q["wait"]), int(q.get("seen", 0)))
                 job = srv.jobs.get(parts[1])
                 return self._json(200, job) if job else self._json(404, {"error": "no such job"})
             if len(parts) == 4 and parts[0] == "jobs" and parts[2] == "files":
@@ -279,6 +299,18 @@ def make_handler(srv: DubServer):
                     return self._json(404, {"error": "no such file"})
                 path = srv.ws.root / "jobs" / job["result"]["job_dir"] / parts[3]
                 return self._file(path) if path.exists() else self._json(404, {"error": "missing"})
+            if len(parts) == 3 and parts[0] == "jobs" and parts[2] == "bundle":
+                job = srv.jobs.get(parts[1])
+                if not job or not job.get("result"):
+                    return self._json(404, {"error": "no result"})
+                r = job["result"]
+                d = srv.ws.root / "jobs" / r["job_dir"]
+                files = {
+                    n: (d / n).read_text(encoding="utf-8") for n in JOB_FILES if (d / n).exists()
+                }
+                for name, key in r["subs"].items():
+                    files[f"subs:{name}"] = srv.ws.cas.read_text(key)
+                return self._json(200, {"files": files})
             if len(parts) == 2 and parts[0] == "cas" and _KEY.match(parts[1]):
                 path = srv.ws.cas.path(parts[1])
                 return self._file(path) if path.exists() else self._json(404, {"error": "missing"})

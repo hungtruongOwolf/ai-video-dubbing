@@ -260,8 +260,13 @@ class Dubd:
     def submit(self, body: dict[str, Any]) -> str:
         return self._json("POST", "/jobs", body)["job_id"]
 
-    def job(self, job_id: str) -> dict[str, Any]:
-        return self._json("GET", f"/jobs/{job_id}")
+    def job(self, job_id: str, wait: float = 0, seen: int = 0) -> dict[str, Any]:
+        q = f"?wait={wait}&seen={seen}" if wait else ""
+        return self._json("GET", f"/jobs/{job_id}{q}", timeout=wait + 30)
+
+    def bundle(self, job_id: str) -> dict[str, str]:
+        """All small result files of a job in one round trip."""
+        return self._json("GET", f"/jobs/{job_id}/bundle")["files"]
 
     def download(self, path_on_server: str, dest: Path) -> Path:
         req = urllib.request.Request(f"{self.url}{path_on_server}", headers=self.headers)
