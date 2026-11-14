@@ -140,14 +140,18 @@ class Jobs:
         finally:
             self.touch()
 
-    def wait(self, job_id: str, timeout_s: float, seen: int) -> None:
-        """Block until the job ends, logs past `seen` lines, or the timeout (long-poll)."""
-        deadline = time.time() + min(timeout_s, 25)  # stay under proxy timeouts
+    def wait(self, job_id: str, timeout_s: float, seen: int, min_s: float = 2.0) -> None:
+        """Long-poll: return when the job ends, or after `min_s` if there are new log lines,
+        or at the timeout. A short job therefore costs a single round trip."""
+        start = time.time()
+        deadline = start + min(timeout_s, 25)  # stay under proxy timeouts
         while time.time() < deadline:
             j = self.jobs.get(job_id)
-            if j is None or j["status"] in ("done", "error") or len(j["log"]) > seen:
+            if j is None or j["status"] in ("done", "error"):
                 return
-            time.sleep(0.05)
+            if len(j["log"]) > seen and time.time() - start >= min_s:
+                return
+            time.sleep(0.03)
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         with self.lock:
@@ -172,6 +176,14 @@ class DubServer:
         self.started = time.time()
         self.jobs = Jobs(cfg, ws, envs, self.touch)
         self.uploads = ws.root / "uploads"
+
+    def job_files(self, r: dict[str, Any]) -> dict[str, str]:
+        """The small result files of a finished job, plus its subtitles, by name."""
+        d = self.ws.root / "jobs" / r["job_dir"]
+        files = {n: (d / n).read_text(encoding="utf-8") for n in JOB_FILES if (d / n).exists()}
+        for name, key in r["subs"].items():
+            files[f"subs:{name}"] = self.ws.cas.read_text(key)
+        return files
 
     def touch(self) -> None:
         self.last_activity = time.time()
@@ -292,6 +304,8 @@ def make_handler(srv: DubServer):
                 if "wait" in q:
                     srv.jobs.wait(parts[1], float(q["wait"]), int(q.get("seen", 0)))
                 job = srv.jobs.get(parts[1])
+                if job and job.get("result") and q.get("bundle") == "1":
+                    job["files"] = srv.job_files(job["result"])  # saves one more round trip
                 return self._json(200, job) if job else self._json(404, {"error": "no such job"})
             if len(parts) == 4 and parts[0] == "jobs" and parts[2] == "files":
                 job = srv.jobs.get(parts[1])
@@ -303,14 +317,7 @@ def make_handler(srv: DubServer):
                 job = srv.jobs.get(parts[1])
                 if not job or not job.get("result"):
                     return self._json(404, {"error": "no result"})
-                r = job["result"]
-                d = srv.ws.root / "jobs" / r["job_dir"]
-                files = {
-                    n: (d / n).read_text(encoding="utf-8") for n in JOB_FILES if (d / n).exists()
-                }
-                for name, key in r["subs"].items():
-                    files[f"subs:{name}"] = srv.ws.cas.read_text(key)
-                return self._json(200, {"files": files})
+                return self._json(200, {"files": srv.job_files(job["result"])})
             if len(parts) == 2 and parts[0] == "cas" and _KEY.match(parts[1]):
                 path = srv.ws.cas.path(parts[1])
                 return self._file(path) if path.exists() else self._json(404, {"error": "missing"})

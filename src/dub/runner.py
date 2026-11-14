@@ -143,7 +143,7 @@ def _run_remote(opts: RunOptions, ws: Workspace, spec: JobSpec, log) -> RunOutpu
     log(f"[laptop] job {job_id} submitted to pod {state.pod_id}")
     seen = 0
     while True:
-        job = dubd.job(job_id, wait=20, seen=seen)  # returns as soon as something happens
+        job = dubd.job(job_id, wait=20, seen=seen, bundle=True)
         for line in job["log"][seen:]:
             log(f"[pod] {line}")
         seen = len(job["log"])
@@ -153,7 +153,7 @@ def _run_remote(opts: RunOptions, ws: Workspace, spec: JobSpec, log) -> RunOutpu
         raise RuntimeError(f"job failed on the pod: {job['error']}")
     r = job["result"]
     job_dir = ws.job_dir(r["job_dir"])
-    files = dubd.bundle(job_id)
+    files = job.get("files") or dubd.bundle(job_id)
     for name, text in files.items():
         if not name.startswith("subs:"):
             (job_dir / name).write_text(text, encoding="utf-8")

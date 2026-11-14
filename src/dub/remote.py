@@ -237,10 +237,18 @@ class Dubd:
                     time.sleep(3)
                 n += 1
                 log(f"[laptop] uploaded {min(n * PART_BYTES, size) / 1e6:.1f}/{size / 1e6:.1f} MB")
-        return self._json("POST", f"/uploads/{uid}/commit", {"parts": n, "ext": ext})["key"]
+        key = self._json("POST", f"/uploads/{uid}/commit", {"parts": n, "ext": ext})["key"]
+        Dubd._known.add((self.url, key))
+        return key
+
+    _known: set[tuple[str, str]] = set()  # (pod url, key) confirmed present in this process
 
     def has(self, key: str) -> bool:
+        if (self.url, key) in Dubd._known:
+            return True
         code, _ = _request("HEAD", f"{self.url}/cas/{key}", headers=self.headers, timeout=30)
+        if code == 200:
+            Dubd._known.add((self.url, key))
         return code == 200
 
     def preview(self, segments: list[tuple[str, int]], from_ms: int, to_ms: int) -> bytes:
@@ -260,8 +268,8 @@ class Dubd:
     def submit(self, body: dict[str, Any]) -> str:
         return self._json("POST", "/jobs", body)["job_id"]
 
-    def job(self, job_id: str, wait: float = 0, seen: int = 0) -> dict[str, Any]:
-        q = f"?wait={wait}&seen={seen}" if wait else ""
+    def job(self, job_id: str, wait: float = 0, seen: int = 0, bundle: bool = False) -> dict:
+        q = f"?wait={wait}&seen={seen}&bundle={int(bundle)}" if wait else ""
         return self._json("GET", f"/jobs/{job_id}{q}", timeout=wait + 30)
 
     def bundle(self, job_id: str) -> dict[str, str]:
