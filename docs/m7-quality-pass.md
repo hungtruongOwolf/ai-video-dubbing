@@ -260,6 +260,13 @@ cost now; the syllable count already estimates one syllable per digit.
 - **Single flight.** A waiter whose job was stopped cancelled the shared future through
   `asyncio.wrap_future`: the owner's release raised `InvalidStateError` and every other
   waiter was cancelled too. Waiters now shield it (regression test included).
+- **Keep the original of a line** (`dub edit ... original UNIT`): found on a Chinese TikTok drama
+  whose background song was transcribed and dubbed as speech. The slot now plays the separated
+  original vocals; no TTS, no back-check; the subtitle keeps the translation. On that video the
+  default diarization (threshold 0.85) also merged six characters into two voices;
+  `--param ecapa_cluster.threshold=0.75 --param ecapa_cluster.min_share=0.03` gave five, the
+  remaining mix-ups were fixed with `speaker` edits. Short clips with background music remain
+  the weak spot of ECAPA clustering.
 - **A/B of pipeline settings.** `--param dub.SECTION.KEY=VALUE` overrides a dub.yaml setting
   for one run; `bench speed --json` carries the job's quality metrics next to the timings.
 

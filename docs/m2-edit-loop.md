@@ -17,6 +17,9 @@ The page opens at <http://127.0.0.1:8765>. Lines are sorted riskiest first. Clic
 - **Slot ±0.1 s:** move the start or end of the time slot.
 - **Split in two / Merge with next.**
 - **Lock / Unlock;** every edit has an **undo** button.
+- From the command line only (M7): **original** keeps a line's original vocals instead of voicing it, for
+  what is not dialogue: background song lyrics the ASR transcribed, a laugh, a shout. Its subtitle
+  keeps the translation; `dub UNIT` voices it again.
 
 Then press **Render changes**: only the touched lines and their 30 s tiles are redone. **Export video** also runs the final loudness pass and muxes the result next to your video.
 
@@ -30,6 +33,7 @@ uv run dub edit video.mp4 --to vi speaker u0015410-S1 S2
 uv run dub edit video.mp4 --to vi nudge u0021310-S1 -100 200
 uv run dub edit video.mp4 --to vi split u0027750-S2 31200
 uv run dub edit video.mp4 --to vi merge u0044720-S1
+uv run dub edit video.mp4 --to vi original u0176910-S3     # keep its original vocals (a song)
 uv run dub edit video.mp4 --to vi undo
 uv run dub run  video.mp4 --to vi --from en --remote      # renders and exports with the edits
 ```
