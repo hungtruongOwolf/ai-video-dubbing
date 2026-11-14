@@ -2,7 +2,8 @@
 
 Measurements that set defaults. A default changes only through a measured comparison (the
 "swap gate" in the design), so every number in `configs/` that matters points to one of
-these scripts and to its write-up in `docs/m3-segmentation-timing.md`.
+these scripts and to its write-up in `docs/m3-segmentation-timing.md` or
+`docs/m4-speakers-routing.md`.
 
 | Script | Experiment | Runs on | Decides |
 |---|---|---|---|
@@ -11,6 +12,11 @@ these scripts and to its write-up in `docs/m3-segmentation-timing.md`.
 | `e4_segmentation.py speech` | E4 on real speech: OmniVoice reads NTREX, the langpack ASR transcribes, the pipeline segments | pod, `core` env + running workers | confirms E4; onset error of unit starts (ASR vs VAD snapping) |
 | `real_videos.py fetch/run` | Segmentation F1 on 11 real videos (Wikimedia Commons, human subtitles; silver labels in `golden/` for zh/ja) | laptop + pod (`dub bench seg --remote`) | where segmentation still fails |
 | `tts_rate.py gen/mos/report` | E7 natural speaking rate, E3 safe squeeze range, E9 16 vs 32 steps | pod, `core` + `tts` envs + running workers | `units_per_s` per language, `safe_ratio`, draft `num_step` |
+| `drama.py make/fetch` | A 4-person family scene (`drama.json`: 42 lines, who speaks to whom, the Vietnamese address table), voiced with 4 cloned voices, with the truth of who speaks when | pod + laptop | test material of E8 and E10 |
+| `e8_diarization.py` | E8: who speaks when; ECAPA clustering threshold sweep vs `single_speaker` on the drama, the interview clip and the AMI meeting ES2004a | pod, `core` env + running workers | `ecapa_cluster` threshold and min cluster share |
+| `e10_address.py JOB` | E10: speaker swaps and forms of address of a dubbed drama run (en -> vi) | laptop | the address checker, the translation prompt rules |
+| `e6_asr.py prep/run/analyse` | E6: ASR model x mix/vocals on the 11 real videos; Vietnamese numbers and largest differences | laptop + pod | the ASR chain per language, mix vs vocals |
+| `e1_tts.py gen/mos/report` | E1 (+E2): OmniVoice vs VieNeu-TTS for Vietnamese, cloning 5 non-Vietnamese voices: back-check CER, speaker similarity, UTMOS, speed | pod, `core` + `tts` envs + running workers | the vi TTS default |
 
 Data: [NTREX-128](https://github.com/MicrosoftTranslator/NTREX) (CC BY-SA 4.0), downloaded
 on first use into `$DUB_EXP_DATA` (default `experiments/data/`, not committed). Results are
@@ -28,7 +34,16 @@ cd /workspace/dub/repo
 ../envs/core/bin/python experiments/tts_rate.py gen
 ../envs/tts/bin/python  experiments/tts_rate.py mos
 ../envs/core/bin/python experiments/tts_rate.py report
+../envs/core/bin/python experiments/drama.py make
+../envs/core/bin/python experiments/e8_diarization.py --interview-key KEY
+../envs/core/bin/python experiments/e6_asr.py run --input KEY        # KEY from `e6_asr.py prep`
+../envs/core/bin/python experiments/e1_tts.py gen
+TORCH_HOME=/tmp/torch ../envs/tts/bin/python experiments/e1_tts.py mos
+../envs/core/bin/python experiments/e1_tts.py report
 ```
+
+`dub gc --remote` deletes experiment inputs uploaded to the pod's cache (nothing references
+them): run `prep` again after a GC.
 
 The scripts talk to the dubd workers over HTTP (`experiments/common.py: run_worker`), so the
 models already loaded on the GPU are reused, and audio goes through the shared CAS.

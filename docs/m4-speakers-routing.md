@@ -12,7 +12,7 @@ below comes from a measurement; the scripts are in [`experiments/`](../experimen
 | Speakers | `single_speaker`: one cloned voice for the whole video | `ecapa_cluster`: SpeechBrain ECAPA embeddings of 1.5 s windows, average-linkage clustering (threshold 0.85, clusters under 5% absorbed), turns re-cut at real pauses |
 | ASR with several speakers | one pass over the whole track | turn by turn (`clip_timestamps`): no word crosses a speaker change |
 | Speaker of a word | nearest turn | words well inside a turn are anchors; the rest follow their nearest anchored neighbour |
-| Reference voice | first clip of the speaker | the most typical pure line (purity ≥ 0.95, 3–10 s): closest to the speaker's centroid |
+| Reference voice | the 3–10 s line with the best ASR confidence | the most typical pure line (purity ≥ 0.95, 3–10 s): closest to the speaker's centroid |
 | QA of a take | back-check CER in the risk score | gate per take: CER ≤ 0.15, the voice closer to its own speaker than to any other, similarity ≥ 0.5 of the speaker's own, ending heard; `final` tries up to 3 seeds |
 | Forms of address | whatever the LLM wrote | rule checker per line + whole-script consistency, listener inferred from vocatives then turn-taking, flagged windows translated again with the problem stated (final, ≤ 2 rounds); rewrites must keep the terms |
 | Cast sheet | written by the LLM | user corrections win and lock the row: `dub edit … cast`, the review page's cast panel, `dub run --confirm-cast` |
@@ -185,3 +185,29 @@ symlinked libraries). Result: **36.9 GB for 4 worker envs, cache, models and pip
 it was 41.5 GB for 3**. Rules: never `uv cache clean`/`prune` that cache; venvs are rebuilt
 from scratch when their requirements change (cheap with symlinks); bytecode is compiled at
 install time (first imports otherwise wrote thousands of `.pyc` files to the network volume).
+
+## Not done in M4
+
+- **Voice age/gender model** as cast-sheet evidence (the plan named an audeering model): not
+  built. Gender and age still come from the dialogue (the LLM) and from the user.
+- **Blind A/B listening tests**: not run. E1 compares engines with automatic measures only.
+- **Local reference clips** (a reference per line instead of per speaker): not built; one
+  typical clip per speaker passed QA on 97.8% of the drama's lines.
+- **Pyannote / Sortformer** in E8: not compared (gated models; ECAPA met the criteria).
+- **Overlapped speech**: each moment has one speaker; overlaps go to whoever dominates.
+- **Kotoba-Whisper (ja)**: cannot run in the pipeline (see E6).
+
+## Running it yourself
+
+```bash
+uv run dub run drama.mp4 --to vi --from en --remote --profile final --confirm-cast
+uv run dub edit drama.mp4 --to vi cast S4 name=Grandpa age_band=senior
+uv run dub run drama.mp4 --to vi --from en --remote --profile final
+uv run python experiments/e10_address.py dub-workspace/jobs/<job>     # swaps + address
+uv run dub run drama.mp4 --to vi --from en --remote --profile final \
+    --use tts.synthesize=vieneu_v3_turbo                              # the second engine
+```
+
+`report.md` and `metrics.json` carry `speakers`, `units_impure`, `purity_p10`, `qa_passed`,
+`voice_sim_ratio_p50/p10`, `ref_sim` per speaker and `address_flagged`; `units.json` has the
+QA verdict, purity and address issue of every line.

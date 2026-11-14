@@ -147,24 +147,43 @@ First boot on an empty volume, from pod creation to all workers ready: about 5 m
 
 Details: [m3-segmentation-timing.md](m3-segmentation-timing.md).
 
-## M4: Speakers + routing + second engine (next)
+## M4: Speakers + routing + second engine (done)
 
-- [ ] Diarization (pyannote → Nemotron if E8 confirms)
-- [ ] Unit purity check
-- [ ] Reference voice bank (anchor + local clips, quality gate)
-- [ ] Voice age/gender model as cast-sheet evidence
-- [ ] `--confirm-cast` mode
-- [ ] Rule-based forms-of-address checker per language
-- [ ] Whole-script address consistency pass (E10)
-- [ ] QA gate: ASR back-check, speaker similarity, truncation; deterministic k-best takes
-- [ ] Second TTS engine with continuous batching
-- [ ] Blind A/B experiments (`experiments:`)
-- [ ] Exit criteria:
-  - no speaker swaps;
-  - forms of address correct on ≥ 95% of lines in a 4-person video;
-  - switching the vi TTS takes ≤ 3 lines of config
+- [x] Diarization: SpeechBrain ECAPA + clustering (`ecapa_cluster`, Apache-2.0, no HF token); E8 picked threshold 0.85 / min share 5%
+- [x] Turns re-cut at pauses; turn-by-turn ASR with several speakers (speaker swaps 3 → 0 on the drama)
+- [x] Unit purity check (risk score, `metrics.json`)
+- [x] Reference voice bank: the most typical pure 3–10 s line per speaker
+- [x] `--confirm-cast` mode; cast corrections (`dub edit … cast`, review page cast panel)
+- [x] Rule-based forms-of-address checker per language (`address_generic` in the langpack)
+- [x] Whole-script address consistency pass + re-translation with feedback (E10)
+- [x] QA gate: ASR back-check, speaker similarity (relative to the speaker's own lines), truncation; deterministic k-best takes (`final`: 3)
+- [x] Second TTS engine: VieNeu-TTS v3 Turbo (`tts2` env); E1 against OmniVoice
+- [x] E6: ASR per source language, mix vs vocals
+- [ ] Voice age/gender model as cast-sheet evidence: **not done** (the cast sheet still relies on the LLM and the user)
+- [ ] Blind A/B experiments: **not done** (E1 uses automatic measures: CER, speaker similarity, UTMOS)
 
-## M5: Throughput
+**Exit criteria:**
+
+| Criterion | Result |
+|---|---|
+| No speaker swaps | yes on the 4-person drama (42 lines) and the 2-person interview |
+| Forms of address correct on ≥ 95% of lines in a 4-person video | 42 of 42 (100%) on the drama, en → vi, `final` |
+| Switching the vi TTS takes ≤ 3 lines of config | yes: one line in `langpacks/vi.yaml` (chain) + `status: active` in the manifest |
+
+**Changed from the original plan:**
+- Diarization uses ECAPA + clustering instead of pyannote (its models are gated behind a
+  Hugging Face token); pyannote and NVIDIA Sortformer were not compared.
+- The "second engine with continuous batching": VieNeu batches the chunks of one line on the
+  GPU; batching across lines is M5.
+- Local reference clips (a reference per line, not per speaker) were not built: one typical
+  clip per speaker passed QA on 97.8% of the drama's lines.
+- Kotoba-Whisper (ja) cannot run in the pipeline (no word alignment in faster-whisper).
+- The pod's envs are now symlinks into one uv cache (torch stored once): the volume had no
+  room for a fourth copy of torch.
+
+Details: [m4-speakers-routing.md](m4-speakers-routing.md).
+
+## M5: Throughput (next)
 
 - [ ] Batching across units
 - [ ] LLM in parallel with TTS
