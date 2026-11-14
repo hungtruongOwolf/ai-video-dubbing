@@ -30,6 +30,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+_PYLIB = Path(os.environ.get("DUB_EXP_DATA", "")) / "pylib"  # experiment-only packages
+if _PYLIB.is_dir():
+    sys.path.insert(1, str(_PYLIB))
 
 from experiments.common import data_dir, run_worker, save_json, worker_url  # noqa: E402
 
@@ -131,6 +134,16 @@ def fetch(only: set[str]) -> None:
             tar.unlink(missing_ok=True)
 
 
+def _simplified(text: str) -> str:
+    """Traditional -> simplified Chinese: Whisper writes Mandarin in simplified characters,
+    so subtitles in traditional characters would count every differing character as an error
+    (and break the boundary alignment). Needs opencc-python-reimplemented (Apache-2.0) on the
+    path, e.g. installed with `uv pip install --target $DUB_EXP_DATA/pylib`."""
+    from opencc import OpenCC
+
+    return OpenCC("t2s").convert(text)
+
+
 def _norm(text: str, lang: str) -> str:
     text = re.sub(r"[^\w\s]", " ", text.lower())
     return "".join(text.split()) if lang in ("zh", "ja") else " ".join(text.split())
@@ -178,6 +191,10 @@ def run(params: list[str], use: list[str], tag: str, only: set[str]) -> None:
                 print(f"{vid}: {hand} does not match the subtitles, skipped", flush=True)
                 continue
         golden = hand if hand.exists() else root / f"{vid}.golden.txt"
+        if lang == "zh":  # compare in simplified characters, like Whisper writes them
+            conv = root / f"{vid}.golden.simplified.txt"
+            conv.write_text(_simplified(golden.read_text(encoding="utf-8")), encoding="utf-8")
+            golden, subs = conv, _simplified(subs)
         out = root / f"{vid}.scores{('.' + tag) if tag else ''}.json"
         extra = [x for p in params for x in ("--param", p)] + [x for u in use for x in ("--use", u)]
         code = dub(["bench", "seg", str(wav), "--golden", str(golden), "--from", lang,
