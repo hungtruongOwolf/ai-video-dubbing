@@ -68,6 +68,11 @@ class FasterWhisperASR:
         if sr != 16000:
             raise ProviderError(f"expected 16 kHz audio, got {sr} Hz", kind="bad_input")
         extra: dict = {}
+        # A punctuated example nudges Whisper to write punctuation (zh/ja conversation often
+        # comes out without any). initial_prompt conditions the first window, hotwords every one.
+        for k in ("initial_prompt", "hotwords"):
+            if p.get(k):
+                extra[k] = str(p[k])
         if req.clips:  # one speaker turn per clip: Whisper cannot merge words across turns
             extra["clip_timestamps"] = [round(t / 1000, 3) for c in req.clips for t in c]
         batch_size = int(p.get("batch_size", 0))

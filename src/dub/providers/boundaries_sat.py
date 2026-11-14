@@ -64,6 +64,25 @@ def calibrate(p: float, threshold: float) -> float:
     return round(1 / (1 + math.exp(-z)), 4)
 
 
+def min_length_guard(probs: list[float], raw: list[float], min_words: int,
+                     sure: float = 0.99) -> list[float]:  # fmt: skip
+    """Drop a sentence end that would close a sentence shorter than `min_words` words, unless
+    SaT is sure (raw probability >= `sure`). Measured on real videos: the harmful extra cuts
+    (inside a phrase) concentrate in unpunctuated Vietnamese and Japanese."""
+    if min_words <= 1:
+        return probs
+    out = list(probs)
+    since = 0
+    for i, p in enumerate(out):
+        since += 1
+        if p >= 0.5:
+            if since < min_words and raw[i] < sure and i < len(out) - 1:
+                out[i] = 0.45  # below the cut, still a good place for a unit break
+            else:
+                since = 0
+    return out
+
+
 class SaTBoundaries:
     def __init__(self, manifest: ProviderManifest):
         self.manifest = manifest
@@ -108,4 +127,6 @@ class SaTBoundaries:
         char_probs = self.sat.predict_proba(text)
         by_lang = ctx.params.get("lang_threshold") or {}
         t = float(by_lang.get(req.lang.split("-")[0], ctx.params.get("threshold", 0.25)))
-        return Boundaries(probs=[calibrate(p, t) for p in word_probs(char_probs, text, ends)])
+        raw = word_probs(char_probs, text, ends)
+        probs = [calibrate(p, t) for p in raw]
+        return Boundaries(probs=min_length_guard(probs, raw, int(ctx.params.get("min_words", 0))))

@@ -126,3 +126,15 @@ def test_extra_boundaries_at_reference_commas_are_soft():
     d = f.as_dict()
     assert f.hits == 1 and d["soft_fp"] == 1 and d["hard_fp"] == 1
     assert d["clause_p"] == round(2 / 3, 4)
+
+
+def test_min_length_guard_drops_short_sentence_ends_unless_sure():
+    from dub.providers.boundaries_sat import min_length_guard
+
+    probs = [0.1, 0.9, 0.1, 0.1, 0.9, 0.9, 0.1, 0.9]
+    raw = [0.01, 0.6, 0.01, 0.01, 0.6, 0.995, 0.01, 0.9]
+    out = min_length_guard(probs, raw, min_words=3)
+    # word 1 closes a 2-word sentence: dropped; word 4 closes "w2..w4" (3 words): kept;
+    # word 5 would close 1 word but SaT is sure: kept; the last word always ends one
+    assert [i for i, p in enumerate(out) if p >= 0.5] == [4, 5, 7]
+    assert min_length_guard(probs, raw, 0) == probs
