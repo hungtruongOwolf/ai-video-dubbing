@@ -174,6 +174,59 @@ down); neither model fixes Vietnamese segmentation, which stays the weakest lang
   decoder does not have, and crashes (`std::bad_alloc` in `find_alignment`). It stays a
   `candidate` manifest.
 
+## Second TTS engine (E1, E2)
+
+**Question:** can VieNeu-TTS v3 Turbo (Vietnamese/English, Apache-2.0, autoregressive, 48 kHz)
+replace OmniVoice for Vietnamese? The dubbing situation: the reference is the original
+speaker, never Vietnamese. Material: 12 mid-length Vietnamese NTREX sentences (12–28
+syllables, no digits) × 5 reference voices (4 English, 1 Chinese) × 2 engines = 120 takes,
+seed 0, OmniVoice at the pipeline's length (4.7 syllables/s), VieNeu free-running.
+
+| | OmniVoice | VieNeu v3 Turbo |
+|---|---|---|
+| back-check CER, median / mean | 0.042 / **0.056** | **0.036** / 0.095 |
+| takes with CER > 15% | 6 / 60 | 5 / 60 |
+| speaker similarity to the reference (ECAPA cosine) | **0.588** | 0.520 |
+| UTMOS (naturalness; English-trained, compare only) | **3.52** | 3.41 |
+| real-time factor on the RTX 4090 (p50) | 0.227 | **0.078** |
+| natural speaking rate | (set by the pipeline) | 3.73 syllables/s |
+| GPU memory | ~5 GB (with SaT and ECAPA) | ~1.1 GB |
+
+By voice (E2, accent and timbre across languages): OmniVoice's similarity ranges from 0.40
+(English female) to 0.71 (English male "town"); VieNeu is flatter (0.47–0.60). The Chinese
+reference gives both engines their lowest UTMOS (2.75 / 2.93).
+
+How each fails: OmniVoice mispronounces foreign names ("Sturridge" → "Stewart",
+"Macedonia" → "ma sư tô nê"). VieNeu sometimes does not stop: it reads the sentence and then
+invents another one ("…hãy đến cấp báo. có thể tìm ra những tên gây hại…"), 3 takes of 60,
+two with the Chinese reference. The QA gate catches this (CER) and tries the next seed.
+
+**Decision: OmniVoice stays the Vietnamese default; VieNeu stays a candidate.** VieNeu is
+3× faster and as accurate on most lines, but its clones are less like the speaker, and its
+natural rate (3.7 syllables/s) is slow for dubbing: Vietnamese slots planned at 4.7 would
+need a 1.26× speed-up on average, above the 1.10 the timing ladder accepts before rewriting.
+Its first load also fetches a remote-code audio tokenizer (OpenMOSS MOSS-Audio-Tokenizer-Nano,
+unpinned revision) from Hugging Face.
+
+The same drama run end to end with each engine (`final`, 3 takes, `--use
+tts.synthesize=vieneu_v3_turbo` for the second):
+
+| Drama, en → vi | OmniVoice | VieNeu |
+|---|---|---|
+| lines passing the QA gate | 97.8% | 75.6% |
+| voice similarity ratio p50 / p10 | 0.72 / 0.60 | 0.54 / 0.46 |
+| back-check CER p95 | 0.088 | 0.143 |
+| speed-up p95 | 1.10 | 1.01 |
+| speaker swaps, address correct | 0, 42/42 | 0, 42/42 |
+
+The drama's short lines and pauses leave VieNeu room (the fit picks the short variant and
+borrows silence), but 24% of its lines end without a passing take (OmniVoice 2%), nearly all
+on the voice test: similarity 0.37–0.50 of the speaker's own after three seeds.
+
+Switching engines is one line in `configs/langpacks/vi.yaml`
+(`tts.synthesize: [vieneu_v3_turbo, omnivoice]`) plus `status: active` in its manifest, or
+`--use tts.synthesize=vieneu_v3_turbo` for one run. Not done: blind A/B listening tests.
+
 ## The 50 GB volume, again
 
 Installing the second TTS engine (its own env: VieNeu pins transformers 4.57, OmniVoice needs

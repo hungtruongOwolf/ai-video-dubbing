@@ -10,5 +10,5 @@ subs: {cpl: 42, cps: 17, max_lines: 2}
 # Generic pronouns: wrong when the cast sheet gives kinship terms (ông/cháu, mẹ/con, anh/em...).
 address_generic: [tôi, tao, tớ, mày, cậu, bạn]   # not mình/ta: also "we/our" (nhà mình)
 chains:
-  asr.transcribe: [phowhisper_large_ct2, whisper_large_v3]   # Whisper-v3 alone has WER ~40% on vi
-  tts.synthesize: [omnivoice]                                # incumbent; challengers enter via the swap gate
+  asr.transcribe: [phowhisper_large_ct2, whisper_large_v3]   # E6 (M4): Whisper invents sentences on hard audio
+  tts.synthesize: [omnivoice]                                # E1 (M4): kept over VieNeu-TTS (voice similarity, rate)

@@ -1,6 +1,7 @@
 # Vietnamese voice-cloning TTS: VieNeu-TTS v3 Turbo (48 kHz, GPU batching + CUDA graphs).
-# A candidate until experiment E1 compares it with OmniVoice; switch the vi chain in
-# configs/langpacks/vi.yaml to make it the default (one line).
+# E1 (M4): 3x faster than OmniVoice, similar CER, but less like the speaker (ECAPA 0.52 vs
+# 0.59) and slow (3.7 syllables/s), so it stays a candidate. To make it the vi default: one
+# line in configs/langpacks/vi.yaml + `status: active` here; or --use for one run.
 id: vieneu_v3_turbo
 op: [tts.synthesize]
 runtime: http
