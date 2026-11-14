@@ -168,7 +168,14 @@ def run(params: list[str], use: list[str], tag: str, only: set[str]) -> None:
         wav = root / f"{vid}.wav"
         if (only and vid not in only and lang not in only) or not wav.exists():
             continue
+        cues = json.loads((root / f"{vid}.cues.json").read_text(encoding="utf-8"))
+        subs = " ".join(c[2] for c in cues)
         hand = GOLDEN / f"{vid}.txt"
+        if hand.exists():  # sentence ends by hand: the words must be the subtitles, unchanged
+            lines = hand.read_text(encoding="utf-8").splitlines()
+            if _norm(" ".join(lines), lang) != _norm(subs, lang):
+                print(f"{vid}: {hand} does not match the subtitles, skipped", flush=True)
+                continue
         golden = hand if hand.exists() else root / f"{vid}.golden.txt"
         out = root / f"{vid}.scores{('.' + tag) if tag else ''}.json"
         extra = [x for p in params for x in ("--param", p)] + [x for u in use for x in ("--use", u)]
@@ -179,10 +186,11 @@ def run(params: list[str], use: list[str], tag: str, only: set[str]) -> None:
         r = json.loads(out.read_text(encoding="utf-8"))
         seg = json.loads((Path(r["job"]) / "segmentation.json").read_text(encoding="utf-8"))
         heard = " ".join(s["text"] for s in seg["sentences"])
-        cues = json.loads((root / f"{vid}.cues.json").read_text(encoding="utf-8"))
-        subs = " ".join(c[2] for c in cues)
         r["subs_cer"] = round(cer(_norm(subs, lang), _norm(heard, lang)), 3)
-        r["heard_lang"] = _detect_lang(wav)
+        lang_f = root / f"{vid}.heard_lang"
+        if not lang_f.exists():
+            lang_f.write_text(_detect_lang(wav), encoding="utf-8")
+        r["heard_lang"] = lang_f.read_text(encoding="utf-8").strip()
         r["valid"] = r["heard_lang"] == lang and r["subs_cer"] <= MAX_CER
         r.update({"lang": lang, "kind": kind, "golden": golden.name})
         results[vid] = r

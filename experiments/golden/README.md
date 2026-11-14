@@ -19,3 +19,12 @@ separate phrases with spaces). One sentence per line.
 Licences: see each file page on commons.wikimedia.org; Commons TimedText pages are under
 CC BY-SA. The other videos (en, es, vi and one zh narration) have punctuated subtitles, and their
 references are built from them at run time.
+
+## YODAS2 videos (`experiments/yodas_videos.py`)
+
+Same method for YODAS2 videos whose uploaded subtitles are only partly punctuated: the words
+are the subtitles of the first ~5 minutes unchanged, the sentence ends placed by hand.
+
+| File | YouTube video (via YODAS2 `vi000`/`zh000`) | Licence |
+|---|---|---|
+| `6_HyZDSeLVY.txt` | https://www.youtube.com/watch?v=6_HyZDSeLVY (Bali travel vlog, vi) | CC BY 3.0 (YODAS2: videos published under CC BY), subtitles by the uploader |
