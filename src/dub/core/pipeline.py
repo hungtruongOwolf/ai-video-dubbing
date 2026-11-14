@@ -87,6 +87,7 @@ from dub.ops import subs as subs_ops
 from dub.ops import vad as vad_ops
 from dub.ops.align import cer
 from dub.ops.timing import (
+    Fit,
     Neighbor,
     count_units,
     exact_target_ms,
@@ -416,6 +417,32 @@ async def run_job(
             target_ms=exact_target_ms(u.slot_ms, pred, t.safe_ratio) if exact else None,
         )
 
+    def engine_exact(u: Unit) -> bool:
+        """Does the TTS this line routes to take an exact duration (OmniVoice)?"""
+        try:
+            pid = cx.router.route("tts.synthesize", {**cx.facts, **unit_facts(u)}).chain[0]
+        except Exception:  # noqa: BLE001 - no runnable engine: the voicing pass reports it
+            return False
+        return cfg.providers[pid].caps.duration_control == "exact"
+
+    def planned_fit(u: Unit, pred: int, prev, nxt) -> Fit:
+        """The fit of an exact-duration take, known before synthesis: its length is planned."""
+        return fit_unit(
+            slot_start=u.start_ms, slot_end=u.end_ms, natural_ms=pred,
+            clip_ms=exact_target_ms(u.slot_ms, pred, t.safe_ratio), prev=prev, next_=nxt, t=t,
+            media_end_ms=media.duration_ms,
+        )  # fmt: skip
+
+    def will_rewrite(u: Unit, pred: int) -> bool:
+        """Sure to be rewritten (final): even with all the room around it, too fast. Voicing
+        such a line ahead would be wasted."""
+        return (
+            profile.llm_rewrite
+            and not ue.is_protected(u.id)
+            and engine_exact(u)
+            and planned_fit(u, pred, None, None).rate > t.rate_p95
+        )
+
     voiced_by_id = {u.id: u for u in voiced}
     prefetched: dict[str, asyncio.Task] = {}
     prefetch_sem = asyncio.Semaphore(cfg.dub.throughput.units_in_flight)
@@ -425,6 +452,8 @@ async def run_job(
         async with prefetch_sem:
             try:
                 _variant, text, pred = choose(u, ue.apply_to_translation(tr))
+                if will_rewrite(u, pred):
+                    return
                 seed = ue.seed.get(u.id, 0)
                 take: SynthRes = await cx.call(
                     "tts.synthesize",
@@ -558,7 +587,43 @@ async def run_job(
                 await prefetched[u.id]
             qa: qa_ops.QaResult | None = None
             check_words: list[Word] = []
+
+            async def rewrite(text: str, rate: float) -> str | None:
+                """A shorter line from the LLM; None when it breaks the forms of address."""
+                cur = count_units(text, tgt_lp.speech_unit)
+                rw = await cx.call(
+                    "mt.rewrite",
+                    RewriteReq(
+                        unit_id=u.id,
+                        tgt_lang=spec.tgt_lang,
+                        source_text=u.text,
+                        text=text,
+                        current_units=cur,
+                        target_units=max(1, int(cur * t.rate_p95 / rate)),
+                        self_term=tr_u.self_term if tr_u else None,
+                        other_term=tr_u.other_term if tr_u else None,
+                    ),
+                    subject=u.id,
+                )
+                if tr_u and address_ops.check_line(
+                    u, rw.text, tr_u, sheet.cast, spec.tgt_lang, generic
+                ):
+                    return None
+                return rw.text
+
             async with sem:
+                # Exact-duration engines: the fit is known before synthesis, so a line that is
+                # too fast is rewritten first and voiced once.
+                if profile.llm_rewrite and not ue.is_protected(u.id) and engine_exact(u):
+                    while rewrites < profile.max_rewrites:
+                        planned = planned_fit(u, pred, prev, nxt)
+                        if planned.rate <= t.rate_p95:
+                            break
+                        rewrites += 1
+                        new = await rewrite(text, planned.rate)
+                        if new is None:
+                            break
+                        text, variant, pred = new, "rewrite", predict(new)
                 while True:
                     # Up to `takes` deterministic takes (seed, seed+1000, ...): keep the first
                     # that passes the QA gate, else the best one (flagged).
@@ -608,29 +673,13 @@ async def run_job(
                         and rewrites < profile.max_rewrites
                         and not ue.is_protected(u.id)
                     ):
-                        cur = count_units(text, tgt_lp.speech_unit)
-                        rw = await cx.call(
-                            "mt.rewrite",
-                            RewriteReq(
-                                unit_id=u.id,
-                                tgt_lang=spec.tgt_lang,
-                                source_text=u.text,
-                                text=text,
-                                current_units=cur,
-                                target_units=max(1, int(cur * t.rate_p95 / fit.rate)),
-                                self_term=tr_u.self_term if tr_u else None,
-                                other_term=tr_u.other_term if tr_u else None,
-                            ),
-                            subject=u.id,
-                        )
                         rewrites += 1
                         # A shorter line must not break the forms of address: keep the old
                         # one (and stop rewriting) when the rewrite does.
-                        if tr_u and address_ops.check_line(
-                            u, rw.text, tr_u, sheet.cast, spec.tgt_lang, generic
-                        ):
+                        new = await rewrite(text, fit.rate)
+                        if new is None:
                             break
-                        text, variant, pred = rw.text, "rewrite", predict(rw.text)
+                        text, variant, pred = new, "rewrite", predict(new)
                         continue
                     break
                 stretched: AudioRes = await cx.local(
