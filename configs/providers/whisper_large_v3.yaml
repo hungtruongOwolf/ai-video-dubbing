@@ -5,6 +5,7 @@ runtime: http
 env: asr
 impl: dub.providers.asr_whisper:FasterWhisperASR
 impl_version: "3"     # 2: space_before on words; 3: clips
+libs: [faster-whisper]
 weights: {hf: Systran/faster-whisper-large-v3, revision: edaa852ec7e145841d8ffdb056a99866b5f0a478}
 params:
   model: Systran/faster-whisper-large-v3

@@ -55,6 +55,8 @@ class ProviderManifest(Cfg):
     preload: bool = True  # http runtime: load the model when the worker starts
     requires_bin: list[str] = Field(default_factory=list)  # programs that must be on PATH
     impl_version: str = "1"  # bump when an adapter change alters its output
+    # packages pinned in pod/envs/<env>.txt whose versions are part of every result key
+    libs: list[str] = Field(default_factory=list)
     weights: dict[str, Any] | None = None
     params: dict[str, Any] = Field(default_factory=dict)
     prompt_files: dict[str, str] = Field(default_factory=dict)  # op -> file in prompts/

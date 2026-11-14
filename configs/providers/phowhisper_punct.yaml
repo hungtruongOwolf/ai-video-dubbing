@@ -6,6 +6,7 @@ runtime: http
 env: asr
 impl: dub.providers.asr_whisper:PunctTransferASR
 impl_version: "1"
+libs: [faster-whisper]
 status: candidate
 preload: false
 weights: {hf: kiendt/PhoWhisper-large-ct2, revision: abceb098c94235c16414dda9e1aada82ebcf6288}

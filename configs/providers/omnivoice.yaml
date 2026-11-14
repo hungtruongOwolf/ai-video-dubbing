@@ -6,6 +6,7 @@ runtime: http
 env: tts
 impl: dub.providers.tts_omnivoice:OmniVoiceTTS
 impl_version: "2"     # 2: per-line sampling generators (batches)
+libs: [omnivoice, torch]
 weights: {hf: k2-fsa/OmniVoice, revision: c5fdb5ccb189668d56333f77ba2629f4cd7535f4}
 params:
   model: k2-fsa/OmniVoice

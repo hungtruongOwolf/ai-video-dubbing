@@ -26,6 +26,7 @@ import concurrent.futures
 import functools
 import importlib
 import inspect
+import re
 import sys
 import threading
 import time
@@ -102,12 +103,38 @@ def _module_hash(module: str) -> str:
     return hash_bytes(Path(path).read_bytes().replace(CRLF, LF))[:12]
 
 
-def _impl_version(m: ProviderManifest) -> str:
+def _impl_version(m: ProviderManifest, envs_dir: Path | None = None) -> str:
     """`impl_version: auto` = hash of the adapter's source file (handy for cheap providers).
-    Expensive providers keep a manual version so editing a comment does not redo hours of GPU."""
-    if m.impl_version == "auto" and m.impl:
-        return _module_hash(m.impl.split(":")[0])
-    return m.impl_version
+    Expensive providers keep a manual version so editing a comment does not redo hours of GPU.
+
+    The pinned versions of the manifest's `libs` (from the worker env's requirements, e.g.
+    pod/envs/sep.txt) are part of it too: upgrading audio-separator or faster-whisper redoes
+    their results even when nobody remembers to bump impl_version."""
+    v = (
+        _module_hash(m.impl.split(":")[0])
+        if m.impl_version == "auto" and m.impl
+        else m.impl_version
+    )
+    if m.libs and m.env and envs_dir is not None:
+        pins = _env_pins(envs_dir / f"{m.env}.txt")
+        v += "+" + hash_bytes(";".join(pins.get(_pkg(lib), lib) for lib in m.libs).encode())[:8]
+    return v
+
+
+def _pkg(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+@functools.cache
+def _env_pins(path: Path) -> dict[str, str]:
+    """package -> its requirement line ("omnivoice==0.2.1") in a worker env file."""
+    pins: dict[str, str] = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            spec = line.split("#", 1)[0].strip()
+            if spec:
+                pins[_pkg(re.split(r"[\[<>=!~ ;]", spec, maxsplit=1)[0])] = spec
+    return pins
 
 
 class Ctx:
@@ -217,7 +244,7 @@ class Ctx:
             key = call_key(
                 op=op,
                 provider=pid,
-                impl_version=_impl_version(m),
+                impl_version=_impl_version(m, self.cfg.root.parent / "pod" / "envs"),
                 weights_rev=m.weights_rev,
                 params=params,
                 seed=seed,

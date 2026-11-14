@@ -8,6 +8,7 @@ runtime: http
 env: tts2
 impl: dub.providers.tts_vieneu:VieNeuTTS
 impl_version: "1"
+libs: [vieneu, transformers, torch]
 status: candidate
 preload: false
 weights: {hf: pnnbao-ump/VieNeu-TTS-v3-Turbo}

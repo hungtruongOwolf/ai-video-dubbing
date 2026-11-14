@@ -5,6 +5,7 @@ runtime: http
 env: sep
 impl: dub.providers.separate_roformer:MelRoformer
 impl_version: "2"
+libs: [audio-separator, torch]
 weights: {name: vocals_mel_band_roformer.ckpt}
 # Post-M6 (experiments/sep_quality.py, 6 synthetic mixes + the 60-min speech): loading the
 # mix at the model's 44.1 kHz instead of 48 kHz: vocals SI-SDR 20.93 -> 21.51 dB, bed 12.42 ->

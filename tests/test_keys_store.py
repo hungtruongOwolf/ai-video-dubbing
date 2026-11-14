@@ -118,3 +118,46 @@ def test_eviction_forgets_old_audio_results_but_keeps_text_results(tmp_path):
     rep = collect(ws, min_age_s=0, evict_older_than_s=2 * 3600)
     assert rep.evicted == 1 and rep.deleted == 1 and not ws.cas.exists(wav)
     assert ws.memo.get("a" * 64) is None and ws.memo.get("b" * 64) is not None
+
+
+def test_pinned_library_versions_are_part_of_the_provider_version(tmp_path):
+    from dub.core.config import ProviderManifest
+    from dub.core.ctx import _env_pins, _impl_version
+
+    envs = tmp_path / "envs"
+    envs.mkdir()
+    (envs / "sep.txt").write_text(
+        "# comment\naudio-separator[gpu]==0.48.0\naudioread  # unpinned\ntorch==2.8.0\n",
+        encoding="utf-8",
+    )
+    m = ProviderManifest(
+        id="sep", op=["audio.separate"], runtime="http", env="sep", impl_version="2",
+        libs=["audio_separator", "torch"],
+    )  # fmt: skip
+    assert _impl_version(m) == "2"  # no env files (laptop tests): the manual version only
+    v1 = _impl_version(m, envs)
+    assert v1.startswith("2+") and v1 == _impl_version(m, envs)
+    (envs / "sep.txt").write_text("audio-separator[gpu]==0.49.0\ntorch==2.8.0\n", encoding="utf-8")
+    _env_pins.cache_clear()
+    assert _impl_version(m, envs) != v1  # an upgrade changes every key of the provider
+    other = m.model_copy(update={"libs": ["torch"]})
+    (envs / "sep.txt").write_text("audio-separator[gpu]==0.50.0\ntorch==2.8.0\n", encoding="utf-8")
+    _env_pins.cache_clear()
+    t1 = _impl_version(other, envs)
+    (envs / "sep.txt").write_text("audio-separator[gpu]==0.51.0\ntorch==2.8.0\n", encoding="utf-8")
+    _env_pins.cache_clear()
+    assert _impl_version(other, envs) == t1  # libraries it does not name do not matter
+
+
+def test_repo_providers_name_pinned_libraries():
+    from pathlib import Path
+
+    from dub.core.config import load_config
+    from dub.core.ctx import _env_pins, _pkg
+
+    cfg = load_config()
+    envs = Path(cfg.root).parent / "pod" / "envs"
+    for m in cfg.providers.values():
+        for lib in m.libs:
+            spec = _env_pins(envs / f"{m.env}.txt").get(_pkg(lib), "")
+            assert "==" in spec, f"{m.id}: {lib} is not pinned in pod/envs/{m.env}.txt"

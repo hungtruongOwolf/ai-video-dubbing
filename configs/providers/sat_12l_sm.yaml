@@ -5,6 +5,7 @@ runtime: http
 env: tts                     # shares torch with OmniVoice (see pod/envs/tts.txt)
 impl: dub.providers.boundaries_sat:SaTBoundaries
 impl_version: "1"
+libs: [wtpsplit, torch]
 weights: {hf: segment-any-text/sat-12l-sm, revision: d70c72a9331b2d5a9e82baad00c64964a23a09bb}
 params:
   model: segment-any-text/sat-12l-sm
