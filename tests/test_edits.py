@@ -197,7 +197,8 @@ def test_kill_and_resume_gives_identical_output(demo, tmp_path, monkeypatch):
         run_video(RunOptions(video=demo, tgt="vi", fake=True), ws, log=lambda m: None)
     monkeypatch.setattr(fake.FakeTTS, "op_tts_synthesize", real_op)
     resumed = run_video(RunOptions(video=demo, tgt="vi", fake=True), ws, log=lambda m: None)
-    assert resumed.redone.get("tts.synthesize", 0) < 13  # earlier takes were reused
+    total = ref.redone["tts.synthesize"]  # takes of an uninterrupted run (audition included)
+    assert resumed.redone.get("tts.synthesize", 0) < total  # earlier takes were reused
     assert resumed.dub_audio.read_bytes() == ref.dub_audio.read_bytes()
 
 

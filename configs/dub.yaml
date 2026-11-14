@@ -36,6 +36,10 @@ mix:
   level_max_dev_db: 10.0        # original level, at most this far from the speaker's median
   level_max_gain_db: 24.0       # the overall voice offset; per-line changes are bounded above
 
+voice:
+  audition: 4                  # reference clips tried per speaker (two test sentences each)
+  audition_cer_slack: 0.05
+
 translate:
   window_units: 12             # units per LLM call
   context_units: 3             # neighbouring units sent as context

@@ -69,6 +69,7 @@ from dub.contracts.v1 import (
     VadReq,
     VoiceProfileReq,
     VoiceProfiles,
+    VoiceRef,
     Word,
     WordTimeline,
     join_words,
@@ -312,8 +313,12 @@ async def run_job(
         "voice.extract_refs",
         refs_ops.extract_refs,
         RefsReq(
-            vocals_key=stems.vocals_key, units=voiced, unit_vectors=unit_vectors, purity=purity
-        ),
+            vocals_key=stems.vocals_key,
+            units=voiced,
+            unit_vectors=unit_vectors,
+            purity=purity,
+            candidates=1 if spec.subs_only else max(1, cfg.dub.voice.audition),
+        ),  # fmt: skip
         RefBank,
     )
     if edits:
@@ -342,7 +347,9 @@ async def run_job(
     stage("[4/7] reading the whole script: summary, glossary, cast sheet")
     # Meanwhile, each voice is calibrated: how much silence its takes carry (see below).
     calib = (
-        asyncio.create_task(_calibrate_voices(cx, refs, tgt_lp, spec.tgt_lang))
+        asyncio.create_task(
+            _audition_voices(cx, refs, tgt_lp, spec.tgt_lang, cfg.dub.voice.audition_cer_slack)
+        )
         if not spec.subs_only and not spec.confirm_cast
         else None
     )
@@ -355,10 +362,21 @@ async def run_job(
         return _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, voiced, src_lang, media,
                             diar.voices, profile_name)  # fmt: skip
 
-    tts_pad = await calib if calib is not None else {}
-    if tts_pad:
-        pads = ", ".join(f"{k} {v} ms" for k, v in sorted(tts_pad.items()))
-        log(f"      voice calibration (silence added per take): {pads}")
+    auditions: list[Audition] = []
+    tts_pad: dict[str, int] = {}
+    if calib is not None:
+        refs, tts_pad, auditions = await calib
+    for a in auditions:
+        sim = a.sims[a.chosen]
+        log(
+            f"      voice {a.speaker}: clip {a.chosen + 1} of {len(a.sims)}"
+            + (
+                f" (similarity {sim:.3f}, first clip {a.sims[0]:.3f})"
+                if sim is not None and a.sims[0] is not None
+                else ""
+            )
+            + (f", silence pad {a.pad_ms} ms" if a.pad_ms else "")
+        )
 
     # ---------------------------------------------------------------- Phase B: translate
     stage("[5/7] translating")
@@ -878,6 +896,15 @@ async def run_job(
     )
     metrics.update(speaker_metrics(diar, purity, qas, refs))
     metrics.update(level_stats)
+    if auditions:  # how much the audition changed the voices (see _audition_voices)
+        metrics["audition_switched"] = sum(1 for a in auditions if a.chosen)
+        gains = [
+            a.sims[a.chosen] - a.sims[0]
+            for a in auditions
+            if a.sims[a.chosen] is not None and a.sims[0] is not None
+        ]
+        if gains:
+            metrics["audition_sim_gain"] = round(sum(gains) / len(gains), 4)
     metrics["address_flagged"] = len(addr)
     result = JobResult(
         job_id=job_id,
@@ -1028,43 +1055,115 @@ def _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, units, src_lang, 
 CALIB_MAX_PAD_MS = 800
 
 
-async def _calibrate_voices(cx: Ctx, refs: RefBank, lp: Langpack, lang: str) -> dict[str, int]:
-    """Silence an exact-duration TTS adds inside the length we ask for, per voice.
+@dataclass
+class Audition:
+    speaker: str
+    chosen: int  # index of the kept clip among the candidates (0 = the most typical one)
+    sims: list[float | None]  # per candidate: mean similarity of its takes to the speaker
+    cers: list[float | None]  # per candidate: mean back-check CER of its takes
+    pad_ms: int  # silence added to every request for this voice (exact engines)
 
-    OmniVoice fills the requested duration with speech plus some silence, mostly at the start;
-    after trimming, the speech is squeezed (on a 60-minute speech: 90% of the requested length
-    at p50, 76% for lines under 2 s, ~340 ms lead silence). Each voice says the langpack's two
-    calibration sentences at their predicted length; the median silence trimmed off is added
-    to every later request for that voice. Cached like any call, so runs stay reproducible.
+
+async def _audition_voices(
+    cx: Ctx, refs: RefBank, lp: Langpack, lang: str, slack: float
+) -> tuple[RefBank, dict[str, int], list[Audition]]:
+    """Before voicing: which reference clip each speaker clones best, and how much silence an
+    exact-duration TTS adds inside the length we ask for.
+
+    Silence: OmniVoice fills the requested duration with speech plus some silence, mostly at
+    the start; after trimming, the speech is squeezed (on a 60-minute speech: 90% of the
+    requested length at p50, 76% for lines under 2 s, ~340 ms lead silence). The median
+    silence trimmed off the kept clip's test takes is added to every later request for it.
+
+    Audition: every candidate clip (the reference and RefBank.alternates) says the langpack's
+    two calibration sentences; each take is back-checked (ASR) and embedded. Among the
+    candidates whose takes are intelligible (mean CER within `slack` of the best), the one
+    whose takes come out closest to the speaker's centroid is kept. Cached like any call, so
+    runs stay reproducible.
     """
     if not lp.calibration:
-        return {}
+        return refs, {}, []
     try:
         pid = cx.router.route("tts.synthesize", dict(cx.facts)).chain[0]
-    except Exception:  # noqa: BLE001 - no TTS: nothing to calibrate
-        return {}
-    if cx.cfg.providers[pid].caps.duration_control != "exact":
-        return {}
+    except Exception:  # noqa: BLE001 - no TTS: nothing to audition
+        return refs, {}, []
+    exact = cx.cfg.providers[pid].caps.duration_control == "exact"
+    cands: dict[str, list[VoiceRef]] = {}
+    for r in [*refs.refs, *refs.alternates]:
+        if r.audio_key:
+            cands.setdefault(r.speaker, []).append(r)
+    if not exact and all(len(c) < 2 for c in cands.values()):
+        return refs, {}, []
+    sentences = lp.calibration[:2]
 
-    async def one(ref) -> tuple[str, int]:
-        gaps = []
-        for k, text in enumerate(lp.calibration[:2]):
-            pred = predict_ms(text, lp.speech_unit, lp.units_per_s)
-            req = SynthReq(
-                unit_id=f"calibration-{ref.speaker}-{k}", text=text, lang=lang,
-                speaker=ref.speaker, seed=0, voice_key=ref.audio_key, voice_text=ref.text,
-                target_ms=pred,
+    async def take(ref: VoiceRef, k: int, text: str, judge: bool):
+        subject = f"calibration-{k}"
+        pred = predict_ms(text, lp.speech_unit, lp.units_per_s)
+        req = SynthReq(
+            unit_id=f"calibration-{ref.speaker}-{k}", text=text, lang=lang, speaker=ref.speaker,
+            seed=0, voice_key=ref.audio_key, voice_text=ref.text,
+            target_ms=pred if exact else None,
+        )  # fmt: skip
+        synth: SynthRes = await cx.call("tts.synthesize", req, subject=subject)
+        tr: TrimRes = await cx.local(
+            "audio.trim", media_ops.trim, TrimReq(audio_key=synth.audio_key), TrimRes,
+            subject=subject,
+        )  # fmt: skip
+        sim = err = None
+        if judge:
+            clip16: AudioRes = await cx.local(
+                "audio.to_mono16k", media_ops.to_mono16k, AudioReq(audio_key=tr.audio_key),
+                AudioRes, subject=subject,
             )  # fmt: skip
-            take: SynthRes = await cx.call("tts.synthesize", req, subject=f"calibration-{k}")
-            tr: TrimRes = await cx.local(
-                "audio.trim", media_ops.trim, TrimReq(audio_key=take.audio_key), TrimRes,
-                subject=f"calibration-{k}",
-            )  # fmt: skip
-            gaps.append(tr.lead_ms + tr.tail_ms)
-        return ref.speaker, min(CALIB_MAX_PAD_MS, int(statistics.median(gaps)))
+            try:
+                chk: WordTimeline = await cx.call(
+                    "asr.backcheck",
+                    TranscribeReq(audio_key=clip16.audio_key, lang=lang, expected_text=text),
+                    subject=subject,
+                )
+                err = cer(text, join_words(chk.words, lp.joiner))
+            except (RoutingError, ProviderError):
+                pass
+            if ref.centroid:
+                try:
+                    e: Embeddings = await cx.call(
+                        "audio.embed", EmbedReq(audio_key=clip16.audio_key), subject=subject
+                    )
+                    sim = refs_ops.cos_sim(e.vectors[0], ref.centroid)
+                except (RoutingError, ProviderError):
+                    pass
+        return tr.lead_ms + tr.tail_ms, sim, err
 
-    pairs = await asyncio.gather(*(one(r) for r in refs.refs if r.audio_key))
-    return dict(pairs)
+    def mean(xs: list) -> float | None:
+        xs = [x for x in xs if x is not None]
+        return round(sum(xs) / len(xs), 4) if xs else None
+
+    async def one(spk: str, rs: list[VoiceRef]) -> tuple[VoiceRef, Audition]:
+        judge = len(rs) > 1
+        out = await asyncio.gather(
+            *(take(r, k, t, judge) for r in rs for k, t in enumerate(sentences))
+        )
+        n = len(sentences)
+        rows = [out[i * n : (i + 1) * n] for i in range(len(rs))]
+        sims = [mean([x[1] for x in row]) for row in rows]
+        cers = [mean([x[2] for x in row]) for row in rows]
+        chosen = 0
+        if judge and any(x is not None for x in sims):
+            known = [c for c in cers if c is not None]
+            ok = [
+                i for i, c in enumerate(cers) if not known or c is None or c <= min(known) + slack
+            ]
+            chosen = max(ok, key=lambda i: (sims[i] if sims[i] is not None else -1.0, -i))
+        pad = min(CALIB_MAX_PAD_MS, int(statistics.median(x[0] for x in rows[chosen])))
+        return rs[chosen], Audition(spk, chosen, sims, cers, pad if exact else 0)
+
+    picked = await asyncio.gather(*(one(s, rs) for s, rs in cands.items()))
+    kept = {ref.speaker: ref for ref, _ in picked}
+    new_refs = [kept.get(r.speaker, r) for r in refs.refs]
+    used = {r.audio_key for r in new_refs}
+    others = [r for r in [*refs.refs, *refs.alternates] if r.audio_key not in used]
+    pads = {a.speaker: a.pad_ms for _, a in picked} if exact else {}
+    return RefBank(refs=new_refs, alternates=others), pads, [a for _, a in picked]
 
 
 def _voice_spans(

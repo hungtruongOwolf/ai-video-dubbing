@@ -58,3 +58,12 @@ def test_reference_is_the_most_typical_pure_clip(tmp_path):
     ref = bank.for_speaker("S1")
     assert ref.sim > 0.9 and 0 < ref.self_sim < 1 and len(ref.centroid) == 2
     assert ref.text == "a b c" and abs(ref.seconds - 5.12) < 0.01  # u2 (not u0: odd voice)
+    # candidates for the audition: the reference first, then the next most typical clips;
+    # the clip with another voice in it (u1) is never a candidate while pure ones exist
+    many = extract_refs(
+        RefsReq(vocals_key=key, units=units, unit_vectors=vectors, purity=purity, candidates=3),
+        cas,
+    )
+    assert many.for_speaker("S1").audio_key == ref.audio_key  # same clip as without audition
+    assert [round(r.sim, 2) for r in many.alternates] == [round(ref.sim, 2), 0.32]  # u3, then u0
+    assert all(r.centroid == ref.centroid for r in many.alternates)

@@ -183,6 +183,14 @@ class RouteRule(Cfg):
     require: dict[str, Any] = Field(default_factory=dict)
 
 
+class VoiceCfg(Cfg):
+    # Reference clips auditioned per speaker before voicing (1 = take the most typical clip).
+    # Each says the langpack's two calibration sentences; the clip whose takes sound most like
+    # the speaker (embedding similarity), among the intelligible ones, is kept.
+    audition: int = 4
+    audition_cer_slack: float = 0.05  # intelligible: back-check CER within this of the best
+
+
 class DubConfig(Cfg):
     version: int = 1
     profile: str = "draft"
@@ -190,6 +198,7 @@ class DubConfig(Cfg):
     timing: TimingCfg = Field(default_factory=TimingCfg)
     qa: QaCfg = Field(default_factory=QaCfg)
     mix: MixCfg = Field(default_factory=MixCfg)
+    voice: VoiceCfg = Field(default_factory=VoiceCfg)
     translate: TranslateCfg = Field(default_factory=TranslateCfg)
     throughput: ThroughputCfg = Field(default_factory=ThroughputCfg)
     defaults: dict[str, list[str]] = Field(default_factory=dict)

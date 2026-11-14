@@ -383,6 +383,7 @@ class RefsReq(Model):
     max_ms: int = 10000
     unit_vectors: dict[str, list[float]] = Field(default_factory=dict)  # speaker embeddings
     purity: dict[str, float] = Field(default_factory=dict)  # unit id -> share of own speaker
+    candidates: int = 1  # clips per speaker: the best one plus alternates for an audition
 
 
 class VoiceRef(Model):
@@ -397,6 +398,8 @@ class VoiceRef(Model):
 
 class RefBank(Model):
     refs: list[VoiceRef]
+    # more clips per speaker (next most typical first), auditioned before voicing
+    alternates: list[VoiceRef] = Field(default_factory=list)
 
     def for_speaker(self, speaker: str) -> VoiceRef | None:
         return next((r for r in self.refs if r.speaker == speaker), None)

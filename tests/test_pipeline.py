@@ -162,8 +162,10 @@ def test_bench_speed_reports_stages_lanes_and_ops(demo, tmp_path, capsys):
     job = next((tmp_path / "ws" / "jobs").iterdir())
     events = json.loads((job / "trace.json").read_text())["traceEvents"]
     synth = [e for e in events if e["name"] == "tts.synthesize" and e["ph"] == "X"]
+    lines = [e for e in synth if not e["args"]["subject"].startswith("calibration")]
     units = json.loads((job / "units.json").read_text(encoding="utf-8"))
-    assert len(synth) == len(units)
+    assert len(lines) == len(units)
+    assert len(synth) - len(lines) >= 2  # the voice audition: two test sentences per clip
 
 
 def test_one_source_many_targets_shares_the_analysis(demo, tmp_path, capsys):

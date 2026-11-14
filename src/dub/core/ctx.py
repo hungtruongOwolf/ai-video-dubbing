@@ -75,7 +75,7 @@ _INFLIGHT_LOCK = threading.Lock()
 def _release(key: str) -> None:
     with _INFLIGHT_LOCK:
         f = _INFLIGHT.pop(key, None)
-    if f is not None:
+    if f is not None and not f.done():
         f.set_result(None)
 
 
@@ -200,7 +200,9 @@ class Ctx:
                 if pending is None:
                     _INFLIGHT[key] = concurrent.futures.Future()
                     return None
-            await asyncio.wrap_future(pending)
+            # shield: a waiter that is cancelled (its job stopped) must not cancel the shared
+            # future, which the owner and every other waiter still use
+            await asyncio.shield(asyncio.wrap_future(pending))
             done = self.ws.memo.get(key)  # stored by the other caller (even in a fresh run)
             if done is not None and all(self.ws.cas.exists(k) for k in cas_keys(done["result"])):
                 return done
