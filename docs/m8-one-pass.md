@@ -26,7 +26,8 @@ otherwise: RTX PRO 4500 Blackwell (32 GB, $0.72/h), zh → vi, final profile.
 | OmniVoice's 100 ms fade → 10 ms | the fade ate the first and last phonemes of short lines | yes |
 | Dub is the only audio track of the output video | players picked the original Chinese track | yes |
 | Untranslated CJK characters sent back to the translator | guard against Chinese left in a Vietnamese line | yes |
-| Short lines planned 1.6x longer (≤ 6 syllables, fading to 12) | 4-6 syllable lines understood 67% → 96% | yes |
+| Short lines planned 1.6x longer for OmniVoice (≤ 6 syllables, fading to 12) | 4-6 syllable lines understood 67% → 96% (first reference set) | yes |
+| Vietnamese lines of ≤ 6 syllables voiced by VieNeu | understood 35% (OmniVoice at 1.6x) → 64%; 3 syllables 17% → 83% | yes |
 | Accent retry: VieNeu voices the lines whose every take sounds Chinese | heard as Chinese: OmniVoice 22% (18% best of 3), VieNeu 3.7%; on the run 6 lines retried, 0 left | yes |
 | Classifier-free guidance 3.0 for OmniVoice | heard as Chinese 22% → 29% | no |
 
@@ -177,6 +178,23 @@ single syllable cannot be judged by an ASR at all: "Trai." comes back as "truy�
 syllables or fewer are no longer sent to the LLM to be shortened (one word less is worse
 to hear than a line running 100 ms into the pause).
 
+Then the same test was run with the job's newer reference clips and VieNeu, which speaks at
+its own pace (6 voices × 12 lines):
+
+| Engine | 1 syll. | 2 | 3 | 4 | 5 | 6 | All |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| OmniVoice, 1.6 × linear | 0.08 | 0.28 | 0.17 | 0.58 | 0.67 | 0.83 | 0.35 |
+| VieNeu-TTS | **0.33** | 0.28 | **0.83** | **0.92** | **0.83** | **1.00** | **0.64** |
+
+VieNeu was better for every one of the six voices (an English one too: 0.50 → 0.67), and it
+says these lines shorter (4-6 syllables in 0.9-1.5 s). Vietnamese lines of up to 6 syllables
+now go to VieNeu (route `short-line-vi`, by the new `line.units` fact); longer lines stay on
+OmniVoice, whose exact durations matter there. The price, on the 4-person drama (English
+voices): 3 of 45 lines a little less like their speaker (0.46-0.48 of the speaker's own
+similarity, the gate's bar is 0.5), with the words right. A rule whose engines cannot run
+(a pod without the `tts2` worker) now falls back to the langpack chain instead of failing
+the line.
+
 ### Back-check on short clips
 
 Whisper models invent text on very short clips. PhoWhisper heard a 600 ms take of
@@ -224,4 +242,38 @@ sped up, the speaker was a guess, forms of address), and the run ends with one l
 `residual risks: 28 of 90 lines worth a listen (21 words, 7 cut off, 5 fast, 5 voice, 3
 address)`. The review page sorts by the same score.
 
-(final run: pending)
+### The one-pass run
+
+The drama dubbed again from scratch with everything above, no edits (final profile):
+
+| | First M8 run (re-clustering) | Final run |
+|---|---:|---:|
+| Speaker changes that change voice (precision) | 22% (73%) | **82% (91%)** |
+| Lines passing the QA gate | 0.84 | **0.90** |
+| Back-check CER p95 | 0.30 | **0.14** |
+| Speed-up p95 | 1.08 | **1.02** |
+| Lines worth a listen | (not reported) | **14 of 86** |
+| Lines failing for an accent after retries | (not checked) | 0 |
+
+The 14 lines: 5 sound more like another voice (the "mistress of the house" voice carries
+lines of the master and the steward: the LLM merged three minor parts into one), 4 forms of
+address the checker doubts (the husband says "tôi" to the gatekeeper, which is right
+toward a stranger), 2 that overrun their slot, 1 sped up, 2 lines of the background song
+the LLM gave to a person, and one name ("A Mãn") heard imperfectly.
+
+The attribution varies between runs: one run found six people (changes 90%, precision
+87%), the next five, merging the hiring woman with Steward Sun (82%, 91%). Both are far
+above the voices alone (4-24%). The 4-person drama still has 0 speaker swaps and 42/42
+forms of address right; there the LLM moved no line off the voice clusters.
+
+The run took 238 s on the pod for a 5:14 video (the accent checks and VieNeu add about a
+minute to voicing). Cost of the M8 work on the pod: about $2.20 (RTX PRO 4500, $0.72/h).
+
+### Not done
+
+- An LLM pass that fixes the ASR transcript where there are no subtitles (homophones):
+  only the OCR path corrects words today.
+- The measured-duration rewrite of VoiceStudio (ask the LLM for a longer line when the dub
+  is much shorter than the slot): variants already cover it here (`long`), not measured.
+- Collapsing Whisper repetition loops in the source transcript: not seen on any test video.
+- A listening test: every number here comes from an ASR or a speaker model, not from ears.

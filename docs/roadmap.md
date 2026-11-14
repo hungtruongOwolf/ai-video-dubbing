@@ -236,7 +236,7 @@ on the RTX 4090.
 - [x] More evaluation videos: YODAS2 (CC BY YouTube videos with uploader subtitles), +6 vi and +5 zh after a language and transcript check (`experiments/yodas_videos.py`); Chinese scored in simplified characters
 - [ ] Subtitle break penalties, rotating reference clips across retakes, rewrite candidates: small expected gains, not done
 
-## M8: One pass (in progress)
+## M8: One pass (done)
 
 A video goes in and the final dub comes out with no manual correction. Test case: a 5-minute
 zh short drama from TikTok (burned-in subtitles, ten speaking parts, a song) into Vietnamese,
@@ -253,7 +253,13 @@ whose first dub needed three or four rounds of edits ([m8-one-pass.md](m8-one-pa
   candidates; OmniVoice fade 100 → 10 ms: **kept**
 - [x] Back-check text a short clip cannot hold is dropped (PhoWhisper invents sentences on
   sub-second clips): **kept**
-- [x] Short lines planned 1.6x longer (4-6 syllables understood 67% → 96%): **kept**
+- [x] Short lines planned 1.6x longer for OmniVoice (4-6 syllables understood 67% → 96%): **kept**
+- [x] Vietnamese lines of ≤ 6 syllables voiced by VieNeu (understood 35% → 64%, 3 syllables 17% → 83%): **kept**
+- [x] Accent retry: a line whose every take sounds like the source language gets a VieNeu take
+  (heard as Chinese: OmniVoice 22%, VieNeu 3.7%; guidance 3.0 made it worse): **kept**
+- [x] Residual risks first in the report, one summary line at the end of a run: **kept**
 - [x] Output video: the dub is the only audio track: **kept**
-- [ ] Accent of cross-lingual clones (`experiments/accent.py`)
-- [ ] One-pass run of the drama with everything on, residual risks
+- [x] One-pass run of the drama: QA 0.84 → 0.90, CER p95 0.30 → 0.14, speed-up p95 1.02,
+  14 of 86 lines worth a listen, 0 left failing for an accent
+- [ ] Not done: an LLM pass correcting the transcript without subtitles, VoiceStudio's
+  measured-duration rewrite, a listening test

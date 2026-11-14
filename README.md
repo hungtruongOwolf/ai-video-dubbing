@@ -24,7 +24,7 @@ Any language pair, in any direction.
 | **M5** Throughput | Continuous batching on the GPU, LLM in parallel with TTS, 24 GB profile, many languages from one analysis: a 60-min video in 14 min (final) / 8 min (draft) | **done** |
 | **M6** GPU lab | Models parked in CPU memory between jobs (kept), CUDA MPS (−6.5%, opt-in), community cloud (priced, not built) | **done** (optional) |
 | **M7** Quality pass | Ideas from 11 open-source dubbing projects, each measured: separation at 44.1 kHz + autocast, silence compensation (LLM rewrites 140 → 25), per-line loudness, Vietnamese punctuation transfer (sentence F1 0.687 → 0.779 on 8 videos), worker restarts; voice audition measured, no gain | **done** |
-| **M8** One pass | A video in, the final dub out, no manual fixes: who says each line read from the script (speaker changes that change voice 22% → 90% on a zh drama), burned-in subtitles read by OCR to correct the transcript, songs left original, clean voice references, short lines given time (4-6 syllables understood 67% → 96%) | **in progress** |
+| **M8** One pass | A video in, the final dub out, no manual fixes: who says each line read from the script (speaker changes that change voice 22% → 90% on a zh drama), burned-in subtitles read by OCR to correct the transcript, songs left original, clean voice references, short lines and accented takes voiced by VieNeu (short lines understood 35% → 64%, lines heard as Chinese 22% → 3.7%); on the drama QA 0.84 → 0.90, CER p95 0.30 → 0.14 | **done** |
 
 Details: [docs/roadmap.md](docs/roadmap.md).
 
