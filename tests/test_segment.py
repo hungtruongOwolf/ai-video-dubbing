@@ -132,12 +132,14 @@ def test_unit_edges_snap_to_speech_onsets():
 
     seg = run(words_from("one two three.") + words_from("four five six.", start_ms=3000))
     u1, u2 = seg.units
-    # The VAD says the voice really starts 180 ms before the first word and 120 ms after
-    # the second unit's first word time; the first unit ends 150 ms after its last word.
-    speech = [(u1.start_ms - 180 + 0, u1.end_ms + 150), (u2.start_ms + 120, u2.end_ms)]
+    # Whisper put the first unit's start 400 ms early, in the pause (true onset 400 ms later);
+    # the voice of the second unit really starts 180 ms before its first word time, and the
+    # first unit's voice ends 150 ms after its last word.
+    speech = [(u1.start_ms + 400, u1.end_ms + 150), (u2.start_ms - 180, u2.end_ms)]
     s1, s2 = snap_to_speech([u1, u2], speech)
-    assert s1.start_ms == 0 and s1.end_ms == u1.end_ms + 150 + 30  # clamped at 0, pad 30
-    assert s2.start_ms == u2.start_ms + 120 - 30
-    # Far-away regions (continuous speech) leave the edges alone.
+    assert s1.start_ms == u1.start_ms + 400 - 30  # moved LATER, out of the silence
+    assert s1.end_ms == u1.end_ms + 150 + 30
+    assert s2.start_ms == u2.start_ms - 180 - 30
+    # An edge in the middle of long continuous speech stays where it is.
     far = snap_to_speech([u1], [(u1.start_ms - 2000, u1.end_ms + 2000)])
     assert (far[0].start_ms, far[0].end_ms) == (u1.start_ms, u1.end_ms)

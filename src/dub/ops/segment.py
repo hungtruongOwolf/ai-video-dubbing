@@ -18,6 +18,7 @@ vocals: ASR word times are often 100-300 ms off, and the dub is placed on these 
 
 from __future__ import annotations
 
+import bisect
 import math
 
 from dub.contracts.v1 import (
@@ -215,38 +216,59 @@ def _merge_tiny(chunks: list[tuple[list[Word], list[str]]], p: SegmentParams):
     return chunks
 
 
-SNAP_EARLY_MS = 400  # a start may move this far earlier to a speech onset
-SNAP_LATE_MS = 250  # ...and this far later
+SNAP_IN_SPEECH_MS = 400  # an edge inside speech moves at most this far to the region's edge
+SNAP_IN_SILENCE_MS = 800  # an edge in silence moves at most this far to the nearest speech
 SNAP_PAD_MS = 30  # air kept before an onset and after an offset
+
+
+def _region_at(speech: list[tuple[int, int]], t: int) -> tuple[int, int] | None:
+    i = bisect.bisect_right(speech, (t, 1 << 62)) - 1
+    if i >= 0 and speech[i][0] <= t < speech[i][1]:
+        return speech[i]
+    return None
+
+
+def snap_start(t: int, speech: list[tuple[int, int]]) -> int:
+    """Where the voice really starts, for an ASR start time t (or t if unsure)."""
+    region = _region_at(speech, t)
+    if region is not None:  # inside speech: the onset is at most a little earlier
+        return region[0] - SNAP_PAD_MS if t - region[0] <= SNAP_IN_SPEECH_MS else t
+    # In silence: no word starts there. Whisper puts first words early, into the pause.
+    nxt = [a for a, _ in speech if t <= a <= t + SNAP_IN_SILENCE_MS]
+    return nxt[0] - SNAP_PAD_MS if nxt else t
+
+
+def snap_end(t: int, speech: list[tuple[int, int]]) -> int:
+    """Where the voice really stops, for an ASR end time t (or t if unsure)."""
+    region = _region_at(speech, t - 1)
+    if region is not None:  # inside speech: the offset is at most a little later
+        return region[1] + SNAP_PAD_MS if region[1] - t <= SNAP_IN_SPEECH_MS else t
+    prev = [b for _, b in speech if t - SNAP_IN_SILENCE_MS <= b <= t]
+    return prev[-1] + SNAP_PAD_MS if prev else t
 
 
 def snap_to_speech(
     units: list[Unit], speech: list[tuple[int, int]], min_gap_ms: int = 60
 ) -> list[Unit]:
-    """Move unit edges to the nearest VAD speech onset/offset, within a small window.
+    """Move unit edges onto the speech found by a VAD on the separated vocals.
 
-    ASR word times (Whisper's especially) are often 100-300 ms off. A start moves to the
-    closest speech onset in [start - 400, start + 250] ms, an end to the closest offset in
-    [end - 250, end + 400] ms. Edges never cross the neighbouring units, and an edge with no
-    onset/offset nearby (continuous speech) stays where it is.
+    ASR word times are often off by a few hundred ms; Whisper in particular starts the first
+    word of a phrase 300-500 ms early, inside the pause before it (measured in M3). An edge
+    that falls in silence moves to the nearest speech (up to 800 ms); an edge inside speech
+    moves to the edge of that speech region if it is close (up to 400 ms). Edges never
+    cross the neighbouring units, and a unit never shrinks below 200 ms.
     """
     if not speech:
         return units
-    onsets = [s for s, _ in speech]
-    offsets = [e for _, e in speech]
+    speech = sorted(speech)
     out: list[Unit] = []
     for k, u in enumerate(units):
         lo = out[-1].end_ms + min_gap_ms if out else 0
         hi = units[k + 1].start_ms - min_gap_ms if k + 1 < len(units) else None
-        start, end = u.start_ms, u.end_ms
-        near = [o for o in onsets if u.start_ms - SNAP_EARLY_MS <= o <= u.start_ms + SNAP_LATE_MS]
-        if near:
-            start = max(lo, min(near, key=lambda o: abs(o - u.start_ms)) - SNAP_PAD_MS)
-        near = [o for o in offsets if u.end_ms - SNAP_LATE_MS <= o <= u.end_ms + SNAP_EARLY_MS]
-        if near:
-            end = min(near, key=lambda o: abs(o - u.end_ms)) + SNAP_PAD_MS
-            if hi is not None:
-                end = min(end, hi)
+        start = max(lo, snap_start(u.start_ms, speech))
+        end = snap_end(u.end_ms, speech)
+        if hi is not None:
+            end = min(end, max(hi, u.end_ms))
         if end - start < 200:  # never collapse a unit: keep the ASR edges instead
             start, end = u.start_ms, u.end_ms
         out.append(u.model_copy(update={"start_ms": int(start), "end_ms": int(end)}))
