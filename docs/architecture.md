@@ -157,13 +157,13 @@ Measured in [m3-segmentation-timing.md](m3-segmentation-timing.md) (experiment E
 
 1. **Text first:**
    - The LLM returns `{short, target, long}` for each line.
-   - A rate model (speech units per second, per language) predicts how long each variant takes to say.
+   - A rate model (speech units per second, per language, measured for OmniVoice in E7) predicts how long each variant takes to say.
    - Pick the variant within ±8% of the slot; otherwise the longest variant that fits; otherwise the shortest.
 2. **Borrow silence:** start up to 0.2 s early or end up to 0.5 s late, under the **bounded ripple** rule:
    - The gap between two lines is split at its midpoint, minus a 120 ms minimum pause.
    - A line may only borrow the unused part of its neighbour's half.
    - That part is computed from the neighbour's natural length and slot, never from where the neighbour was placed. So editing line *i* only re-fits *i−1, i, i+1*.
-3. **Exact-duration engines** (OmniVoice) receive `target_ms`, kept within `safe_ratio` of the natural length. The clip is then **trimmed to the voice** (the engine leaves ~30 ms before and ~130 ms after it), so the voice starts exactly where the clip is placed.
+3. **Exact-duration engines** (OmniVoice) receive `target_ms`, kept within `safe_ratio` [0.85, 1.10] of the natural length (E3). The clip is then **trimmed to the voice** (the engine leaves ~30 ms before and ~130 ms after it), so the voice starts exactly where the clip is placed.
 4. **Rewrite** (profile `final`): ask the LLM for a shorter line, at most 2 times.
 5. **Stretch:**
    - pitch-preserving time stretch (ffmpeg `atempo` in M0; rubberband on the pod);

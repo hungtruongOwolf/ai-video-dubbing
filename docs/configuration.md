@@ -97,6 +97,13 @@ profiles:
 
 A profile only changes what happens after the text layer. Lines you fix in a draft survive the switch to final.
 
+`params` lays provider parameters over the manifest's, per profile. Drafts use it for
+OmniVoice's diffusion steps (experiment E9):
+
+```yaml
+  draft: {tts_chain: incumbent_only, llm_rewrite: false, max_rewrites: 0, params: {omnivoice: {num_step: 16}}}
+```
+
 `backcheck: true` (the default in both) transcribes every dubbed line again with the target
 language's ASR: subtitle cues then follow the new voice, and the line's CER feeds the risk
 score. Set it to `false` to save one ASR call per line.

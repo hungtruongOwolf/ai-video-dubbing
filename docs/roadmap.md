@@ -116,22 +116,37 @@ First boot on an empty volume, from pod creation to all workers ready: about 5 m
 - Edits are stored on the laptop instead of on the network volume. That makes the S3 export/import step unnecessary.
 - The risk weights are hand-set until M4 brings QA signals.
 
-## M3: Segmentation + timing (priorities 1 and 2) (next)
+## M3: Segmentation + timing (priorities 1 and 2) (done)
 
-- [ ] SaT boundary probabilities in the DP (experiment E4)
-- [ ] Measured speech-rate model per voice (E7)
-- [ ] Engine safe ratios measured (E3)
-- [ ] Dub-side alignment → subtitle cues follow the new voice
-- [ ] Subtitle layout per script:
-  - Thai word breaking;
-  - CJK rules;
-  - right-to-left text
-- [ ] Exit criteria:
-  - no unit longer than 15 s;
-  - onset error p95 ≤ 150 ms;
-  - speed-up p95 ≤ 1.15
+- [x] SaT boundary probabilities (`sat_12l_sm`) feed the sentence threshold and the DP (E4: text and speech arms, 6 languages)
+- [x] Unit edges snapped onto the speech of the separated vocals (Whisper starts phrases 300–500 ms early)
+- [x] Measured speaking rates for OmniVoice per language (E7), safe squeeze range (E3), 16 vs 32 steps (E9)
+- [x] TTS clips trimmed to the voice; `.m4a` extraction for MP4 sources (fixes a 21 ms shift)
+- [x] Dub-side alignment: every dubbed line is transcribed again; subtitle cues follow the new voice; CER in the risk score
+- [x] Subtitle layout per script: Thai word breaking, CJK phrases + kinsoku, right-to-left marks, Netflix widths
+- [x] `metrics.json` + "Sync and quality" report section; `dub bench seg --golden` for your own videos
 
-## M4: Speakers + routing + second engine
+**Exit criteria:**
+
+| Criterion | Result |
+|---|---|
+| No unit longer than 15 s | yes (longest 9.9 s on the test clip; the DP guarantees it) |
+| Onset error p95 ≤ 150 ms | test clip with known onsets: 10 ms (was 494 ms); E4 speech: en 150, es 30, vi 10, zh 20 ms; **ja/th ~0.5 s** on a few chunks |
+| Speed-up p95 ≤ 1.15 | final 1.08; draft 1.15 |
+| Thai line breaks: 0 errors | yes (M0 broke inside a word at 78% of its breaks) |
+| Segmentation F1 ≥ 0.92 (talks) | speech: en 0.92, es 0.93, ja 0.87–0.90, th 0.71, zh 0.78, vi 0.63; text with punctuation 0.93–0.99 except th 0.85. Real-video labels still to do |
+
+**Changed from the original plan:**
+- SaT runs in the `tts` env: the 50 GB volume could not hold a third copy of torch.
+- Rates are per language (for OmniVoice), not per voice: a cloning TTS gives no natural
+  target-language speech of the voice to learn from.
+- E6 (ASR per source language) moved to M4; an LLM arm for E4 was not run.
+- Edit → render p50 went from 2.3 s to 3.3 s: the back-check and subtitle timing of the edited
+  line (`backcheck: false` to skip).
+
+Details: [m3-segmentation-timing.md](m3-segmentation-timing.md).
+
+## M4: Speakers + routing + second engine (next)
 
 - [ ] Diarization (pyannote → Nemotron if E8 confirms)
 - [ ] Unit purity check

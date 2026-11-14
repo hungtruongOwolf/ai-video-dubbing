@@ -19,8 +19,8 @@ Any language pair, in any direction.
 | **M0** Foundation | Data contracts, content-addressed cache, routing, fake providers, full pipeline on a laptop, Claude translation, CI | **done** |
 | **M1** Walking skeleton | Real models on a Runpod GPU (Mel-Band RoFormer, Whisper/PhoWhisper, OmniVoice, Claude), `dub up/down/status`, `dub run --remote` | **done** |
 | **M2** Edit loop | Per-line edits, review page, partial re-render (one line redone in ~2 s) | **done** |
-| M3 Segmentation + timing | Model-based boundaries (SaT), measured speech rates, subtitle layout per script | next |
-| M4 Speakers + routing | Diarization, voice references, cast sheet checker, second TTS engine | planned |
+| **M3** Segmentation + timing | SaT sentence boundaries, VAD-snapped slots (onset error 10 ms), measured speech rates, subtitles per script and timed on the dub | **done** |
+| M4 Speakers + routing | Diarization, voice references, cast sheet checker, second TTS engine | next |
 | M5 Throughput | Batching across units, parallel LLM + TTS, multi-language fan-out | planned |
 | M6 GPU lab | Optional performance experiments | optional |
 
@@ -90,6 +90,7 @@ Speech is still faked, but the context pass (summary, glossary, cast sheet) and 
 | `dub up` / `dub down` / `dub status` | Rent, terminate and inspect the GPU pod |
 | `dub review VIDEO --to LANG [--remote]` | Review page: listen, fix lines, render, export |
 | `dub edit VIDEO --to LANG ACTION ...` | Record an edit from the terminal (text, regen, speaker, nudge, split, merge, lock, undo) |
+| `dub bench seg JOB --golden FILE` | Sentence-boundary F1 of a job against the sentences really spoken (one per line) |
 | `dub doctor` | Show which providers can run on this machine and the route matrix |
 | `dub schema` | Export the `/v1` data contracts as JSON Schema |
 | `dub jobs` | List jobs in the workspace |
@@ -101,14 +102,16 @@ configs/            what to run: dub.yaml, langpacks/, providers/ (one manifest 
 src/dub/contracts/  /v1 data contracts between steps (pydantic -> JSON Schema)
 src/dub/core/       thin core: config, router, cache-aware call context, executor, pipeline, trace
 src/dub/store/      CAS (files by content hash), memo (results by call key), SQLite index
-src/dub/ops/        pure CPU steps: ffmpeg, segmentation, timing fit, mixing, subtitles
-src/dub/providers/  model adapters (fake_*, claude_cli, Whisper, RoFormer, OmniVoice)
+src/dub/ops/        pure CPU steps: ffmpeg, VAD, segmentation, timing fit, mixing, subtitles per script
+src/dub/providers/  model adapters (fake_*, claude_cli, Whisper, RoFormer, OmniVoice, SaT)
 src/dub/worker/     worker process: hosts the providers of one env over HTTP/JSON
 src/dub/pod/        dubd, the pipeline server on the GPU pod (envs, jobs, uploads, idle watchdog)
 src/dub/remote.py   laptop side of the pod: Runpod API, dub up/down/status, remote runs
 src/dub/runner.py   one run of one video, local or remote (shared by dub run and the review page)
 src/dub/edits.py    the human edit store (append-only JSONL on the laptop)
 src/dub/review/     the review page (local web app)
+src/dub/bench/      measuring a job against a reference (segmentation F1)
+experiments/        the measurements behind the defaults (E3, E4, E7, E9, subtitle layout)
 pod/                pod bootstrap script and per-env requirement files
 src/dub/laptop.py   laptop side: extract the audio track, mux the result back
 tests/              unit tests, end-to-end test, architecture fitness tests
@@ -122,6 +125,8 @@ docs/               architecture, configuration, roadmap, milestone notes
 - [docs/m0-foundation.md](docs/m0-foundation.md): what M0 contains and a guided tour
 - [docs/m1-gpu-pod.md](docs/m1-gpu-pod.md): running the real models on a Runpod GPU
 - [docs/m2-edit-loop.md](docs/m2-edit-loop.md): the review page, edits and partial re-rendering
+- [docs/m3-segmentation-timing.md](docs/m3-segmentation-timing.md): sentence boundaries, slot snapping, speaking rates, subtitles per script; the experiments behind them
+- [experiments/README.md](experiments/README.md): how to re-run the measurements
 - [docs/claude-subscription.md](docs/claude-subscription.md): translating with `claude -p`
 - [docs/roadmap.md](docs/roadmap.md): milestones and exit criteria
 
