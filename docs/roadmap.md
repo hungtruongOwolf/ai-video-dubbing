@@ -235,3 +235,25 @@ on the RTX 4090.
 - [x] Worker restarts, versioned result keys, single-flight cancellation fix: **kept**
 - [x] More evaluation videos: YODAS2 (CC BY YouTube videos with uploader subtitles), +6 vi and +5 zh after a language and transcript check (`experiments/yodas_videos.py`); Chinese scored in simplified characters
 - [ ] Subtitle break penalties, rotating reference clips across retakes, rewrite candidates: small expected gains, not done
+
+## M8: One pass (in progress)
+
+A video goes in and the final dub comes out with no manual correction. Test case: a 5-minute
+zh short drama from TikTok (burned-in subtitles, ten speaking parts, a song) into Vietnamese,
+whose first dub needed three or four rounds of edits ([m8-one-pass.md](m8-one-pass.md)).
+
+- [x] Who says each line, read from the script by the LLM and checked against the voices
+  (`text.speakers`): speaker changes that change voice 4% (default clustering) / 22% (finer
+  re-clustering) → 90%, precision 87%; the 4-person drama keeps 0 swaps: **kept**
+- [x] Burned-in subtitles read on the laptop (OCR) correct the transcript (61 characters on
+  the drama; ASR vs subtitles CER 8.8%); a cue's line spans its words aligned by characters: **kept**
+- [x] Songs and background voices left original (the LLM's character kinds); uncaptioned
+  answers are dubbed: **kept**
+- [x] Voice references: quiet edges, pooled short lines, heard again by the ASR, cleanest of 3
+  candidates; OmniVoice fade 100 → 10 ms: **kept**
+- [x] Back-check text a short clip cannot hold is dropped (PhoWhisper invents sentences on
+  sub-second clips): **kept**
+- [x] Short lines planned 1.6x longer (4-6 syllables understood 67% → 96%): **kept**
+- [x] Output video: the dub is the only audio track: **kept**
+- [ ] Accent of cross-lingual clones (`experiments/accent.py`)
+- [ ] One-pass run of the drama with everything on, residual risks

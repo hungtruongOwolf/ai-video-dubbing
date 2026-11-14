@@ -24,6 +24,7 @@ Any language pair, in any direction.
 | **M5** Throughput | Continuous batching on the GPU, LLM in parallel with TTS, 24 GB profile, many languages from one analysis: a 60-min video in 14 min (final) / 8 min (draft) | **done** |
 | **M6** GPU lab | Models parked in CPU memory between jobs (kept), CUDA MPS (−6.5%, opt-in), community cloud (priced, not built) | **done** (optional) |
 | **M7** Quality pass | Ideas from 11 open-source dubbing projects, each measured: separation at 44.1 kHz + autocast, silence compensation (LLM rewrites 140 → 25), per-line loudness, Vietnamese punctuation transfer (sentence F1 0.687 → 0.779 on 8 videos), worker restarts; voice audition measured, no gain | **done** |
+| **M8** One pass | A video in, the final dub out, no manual fixes: who says each line read from the script (speaker changes that change voice 22% → 90% on a zh drama), burned-in subtitles read by OCR to correct the transcript, songs left original, clean voice references, short lines given time (4-6 syllables understood 67% → 96%) | **in progress** |
 
 Details: [docs/roadmap.md](docs/roadmap.md).
 
@@ -74,7 +75,9 @@ Riskiest lines first; play the original and the dub, fix the text, ask for a new
 
 ### Several speakers
 
-Speakers are found automatically (`--speakers N` if you know how many). Each one gets their
+Speakers are found automatically (`--speakers N` if you know how many): the voices are
+clustered, then the LLM reads the script line by line and decides who says each line (a
+question and its answer are two people even when the voices sound alike). Each one gets their
 own cloned voice, and the translation uses the forms of address of their relationship
 (Vietnamese "mẹ/con", "ông/cháu"...). To check who is who before anything is translated:
 
@@ -149,6 +152,7 @@ docs/               architecture, configuration, roadmap, milestone notes
 - [docs/m5-throughput.md](docs/m5-throughput.md): where the time of a 60-minute video goes and what made it faster
 - [docs/m6-gpu-lab.md](docs/m6-gpu-lab.md): GPU experiments (CPU-memory offload, MPS, community cloud)
 - [docs/m7-quality-pass.md](docs/m7-quality-pass.md): ideas from other dubbing projects, measured (separation, silence, loudness, voice audition, segmentation trials)
+- [docs/m8-one-pass.md](docs/m8-one-pass.md): one pass without manual fixes: who says each line, burned-in subtitles, Chinese left in a dub, short lines, voice references
 - [experiments/README.md](experiments/README.md): how to re-run the measurements
 - [docs/claude-subscription.md](docs/claude-subscription.md): translating with `claude -p`
 - [docs/roadmap.md](docs/roadmap.md): milestones and exit criteria

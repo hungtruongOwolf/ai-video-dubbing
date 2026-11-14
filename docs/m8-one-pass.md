@@ -26,7 +26,7 @@ otherwise: RTX PRO 4500 Blackwell (32 GB, $0.72/h), zh → vi, final profile.
 | OmniVoice's 100 ms fade → 10 ms | the fade ate the first and last phonemes of short lines | yes |
 | Dub is the only audio track of the output video | players picked the original Chinese track | yes |
 | Untranslated CJK characters sent back to the translator | guard against Chinese left in a Vietnamese line | yes |
-| Short lines given more time | see [short lines](#short-lines) | (pending) |
+| Short lines planned 1.6x longer (≤ 6 syllables, fading to 12) | 4-6 syllable lines understood 67% → 96% | yes |
 | Accent of cross-lingual clones | see [accent](#chinese-accent) | (pending) |
 
 ## 1. Who says each line
@@ -124,7 +124,31 @@ one-word answers.
 
 ### Short lines
 
-(pending: `experiments/short_lines.py`)
+Answers of one or two words ("Trai." for 男的, 240 ms) were the lines the listener could not
+understand: the plan gave them their syllables at the average rate (4.7 syllables/s), and
+OmniVoice, asked for exactly that, swallows them. Its own duration estimator does the
+opposite: anything under 2 s is lengthened along a cube root.
+
+`experiments/short_lines.py`: 12 lines of 1-6 syllables voiced at 1.0-2.5 times the linear
+plan by the six voices of the drama and two E1 voices (English, Chinese), heard by
+PhoWhisper (text the clip cannot hold dropped, see below). Share of takes with CER ≤ 0.15,
+one voice with a leaking reference clip left out:
+
+| Planned length | All | 1 syllable | 2-3 syllables | 4-6 syllables |
+|---|---:|---:|---:|---:|
+| 1.0 × linear | 0.32 | 0.00 | 0.19 | 0.67 |
+| 1.3 × | 0.39 | 0.00 | 0.33 | 0.67 |
+| **1.6 ×** | **0.47** | 0.00 | 0.31 | **0.96** |
+| 2.0 × | 0.44 | 0.25 | 0.31 | 0.75 |
+| 2.5 × | 0.43 | 0.17 | 0.33 | 0.71 |
+
+Lines of 4-6 syllables want 1.6 times their linear length; more time makes them drawn out
+and worse again. Lines of 2-3 syllables gain up to 1.3x and then stay at a third, and a
+single syllable cannot be judged by an ASR at all: "Trai." comes back as "truyện", "trại",
+"chuyện" at any length, a word out of context. Kept (`configs/langpacks/vi.yaml`):
+`short_boost: 1.6` up to `short_units: 6`, fading to 1x at 12 syllables. Lines of three
+syllables or fewer are no longer sent to the LLM to be shortened (one word less is worse
+to hear than a line running 100 ms into the pause).
 
 ### Back-check on short clips
 
