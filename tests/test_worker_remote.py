@@ -233,3 +233,19 @@ def test_worker_unloads_models_and_marks_gpu_memory_errors_retryable(cfg, ws):
     assert isinstance(e, ProviderError) and e.kind == "oom" and e.retryable
     other = RuntimeError("boom")
     assert _classify(other) is other
+
+
+def test_worker_offloads_models_that_can_and_restores_them_on_the_next_call(cfg, ws, monkeypatch):
+    from dub.providers.fake import FakeTTS
+
+    moves = []
+    monkeypatch.setattr(FakeTTS, "offload", lambda self: moves.append("cpu"), raising=False)
+    monkeypatch.setattr(FakeTTS, "restore", lambda self: moves.append("gpu"), raising=False)
+    state = WorkerState("fx", ["fake_tts"], cfg, ws.cas)
+    req = SynthReq(unit_id="u", text="xin chào", lang="vi", speaker="S1")
+    state.submit("fake_tts", "tts.synthesize", {}, req)
+    assert state.unload("fake_tts") is True
+    assert "fake_tts" in state.instances and state.offloaded == {"fake_tts"}
+    assert state.unload("fake_tts") is False  # already parked
+    state.submit("fake_tts", "tts.synthesize", {}, req)
+    assert moves == ["cpu", "gpu"] and not state.offloaded

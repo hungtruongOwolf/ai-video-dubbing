@@ -81,8 +81,21 @@ class SaTBoundaries:
             allow_patterns=["config.json", "model.safetensors"],  # skip the ONNX copies
         )
         self.sat = SaT(path)
-        if p.get("device", "cuda") == "cuda":
+        self._on_gpu = p.get("device", "cuda") == "cuda"
+        if self._on_gpu:
             self.sat.half().to("cuda")
+
+    def offload(self) -> None:
+        """Weights to CPU memory between jobs (24 GB profile)."""
+        if self.sat is not None and getattr(self, "_on_gpu", False):
+            import torch
+
+            self.sat.to("cpu")
+            torch.cuda.empty_cache()
+
+    def restore(self) -> None:
+        if self.sat is not None and getattr(self, "_on_gpu", False):
+            self.sat.to("cuda")
 
     def run(self, op: str, req: BoundaryReq, ctx: RunCtx) -> Boundaries:
         if op != "text.boundaries":

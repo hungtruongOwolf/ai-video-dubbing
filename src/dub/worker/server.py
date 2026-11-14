@@ -61,6 +61,7 @@ class WorkerState:
         self.queue: list[_Task] = []
         self.cv = threading.Condition()
         self.batches: list[int] = []  # sizes of the batches run (health, tests)
+        self.offloaded: set[str] = set()  # models parked in CPU memory (restored on next use)
         self._runner: threading.Thread | None = None
 
     # ------------------------------------------------------------ the model runner
@@ -111,6 +112,9 @@ class WorkerState:
         try:
             with self.lock:
                 inst = self.instance(first.pid)
+                if first.pid in self.offloaded:
+                    inst.restore()
+                    self.offloaded.discard(first.pid)
         except BaseException as e:  # noqa: BLE001 - a failed load fails every queued call
             for t in batch:
                 t.error = e
@@ -134,11 +138,21 @@ class WorkerState:
                 t.error = _classify(e)
 
     def unload(self, pid: str) -> bool:
-        """Free a model's GPU memory (the 24 GB profile frees phase-A models after phase A)."""
+        """Free a model's GPU memory (the 24 GB profile frees phase-A models after phase A).
+
+        A provider with offload()/restore() keeps its weights in CPU memory and comes back on
+        its next call in well under a second (M6); others are dropped and loaded again.
+        """
         with self.lock:
-            inst = self.instances.pop(pid, None)
-        if inst is None:
-            return False
+            inst = self.instances.get(pid)
+            if inst is None or pid in self.offloaded:
+                return False
+            if hasattr(inst, "offload") and hasattr(inst, "restore"):
+                inst.offload()
+                self.offloaded.add(pid)
+                _release_gpu_cache()
+                return True
+            self.instances.pop(pid, None)
         del inst
         import gc
 
@@ -216,6 +230,7 @@ def make_handler(state: WorkerState):
                         "env": state.env,
                         "providers": sorted(state.allowed),
                         "loaded": sorted(state.instances),
+                        "offloaded": sorted(state.offloaded),
                         # batch size -> runs (continuous batching at work)
                         "batches": {
                             str(n): state.batches.count(n) for n in sorted(set(state.batches))

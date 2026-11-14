@@ -59,12 +59,16 @@ subtitle layout. It also failed 18 back-checks: CUDA out of memory, four workers
 |---|---|---|---|
 | draft, before M5 | 801 s (13.4 min) | 4.5× real time | 51% |
 | draft, batching (voicing ahead redone by mistake: 836 syntheses) | 637 s | 5.7× | 77% |
-| draft, M5 | **470 s (7.8 min)** | 7.7× | 73% |
+| draft, M5 (LLM 4 in flight) | 470 s (7.8 min) | 7.7× | 73% |
+| draft, M5 final settings (LLM 8, separation batch 8, faster subtitles) | **473 s (7.9 min)** | 7.6× | 73% |
 | final, M5 | **844 s (14.1 min)** | 4.3× | **81%** |
 
-Draft, M5, by stage: separate ∥ transcribe 179 s · who speaks 9 s · cast sheet 14 s ·
-translate 141 s (GPU 79%: lines are voiced meanwhile) · voice and fit 52 s · mix and
-finish 68 s.
+Draft, M5 final settings, by stage: separate ∥ transcribe 179 s · who speaks 10 s · cast
+sheet 14 s · translate 78 s (GPU 71%: lines are voiced meanwhile) · voice and fit 134 s (GPU
+92%) · mix and finish 50 s (subtitles 4 s, master 39 s). Faster translation only moved TTS
+work from stage 5 to stage 6: once the analysis is done the draft is bound by the GPU (TTS,
+back-checks), not by the LLM. Stage 2 is bound by the GPU too: the separation and the ASR
+share it (alone: 118 s and 85 s; together: 179 s).
 
 Final, M5, by stage: separate ∥ transcribe 179 s · who speaks 10 s · cast sheet 15 s ·
 translate 78 s (GPU 75%) · voice, QA and fit 495 s (GPU 93%; 705 syntheses for 418 lines:
