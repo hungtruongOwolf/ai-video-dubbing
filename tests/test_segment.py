@@ -143,3 +143,24 @@ def test_unit_edges_snap_to_speech_onsets():
     # An edge in the middle of long continuous speech stays where it is.
     far = snap_to_speech([u1], [(u1.start_ms - 2000, u1.end_ms + 2000)])
     assert (far[0].start_ms, far[0].end_ms) == (u1.start_ms, u1.end_ms)
+
+
+def test_a_long_pause_cuts_units_but_not_the_sentence():
+    # An orator pauses 2 s (applause) in the middle of a sentence.
+    w = words_from("We choose to go to the moon") + words_from(
+        "in this decade and do the other things.", start_ms=2800 + 2000
+    )
+    seg = run(w)
+    assert len(seg.sentences) == 1 and len(seg.units) == 2
+    assert seg.units[0].sentence_ids == seg.units[1].sentence_ids
+    assert seg.units[1].start_ms - seg.units[0].end_ms >= 1500  # no unit spans the pause
+
+
+def test_punctuation_glued_to_the_next_word_moves_back():
+    from dub.ops.segment import normalize_words
+
+    ws = words_from("giữa đời sống lo toan .đặc biệt chùa")
+    fixed = [w.w for w in normalize_words(ws)]
+    assert fixed == ["giữa", "đời", "sống", "lo", "toan.", "đặc", "biệt", "chùa"]
+    seg = run(ws)
+    assert [s.text for s in seg.sentences] == ["giữa đời sống lo toan.", "đặc biệt chùa"]

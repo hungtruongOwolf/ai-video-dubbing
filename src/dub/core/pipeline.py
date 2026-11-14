@@ -196,8 +196,8 @@ async def run_job(
             replay_key=spec.transcript_key,
         ),
     )
-    asr_words = sorted(
-        (w for w in words.words if w.w.strip()), key=lambda w: (w.start_ms, w.end_ms)
+    asr_words = segment_ops.normalize_words(
+        sorted((w for w in words.words if w.w.strip()), key=lambda w: (w.start_ms, w.end_ms))
     )
     vocals16: AudioRes = await cx.local(
         "audio.to_mono16k", media_ops.to_mono16k, AudioReq(audio_key=stems.vocals_key), AudioRes

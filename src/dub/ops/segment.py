@@ -5,7 +5,9 @@ ends right after this word). It comes from the `text.boundaries` op: the SaT mod
 pod, or `rule_probs` below (punctuation rules) as the fallback and in tests.
 
 Three layers of boundaries:
-1. Mandatory: speaker change, or a pause >= hard_pause (1.5 s). No unit crosses one.
+1. Mandatory: speaker change, or a pause >= hard_pause (1.5 s). No unit crosses one. A
+   sentence ends at a speaker change, but may continue across a long pause (an orator
+   waiting for applause): the units are cut there, the sentence is not.
 2. Sentence: where the boundary probability reaches `threshold`.
 3. Over-long sentences (> max_unit, 15 s) are split with dynamic programming. A cut costs
    -log(p) minus a bonus for the pause there, so the DP prefers likely boundaries and long
@@ -81,6 +83,25 @@ def _ends_sentence(w: str) -> bool:
 
 
 P_SENTENCE, P_CLAUSE, P_NONE = 0.95, 0.3, 0.02
+_LEADING = ".?!。？！…"
+
+
+def normalize_words(words: list[Word]) -> list[Word]:
+    """Move punctuation an ASR glued to the START of a word back to the previous word.
+
+    PhoWhisper sometimes writes "lo toan .đặc biệt": the sentence end belongs to "toan", but a
+    boundary model reading ".đặc" would put it inside the next word, where nobody looks.
+    """
+    out: list[Word] = []
+    for w in words:
+        text = w.w
+        lead = len(text) - len(text.lstrip(_LEADING))
+        if lead and out and text[lead:].strip():
+            prev = out[-1]
+            out[-1] = prev.model_copy(update={"w": prev.w + text[:lead]})
+            w = w.model_copy(update={"w": text[lead:]})
+        out.append(w)
+    return out
 
 
 def rule_probs(words: list[str]) -> list[float]:
@@ -115,18 +136,28 @@ def assign_speakers(words: list[Word], turns: list[Turn]) -> list[Word]:
     return out
 
 
-def _blocks(words: list[Word], probs: list[float], p: SegmentParams):
-    """Split at mandatory boundaries: [(words, probs)] per block."""
+def _blocks(words: list[Word], probs: list[float]):
+    """Split at speaker changes: [(words, probs)] per block."""
     blocks: list[tuple[list[Word], list[float]]] = []
     for w, pr in zip(words, probs, strict=True):
-        if blocks:
-            prev = blocks[-1][0][-1]
-            if w.speaker == prev.speaker and w.start_ms - prev.end_ms < p.hard_pause_ms:
-                blocks[-1][0].append(w)
-                blocks[-1][1].append(pr)
-                continue
-        blocks.append(([w], [pr]))
+        if blocks and w.speaker == blocks[-1][0][-1].speaker:
+            blocks[-1][0].append(w)
+            blocks[-1][1].append(pr)
+        else:
+            blocks.append(([w], [pr]))
     return blocks
+
+
+def _pause_pieces(ws: list[Word], probs: list[float], p: SegmentParams):
+    """Split a sentence at long pauses: [(words, probs, starts_after_pause)]."""
+    pieces: list[tuple[list[Word], list[float], bool]] = []
+    for i, (w, pr) in enumerate(zip(ws, probs, strict=True)):
+        if i and w.start_ms - ws[i - 1].end_ms < p.hard_pause_ms:
+            pieces[-1][0].append(w)
+            pieces[-1][1].append(pr)
+        else:
+            pieces.append(([w], [pr], i > 0))
+    return pieces
 
 
 def _sentences(block: list[Word], probs: list[float], threshold: float):
@@ -281,7 +312,7 @@ def segment(req: SegmentReq) -> Segmentation:
         (i for i, w in enumerate(req.words) if w.w.strip()),
         key=lambda i: (req.words[i].start_ms, req.words[i].end_ms),
     )
-    words = assign_speakers([req.words[i] for i in order], req.turns)
+    words = normalize_words(assign_speakers([req.words[i] for i in order], req.turns))
     if req.probs:
         if len(req.probs) != len(req.words):
             raise ValueError(f"{len(req.probs)} boundary probs for {len(req.words)} words")
@@ -290,21 +321,9 @@ def segment(req: SegmentReq) -> Segmentation:
         probs = rule_probs([w.w for w in words])
     sentences: list[Sentence] = []
     units: list[Unit] = []
-    for block, bprobs in _blocks(words, probs, p):
-        chunks: list[tuple[list[Word], list[str]]] = []
-        for sw, sprobs in _sentences(block, bprobs, p.threshold):
-            sid = f"s{sw[0].start_ms:07d}-{sw[0].speaker}"
-            sentences.append(
-                Sentence(
-                    id=sid,
-                    speaker=sw[0].speaker or "S1",
-                    start_ms=sw[0].start_ms,
-                    end_ms=sw[-1].end_ms,
-                    text=join_words(sw, p.joiner),
-                )
-            )
-            chunks.extend((c, [sid]) for c in split_long(sw, p, sprobs))
-        for ws, sids in _merge_tiny(chunks, p):
+
+    def emit(group: list[tuple[list[Word], list[str]]]) -> None:
+        for ws, sids in _merge_tiny(group, p):
             spk = ws[0].speaker or "S1"
             units.append(
                 Unit(
@@ -318,6 +337,32 @@ def segment(req: SegmentReq) -> Segmentation:
                     asr_conf=round(sum(w.conf for w in ws) / len(ws), 3),
                 )
             )
+
+    for block, bprobs in _blocks(words, probs):
+        # A "group" holds the chunks between two mandatory cuts (long pause or speaker
+        # change); tiny units may only merge inside their group.
+        group: list[tuple[list[Word], list[str]]] = []
+        prev_end: int | None = None
+        for sw, sprobs in _sentences(block, bprobs, p.threshold):
+            sid = f"s{sw[0].start_ms:07d}-{sw[0].speaker}"
+            sentences.append(
+                Sentence(
+                    id=sid,
+                    speaker=sw[0].speaker or "S1",
+                    start_ms=sw[0].start_ms,
+                    end_ms=sw[-1].end_ms,
+                    text=join_words(sw, p.joiner),
+                )
+            )
+            for pw, pp, after_pause in _pause_pieces(sw, sprobs, p):
+                gap = pw[0].start_ms - prev_end if prev_end is not None else 0
+                if group and (after_pause or gap >= p.hard_pause_ms):
+                    emit(group)
+                    group = []
+                group.extend((c, [sid]) for c in split_long(pw, p, pp))
+                prev_end = pw[-1].end_ms
+        if group:
+            emit(group)
     units.sort(key=lambda u: (u.start_ms, u.speaker))
     units = snap_to_speech(units, req.speech)
     return Segmentation(lang=req.lang, sentences=sentences, units=units)
