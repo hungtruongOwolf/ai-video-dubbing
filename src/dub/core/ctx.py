@@ -130,7 +130,9 @@ class Ctx:
         self.job_id = job_id
         self.facts = facts
         self.log = log
-        self.fresh = fresh  # benchmarks: recompute everything (results are still stored)
+        # benchmarks: ignore results stored before this job (results of this job are reused)
+        self.fresh = fresh
+        self._mine: set[str] = set()
         self.overrides = params or {}  # --param provider.key=value, part of the call keys
         self.routes: list[v1.RouteTrace] = []
         self.stats: list[CallStat] = []
@@ -147,7 +149,7 @@ class Ctx:
         return {"prompt_file": name, "prompt_hash": self._prompt_cache[name]}
 
     def _lookup(self, key: str) -> dict[str, Any] | None:
-        if self.fresh:
+        if self.fresh and key not in self._mine:
             return None
         cached = self.ws.memo.get(key)
         if cached is None:
@@ -266,6 +268,7 @@ class Ctx:
         dur_ms = (time.perf_counter() - t0) * 1000
         if not isinstance(res, res_type):
             res = res_type.model_validate(res.model_dump())
+        self._mine.add(key)
         self.ws.memo.put(
             key,
             {"op": op, "provider": pid, "subject": subject, "result": res.model_dump(mode="json")},
@@ -324,6 +327,7 @@ class Ctx:
             with self.tracer.span(op, "cpu", {"subject": subject}):
                 res = await asyncio.to_thread(fn, *args)
             dur_ms = (time.perf_counter() - t0) * 1000
+            self._mine.add(key)
             self.ws.memo.put(
                 key,
                 {

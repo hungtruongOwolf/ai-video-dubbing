@@ -155,11 +155,14 @@ def test_bench_speed_reports_stages_lanes_and_ops(demo, tmp_path, capsys):
     assert [s["stage"][:5] for s in rep["stages"]] == [f"[{k}/7]" for k in range(1, 8)]
     assert rep["wall_s"] > 0 and rep["media_s"] > 50 and rep["gpu_util_mean"] is None
     assert sum(s["wall_s"] for s in rep["stages"]) <= rep["wall_s"] + 0.5
-    # --fresh: a second run recomputes everything instead of reading the cache
+    # --fresh: a second run recomputes every line once (results of the run itself are reused:
+    # the voicing pass finds the lines voiced ahead during translation)
     assert main([*args, "--fresh"]) == 0
     job = next((tmp_path / "ws" / "jobs").iterdir())
-    names = [e["name"] for e in json.loads((job / "trace.json").read_text())["traceEvents"]]
-    assert "tts.synthesize" in names and not any(n.endswith("(cache)") for n in names)
+    events = json.loads((job / "trace.json").read_text())["traceEvents"]
+    synth = [e for e in events if e["name"] == "tts.synthesize" and e["ph"] == "X"]
+    units = json.loads((job / "units.json").read_text(encoding="utf-8"))
+    assert len(synth) == len(units)
 
 
 def test_one_source_many_targets_shares_the_analysis(demo, tmp_path, capsys):
