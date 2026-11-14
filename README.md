@@ -23,7 +23,7 @@ Any language pair, in any direction.
 | **M4** Speakers + routing | Diarization (ECAPA), one cloned voice per speaker, QA gate with takes, forms-of-address checker, cast corrections, second TTS engine (VieNeu) | **done** |
 | **M5** Throughput | Continuous batching on the GPU, LLM in parallel with TTS, 24 GB profile, many languages from one analysis: a 60-min video in 14 min (final) / 8 min (draft) | **done** |
 | **M6** GPU lab | Models parked in CPU memory between jobs (kept), CUDA MPS (−6.5%, opt-in), community cloud (priced, not built) | **done** (optional) |
-| **M7** Quality pass | Ideas from 11 open-source dubbing projects, each measured: separation at 44.1 kHz + autocast, silence compensation (LLM rewrites 140 → 25), per-line loudness, worker restarts; voice audition measured, no gain | **done** |
+| **M7** Quality pass | Ideas from 11 open-source dubbing projects, each measured: separation at 44.1 kHz + autocast, silence compensation (LLM rewrites 140 → 25), per-line loudness, Vietnamese punctuation transfer (sentence F1 +0.037 on 8 videos), worker restarts; voice audition measured, no gain | **done** |
 
 Details: [docs/roadmap.md](docs/roadmap.md).
 

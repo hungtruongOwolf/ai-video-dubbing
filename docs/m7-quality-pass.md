@@ -17,7 +17,7 @@ en → vi, final profile.
 | Voice audition (4 candidate clips per speaker) | picked another clip (+0.07 on the test sentences), whole-job voice similarity unchanged (0.599 → 0.600) | no: off by default, available |
 | Mix stage: levels per line, export in the background | 72 → 51 s on the 60-min final | yes |
 | Spoken numbers (pronunciation layer) | OmniVoice reads vi numbers right in 10 of 11 lines | not needed |
-| Segmentation trials (6) | each helps one video and hurts another | none kept |
+| Segmentation trials on 11 Commons + 11 YODAS2 videos | vi punctuation transfer: F1 0.687 → 0.724 on 8 vi videos (7 better); zh prompts and min length: no gain | vi transfer kept |
 | Worker restarts, versioned result keys, single-flight fix | robustness, see [below](#robustness) | yes |
 
 ## Reference projects
@@ -199,6 +199,34 @@ Baseline F1 (±1 word) of the added videos:
 | vi 2c8OawTG8TQ | book talk | 8 reference sentences (no punctuation) | not used |
 
 Vietnamese now has 8 videos (2 Commons + 6), Chinese 7 (2 + 5).
+
+### The trials again, on the larger set
+
+Mean F1 (±1 word) over the same videos, baseline → variant:
+
+| Trial | Videos | Mean F1 | Better / worse | Kept? |
+|---|---|---|---|---|
+| vi: Whisper's punctuation on PhoWhisper's words | 8 | 0.687 → **0.724** (+0.037) | **7 / 1** | **yes** |
+| zh: punctuated `hotwords` | 7 | 0.714 → 0.670 (−0.044) | 2 / 5 | no |
+| zh: punctuated `initial_prompt` | 7 | 0.714 → 0.694 (−0.020) | 2 / 3 | no |
+| SaT min sentence length 3 words | 15 (vi, zh) | 0.687 → 0.685 (vi), 0.714 → 0.715 (zh) | 2 / 3 | no |
+
+- **Vietnamese punctuation transfer** (`phowhisper_punct`, now the vi source ASR): per video
+  +0.114 (podcast), +0.077, +0.045, +0.044, +0.035, +0.014, +0.006, and −0.039 on the 1945
+  recording (Whisper hears little of it, so fewer ends are transferred). PhoWhisper's words
+  are kept unchanged (checked: 144 of 144 words identical on a 40 s clip, 7 sentence ends
+  instead of 2); only Whisper's sentence punctuation is transferred where both models heard
+  the same words, so Whisper's invented sentences (E6) never reach the transcript. The
+  back-check keeps PhoWhisper alone (its own chain, batched). The two models are shared with
+  `phowhisper_large_ct2` and `whisper_large_v3` in the asr worker: measured +136 MiB of GPU
+  memory for the transfer instead of a second copy of each model (~7 GB).
+- **zh hotwords**: the +0.134 on zh-polio that looked promising with two videos was the
+  exception; on the larger set the punctuated hint lowers F1 on 5 of 7 videos and makes
+  Whisper drop text on one (CER 0.10 → 0.20).
+- **Script normalisation** (found while adding the videos): `dub bench seg` now compares
+  Chinese in simplified characters (OpenCC). Two traditional-character videos had scored
+  0.651 and 0.478 against simplified ASR output; 0.771 and 0.587 once both sides were
+  simplified. The two Commons zh scores did not change.
 
 ## Spoken numbers
 
