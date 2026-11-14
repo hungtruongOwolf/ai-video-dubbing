@@ -455,6 +455,7 @@ async def run_job(
                 "unit.asr_conf": u.asr_conf,
             }
             rewrites = 0
+            tr_u = translations.get(u.id)
             ref = refs.for_speaker(u.speaker)
             base_seed = ue.seed.get(u.id, 0)
             inline_qa = profile.takes > 1 and profile.backcheck
@@ -532,11 +533,19 @@ async def run_job(
                                 text=text,
                                 current_units=cur,
                                 target_units=max(1, int(cur * t.rate_p95 / fit.rate)),
+                                self_term=tr_u.self_term if tr_u else None,
+                                other_term=tr_u.other_term if tr_u else None,
                             ),
                             subject=u.id,
                         )
-                        text, variant, pred = rw.text, "rewrite", predict(rw.text)
                         rewrites += 1
+                        # A shorter line must not break the forms of address: keep the old
+                        # one (and stop rewriting) when the rewrite does.
+                        if tr_u and address_ops.check_line(
+                            u, rw.text, tr_u, sheet.cast, spec.tgt_lang, generic
+                        ):
+                            break
+                        text, variant, pred = rw.text, "rewrite", predict(rw.text)
                         continue
                     break
                 stretched: AudioRes = await cx.local(

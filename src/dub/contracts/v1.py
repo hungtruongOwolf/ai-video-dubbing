@@ -328,6 +328,8 @@ class RewriteReq(Model):
     text: str
     target_units: int  # syllables/characters the line should have
     current_units: int
+    self_term: str | None = None  # forms of address the line must keep (from the translation)
+    other_term: str | None = None
 
 
 class RewriteRes(Model):
