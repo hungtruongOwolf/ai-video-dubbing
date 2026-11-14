@@ -338,7 +338,10 @@ def snap_end(t: int, speech: list[tuple[int, int]]) -> int:
 
 
 def snap_to_speech(
-    units: list[Unit], speech: list[tuple[int, int]], min_gap_ms: int = 60
+    units: list[Unit],
+    speech: list[tuple[int, int]],
+    min_gap_ms: int = 60,
+    max_unit_ms: int | None = None,
 ) -> list[Unit]:
     """Move unit edges onto the speech found by a VAD on the separated vocals.
 
@@ -346,7 +349,8 @@ def snap_to_speech(
     word of a phrase 300-500 ms early, inside the pause before it (measured in M3). An edge
     that falls in silence moves to the nearest speech (up to 800 ms); an edge inside speech
     moves to the edge of that speech region if it is close (up to 400 ms). Edges never
-    cross the neighbouring units, and a unit never shrinks below 200 ms.
+    cross the neighbouring units, a unit never shrinks below 200 ms, and snapping never makes
+    a unit longer than max_unit_ms (a 60-minute speech had one at 15.4 s).
     """
     if not speech:
         return units
@@ -361,6 +365,11 @@ def snap_to_speech(
             end = min(end, max(hi, u.end_ms))
         if end - start < 200:  # never collapse a unit: keep the ASR edges instead
             start, end = u.start_ms, u.end_ms
+        if max_unit_ms and end - start > max(max_unit_ms, u.end_ms - u.start_ms):
+            # give back the extensions, the end first (the onset matters more)
+            end = max(u.end_ms, start + max_unit_ms)
+            if end - start > max_unit_ms:
+                start = min(u.start_ms, end - max_unit_ms)
         out.append(u.model_copy(update={"start_ms": int(start), "end_ms": int(end)}))
     return out
 
@@ -425,5 +434,5 @@ def segment(req: SegmentReq) -> Segmentation:
         if group:
             emit(group)
     units.sort(key=lambda u: (u.start_ms, u.speaker))
-    units = snap_to_speech(units, req.speech)
+    units = snap_to_speech(units, req.speech, max_unit_ms=p.max_unit_ms)
     return Segmentation(lang=req.lang, sentences=sentences, units=units)

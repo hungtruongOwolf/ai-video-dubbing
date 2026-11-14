@@ -203,3 +203,14 @@ def test_turn_clips_join_one_speaker_and_never_overlap():
     ]
     clips = turn_clips(turns, 7000)
     assert clips == [(0, 4050), (4050, 6150)]
+
+
+def test_snapping_never_makes_a_unit_longer_than_the_maximum():
+    from dub.contracts.v1 import Unit
+    from dub.ops.segment import snap_to_speech
+
+    u = Unit(id="u1", speaker="S1", sentence_ids=["s1"], start_ms=1000, end_ms=15900, text="x",
+             n_words=1)  # fmt: skip
+    # speech starts 600 ms early and ends 500 ms late: both edges would extend
+    out = snap_to_speech([u], [(400, 16400)], max_unit_ms=15000)[0]
+    assert out.end_ms - out.start_ms <= 15000 and out.start_ms <= 1000
