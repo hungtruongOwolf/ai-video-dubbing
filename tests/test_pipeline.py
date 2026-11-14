@@ -94,3 +94,24 @@ def test_without_fake_the_error_explains_what_is_missing(demo, tmp_path, capsys)
     assert main(["run", str(demo), "--to", "vi", "--workspace", str(tmp_path / "ws")]) == 3
     err = capsys.readouterr().err
     assert "No runnable provider" in err and "--fake" in err
+
+
+def test_bench_seg_analyses_a_video_without_dubbing(demo, tmp_path, capsys):
+    import re
+
+    from dub.demo import SCRIPT
+
+    sentences = []
+    for _spk, text, _pause in SCRIPT:
+        sentences += [s for s in re.split(r"(?<=[.!?])\s+(?=[A-Z])", text) if s]
+    golden = tmp_path / "golden.txt"
+    golden.write_text("\n".join(sentences), encoding="utf-8")
+    scores = tmp_path / "scores.json"
+    ws = tmp_path / "ws"
+    args = ["bench", "seg", str(demo), "--golden", str(golden), "--from", "en", "--fake"]
+    assert main([*args, "--workspace", str(ws), "--json", str(scores)]) == 0
+    out = capsys.readouterr().out
+    assert "translating" not in out and "voicing" not in out  # phase A only
+    s = json.loads(scores.read_text(encoding="utf-8"))
+    assert s["tol1"]["n_gold"] > 5 and s["tol1"]["f1"] > 0.8  # rules on a punctuated replay
+    assert (Path(s["job"]) / "segmentation.json").exists() and "analysis" in s["job"]

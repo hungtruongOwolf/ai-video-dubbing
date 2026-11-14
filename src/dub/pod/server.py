@@ -94,6 +94,7 @@ class Jobs:
             subs_only=bool(body.get("subs_only", False)),
             edits=[Edit.model_validate(e) for e in body.get("edits", [])],
             export=bool(body.get("export", True)),
+            analysis_only=bool(body.get("analysis_only", False)),
         )
         overrides = overrides_for(self.cfg, list(body.get("use", [])), bool(body.get("fake")))
         job_id = uuid.uuid4().hex[:12]

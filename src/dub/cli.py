@@ -11,7 +11,9 @@ dub review VIDEO --to vi         review page: listen to risky lines, fix them, r
 dub doctor                       show which providers can run here and the route matrix
 dub schema                       export the /v1 data contracts as JSON Schema
 dub jobs                         list jobs in the workspace
-dub bench seg JOB --golden FILE  sentence-boundary F1 of a job against your reference
+dub bench seg VIDEO --golden FILE --remote
+                                 analyse a video (no dubbing) and score its sentence
+                                 boundaries against the sentences really spoken
 """
 
 from __future__ import annotations
@@ -123,9 +125,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     b = sub.add_parser("bench", help="measure a job against a reference")
     b.add_argument("what", choices=["seg"], help="seg: sentence segmentation F1")
-    b.add_argument("job", type=Path, help="job folder (printed as 'report:' by dub run)")
+    b.add_argument("target", type=Path, help="a video/audio file, or a job folder to re-score")
     b.add_argument("--golden", type=Path, required=True, help="reference: one sentence per line")
     b.add_argument("--tol", type=int, default=1, help="tolerance in words (default 1)")
+    b.add_argument("--from", dest="src", default="auto", help="spoken language")
+    b.add_argument("--remote", action="store_true", help="analyse on the GPU pod")
+    b.add_argument("--fake", action="store_true", help="fake models (tests only)")
+    b.add_argument("--json", type=Path, help="also write the scores to this file")
+    _common(b)
     return ap
 
 
@@ -305,13 +312,22 @@ def cmd_schema(a) -> int:
 def cmd_bench(a) -> int:
     from dub.bench.seg import boundary_f1
 
-    job = a.job if a.job.is_dir() else a.job.parent
+    if a.target.is_dir() or a.target.suffix == ".json":
+        job = a.target if a.target.is_dir() else a.target.parent
+    else:  # a media file: run the analysis (phase A) first
+        opts = RunOptions(
+            video=a.target, tgt="und", src=a.src, remote=a.remote, fake=a.fake,
+            analysis_only=True, config_dir=a.config_dir,
+        )  # fmt: skip
+        job = run_video(opts, Workspace.open(a.workspace), log=print).job_dir
     seg = json.loads((job / "segmentation.json").read_text(encoding="utf-8"))
+    scores: dict = {"job": str(job), "lang": seg["lang"]}
     gold = [ln.strip() for ln in a.golden.read_text(encoding="utf-8").splitlines() if ln.strip()]
     pred = [s["text"] for s in seg["sentences"]]
     lang = seg["lang"]
     for tol in sorted({0, a.tol}):
         f = boundary_f1(pred, gold, lang, tol=tol)
+        scores[f"tol{tol}"] = f.as_dict()
         print(
             f"sentences (tolerance {tol} word): P {f.precision:.3f}  R {f.recall:.3f}  "
             f"F1 {f.f1:.3f}   ours {f.n_pred}, reference {f.n_gold}"
@@ -321,6 +337,10 @@ def cmd_bench(a) -> int:
         f"units: {len(lens)}, longest {max(lens, default=0):.1f} s, "
         f"over 15 s: {sum(1 for x in lens if x > 15)}, under 1 s: {sum(1 for x in lens if x < 1)}"
     )
+    scores["units"] = len(lens)
+    scores["unit_s_max"] = round(max(lens, default=0), 2)
+    if a.json:
+        a.json.write_text(json.dumps(scores, indent=1), encoding="utf-8")
     return 0
 
 

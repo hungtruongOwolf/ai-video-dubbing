@@ -105,6 +105,7 @@ class JobSpec:
     subs_only: bool = False  # path P5: subtitles only, no TTS
     edits: list[Edit] = field(default_factory=list)  # human edits (see dub.ops.edits)
     export: bool = True  # False: stop after the mixed tiles (fast preview while editing)
+    analysis_only: bool = False  # stop after segmentation (benchmarks: dub bench seg)
 
 
 @dataclass
@@ -142,7 +143,7 @@ async def run_job(
     profile_name = spec.profile or cfg.dub.profile
     profile = cfg.profile(profile_name)
     t = cfg.dub.timing
-    job_id = job_id_for(spec, profile_name)
+    job_id = job_id_for(spec, "analysis" if spec.analysis_only else profile_name)
     job_dir = ws.job_dir(job_id)
     tracer = Tracer()
     router = Router(cfg, profile=profile_name, overrides=overrides)
@@ -231,6 +232,10 @@ async def run_job(
         with_cas=False,
     )
     base_units = seg.units
+    if spec.analysis_only:
+        n_words, n_sent = len(words.words), len(seg.sentences)
+        log(f"      {n_words} words -> {n_sent} sentences -> {len(seg.units)} units")
+        return _analysis_result(cx, tracer, ws, job_id, job_dir, spec, seg, src_lang, media)
     edits = edits_ops.effective(spec.edits)
     ue = edits_ops.UnitEdits.from_edits(edits)
     worded = segment_ops.assign_speakers(asr_words, diar.turns)
@@ -595,6 +600,35 @@ async def run_job(
 
 
 # -------------------------------------------------------------------- report
+
+
+def _analysis_result(cx, tracer, ws, job_id, job_dir, spec, seg, src_lang, media) -> JobResult:
+    """Phase A only: the segmentation and the routes that produced it."""
+    tracer.save(job_dir / "trace.json")
+    with open(job_dir / "routes.jsonl", "w", encoding="utf-8") as f:
+        for r in cx.routes:
+            f.write(r.model_dump_json() + "\n")
+    (job_dir / "segmentation.json").write_text(seg.model_dump_json(indent=1), encoding="utf-8")
+    lens = [u.slot_ms for u in seg.units]
+    metrics = {
+        "units": len(seg.units),
+        "sentences": len(seg.sentences),
+        "unit_s_max": round(max(lens) / 1000, 2) if lens else 0,
+        "units_over_15s": sum(1 for x in lens if x > 15000),
+        "units_under_1s": sum(1 for x in lens if x < 1000),
+    }
+    (job_dir / "metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
+    cx.flush_stats()
+    ws.db.upsert_job(
+        job_id, source=spec.source_name, src_lang=src_lang, tgt_lang=spec.tgt_lang,
+        profile="analysis", status="done",
+    )  # fmt: skip
+    return JobResult(
+        job_id=job_id, job_dir=job_dir, src_lang=src_lang, tgt_lang=spec.tgt_lang,
+        dub_audio_key=None, dub_m4a_key=None, subs={}, a48k_key=media.a48k_key,
+        metrics=metrics, redone=dict(Counter(st.op for st in cx.stats if not st.hit)),
+        calls=len(cx.stats), cache_hits=sum(1 for s in cx.stats if s.hit),
+    )  # fmt: skip
 
 
 def _shift(words: list[Word], offset_ms: int) -> list[Word]:

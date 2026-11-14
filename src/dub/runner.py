@@ -33,6 +33,7 @@ class RunOptions:
     speakers: int | None = None
     subs_only: bool = False
     export: bool = True
+    analysis_only: bool = False  # stop after segmentation (dub bench seg)
     config_dir: Path | None = None
 
 
@@ -45,8 +46,8 @@ class RunOutput:
     src_lang: str
     tgt_lang: str
     dub_audio: Path | None  # AAC track, only when exported
-    tgt_srt: Path
-    src_srt: Path
+    tgt_srt: Path | None  # None for analysis-only runs
+    src_srt: Path | None
     tiles: list[dict]  # mixed 30 s tiles: start_ms, end_ms, audio_key (local or pod CAS)
     remote: bool
     calls: int
@@ -101,6 +102,7 @@ def run_video(opts: RunOptions, ws: Workspace, log: Callable[[str], None] = prin
         audio_key=audio_key, source_name=video.name, tgt_lang=opts.tgt, src_lang=opts.src,
         profile=opts.profile, transcript_key=transcript_key_for(ws, opts, log),
         speakers_hint=opts.speakers, subs_only=opts.subs_only, edits=edits, export=opts.export,
+        analysis_only=opts.analysis_only,
     )  # fmt: skip
     if opts.remote:
         return _run_remote(opts, ws, spec, log)
@@ -110,8 +112,8 @@ def run_video(opts: RunOptions, ws: Workspace, log: Callable[[str], None] = prin
     return RunOutput(
         job_id=res.job_id, job_dir=res.job_dir, src_lang=res.src_lang, tgt_lang=res.tgt_lang,
         dub_audio=ws.cas.path(res.dub_m4a_key) if res.dub_m4a_key else None,
-        tgt_srt=ws.cas.path(res.subs[res.tgt_lang]),
-        src_srt=ws.cas.path(res.subs[f"{res.src_lang}.src"]),
+        tgt_srt=ws.cas.path(res.subs[res.tgt_lang]) if res.subs else None,
+        src_srt=ws.cas.path(res.subs[f"{res.src_lang}.src"]) if res.subs else None,
         tiles=[t.model_dump() for t in res.tiles], remote=False,
         calls=res.calls, cache_hits=res.cache_hits, warnings=res.warnings,
         redone=res.redone,
@@ -142,6 +144,7 @@ def _run_remote(opts: RunOptions, ws: Workspace, spec: JobSpec, log) -> RunOutpu
         "tgt_lang": spec.tgt_lang, "src_lang": spec.src_lang, "profile": spec.profile,
         "speakers_hint": spec.speakers_hint, "subs_only": spec.subs_only,
         "use": opts.use, "fake": opts.fake, "export": spec.export,
+        "analysis_only": spec.analysis_only,
         "edits": [e.model_dump(mode="json") for e in spec.edits],
     }  # fmt: skip
     if spec.transcript_key:
@@ -164,10 +167,12 @@ def _run_remote(opts: RunOptions, ws: Workspace, spec: JobSpec, log) -> RunOutpu
     for name, text in files.items():
         if not name.startswith("subs:"):
             (job_dir / name).write_text(text, encoding="utf-8")
-    tgt_srt = job_dir / "tgt.srt"
-    src_srt = job_dir / "src.srt"
-    tgt_srt.write_text(files[f"subs:{r['tgt_lang']}"], encoding="utf-8")
-    src_srt.write_text(files[f"subs:{r['src_lang']}.src"], encoding="utf-8")
+    tgt_srt = src_srt = None
+    if r["subs"]:
+        tgt_srt = job_dir / "tgt.srt"
+        src_srt = job_dir / "src.srt"
+        tgt_srt.write_text(files[f"subs:{r['tgt_lang']}"], encoding="utf-8")
+        src_srt.write_text(files[f"subs:{r['src_lang']}.src"], encoding="utf-8")
     if "seconds" in r:
         log(f"[pod] job took {r['seconds']} s on the pod")
     dub_audio = None
