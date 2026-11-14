@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from experiments.common import data_dir, save_json  # noqa: E402
 
-GENERIC = {"tôi", "tao", "tớ", "mình", "mày", "cậu", "bạn", "ta"}
+GENERIC = {"tôi", "tao", "tớ", "mày", "cậu", "bạn"}  # as configs/langpacks/vi.yaml
 KIN = {"ông", "bà", "bố", "ba", "cha", "mẹ", "má", "con", "cháu", "anh", "chị", "em", "cô",
        "chú", "bác", "dì"}  # fmt: skip
 

@@ -336,7 +336,14 @@ async def run_job(
         for u in units:
             tr = translations.get(u.id)
             if tr and u.id not in ue.text:
-                probs = address_ops.check_line(u, tr.target, tr, sheet.cast, spec.tgt_lang, generic)
+                # every variant: the timing fit may pick the short or the long one
+                probs = []
+                for variant in dict.fromkeys((tr.target, tr.short, tr.long)):
+                    for why in address_ops.check_line(
+                        u, variant, tr, sheet.cast, spec.tgt_lang, generic
+                    ):
+                        if why not in probs:
+                            probs.append(why)
                 if probs:
                     found[u.id] = "; ".join(probs)
         for uid, why in address_ops.listener_issues(units, translations).items():
