@@ -8,12 +8,17 @@ through that alignment. A boundary counts as found if ours is within `tol` words
 
 Words are whitespace tokens; dictionary words for Thai (PyThaiNLP); single characters for
 Chinese and Japanese.
+
+Not every extra boundary is an error for dubbing: an ASR often puts a full stop where the
+reference has a comma ("...all three. For we meet..."). `soft_fp` counts our extra boundaries
+that fall where the reference has clause punctuation (, ; : - and their CJK forms), `hard_fp`
+the others (a cut inside a phrase). `clause_p` = (hits + soft_fp) / ours.
 """
 
 from __future__ import annotations
 
 import difflib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from dub.ops.align import _norm_chars
 from dub.ops.script import base_lang, is_no_space
@@ -27,15 +32,27 @@ class F1:
     n_pred: int
     n_gold: int
     hits: int = 0
+    soft_fp: int | None = None  # extra boundaries at reference clause punctuation
+    hard_fp: int | None = None  # extra boundaries inside a phrase
+    unmatched: list[int] = field(default_factory=list)  # our boundaries with no reference match
 
     def as_dict(self) -> dict[str, float | int]:
-        return {
+        out: dict[str, float | int] = {
             "p": round(self.precision, 4),
             "r": round(self.recall, 4),
             "f1": round(self.f1, 4),
             "n_pred": self.n_pred,
             "n_gold": self.n_gold,
         }
+        if self.soft_fp is not None:
+            out["soft_fp"] = self.soft_fp
+            out["hard_fp"] = self.hard_fp or 0
+            ok = self.hits + self.soft_fp
+            out["clause_p"] = round(ok / self.n_pred, 4) if self.n_pred else 1.0
+        return out
+
+
+CLAUSE_PUNCT = set(",;:-–—，、；：")
 
 
 def match_f1(pred: list[int], gold: list[int], tol: int = 1) -> F1:
@@ -55,7 +72,8 @@ def match_f1(pred: list[int], gold: list[int], tol: int = 1) -> F1:
     prec = hits / len(pred) if pred else (1.0 if not gold else 0.0)
     rec = hits / len(gold) if gold else 1.0
     f = 2 * prec * rec / (prec + rec) if prec + rec else 0.0
-    return F1(prec, rec, f, len(pred), len(gold), hits)
+    unmatched = [p for i, p in enumerate(pred) if i not in used_p]
+    return F1(prec, rec, f, len(pred), len(gold), hits, unmatched=unmatched)
 
 
 def micro(scores: list[F1]) -> F1:
@@ -129,4 +147,37 @@ def boundary_f1(pred_sentences: list[str], gold_sentences: list[str], lang: str,
             if before:
                 gold.append(pw[g2p[before[-1]]])
     gold = sorted(set(gold))
-    return match_f1(pends[:-1], gold, tol)
+    res = match_f1(pends[:-1], gold, tol)
+    # Classify our extra boundaries: does the reference have clause punctuation there?
+    gold_punct = _clause_after(gold_sentences, lang)  # per gold char: punctuation after it
+    p2g = {b: a for a, b in g2p.items()}
+    last_char = {}  # our word index -> its last char in our stream
+    for ci, wi in enumerate(pw):
+        last_char[wi] = ci
+    soft = 0
+    for wi in res.unmatched:
+        ci = last_char.get(wi)
+        g = p2g.get(ci) if ci is not None else None
+        if g is not None and gold_punct[g]:
+            soft += 1
+    res.soft_fp = soft
+    res.hard_fp = len(res.unmatched) - soft
+    return res
+
+
+def _clause_after(sentences: list[str], lang: str) -> list[bool]:
+    """For each normalized char of the reference: is a clause punctuation mark right after its
+    word (", ; : -" and CJK forms)? Same char stream as `_stream`."""
+    flags: list[bool] = []
+    for s in sentences:
+        tokens = _words(s, lang)
+        for k, tok in enumerate(tokens):
+            norm = [c for _, c in _norm_chars(tok, strip_marks=True)]
+            if not norm:
+                continue
+            nxt = tokens[k + 1] if k + 1 < len(tokens) else ""
+            punct = tok.rstrip()[-1:] in CLAUSE_PUNCT or (
+                bool(nxt) and all(ch in CLAUSE_PUNCT for ch in nxt.strip())
+            )
+            flags.extend([False] * (len(norm) - 1) + [punct])
+    return flags

@@ -110,3 +110,19 @@ def test_master_reaches_the_target_loudness_with_one_gain(tmp_path):
     res = master(MasterReq(audio_key=cas.put_file(src), loudness_lufs=-16.0), cas)
     assert abs(integrated_lufs(cas.path(res.audio_key)) + 16.0) < 1.0
     assert abs(res.dur_ms - 6000) < 100
+
+
+def test_extra_boundaries_at_reference_commas_are_soft():
+    from dub.bench.seg import boundary_f1
+
+    gold = ["We meet at a college, for we meet in an hour of change.", "No man can grasp it."]
+    pred = [
+        "We meet at a college.",
+        "For we meet in an hour.",
+        "Of change.",
+        "No man can grasp it.",
+    ]
+    f = boundary_f1(pred, gold, "en", tol=1)
+    d = f.as_dict()
+    assert f.hits == 1 and d["soft_fp"] == 1 and d["hard_fp"] == 1
+    assert d["clause_p"] == round(2 / 3, 4)

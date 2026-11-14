@@ -119,6 +119,28 @@ Two fixes came out of this, and are in the numbers above:
 - punctuation an ASR glued to the start of the next word moves back ("toan .đặc" →
   "toan. đặc"): the Phổ Lại documentary went 0.531 → 0.627, the 1945 recording 0.717 → 0.766.
 
+### Which errors matter (added after M6)
+
+F1 against subtitles counts every extra boundary as an error, but an ASR often writes a full
+stop where the reference has a comma ("...in need of all three. For we meet..."), which is
+harmless for dubbing: the line is cut at a clause. `dub bench seg` now splits our extra
+boundaries into **soft** (the reference has clause punctuation there) and **hard** (a cut
+inside a phrase), and reports `clause_p` = (hits + soft) / ours. SaT, 11 videos:
+
+| Language | F1 | clause_p | soft extra | hard extra |
+|---|---|---|---|---|
+| en (3) | 0.843 | 0.920 | 15 | 8 |
+| es (2) | 0.833 | 0.930 | 1 | 2 |
+| vi (2) | 0.697 | 0.797 | 11 | 17 |
+| zh (2) | 0.801 | 0.925 | 3 | 5 |
+| ja (2) | 0.833 | 0.861 | 1 | 10 |
+| all 11 | 0.805 | 0.890 | 31 | 42 |
+
+About 40% of the extra boundaries are soft; the hard ones are concentrated in Vietnamese
+(unpunctuated PhoWhisper text) and Japanese. The SaT threshold does not move any of this
+(0.15 / 0.25 / 0.35 / 0.5: F1 0.806 / 0.805 / 0.805 / 0.807): SaT's probabilities are close to
+0 or 1 at nearly every word.
+
 ### LLM arm (added after M6)
 
 **Question:** does an LLM place sentence ends better than SaT on real ASR output? `claude_cli`
@@ -135,6 +157,7 @@ F1 at ±1 word (`real_videos.py run --use text.boundaries=claude_cli`):
 | zh (2) | **0.800** | 0.785 | 0.633 | 0.727 |
 | ja (2) | **0.833** | 0.784 | 0.777 | 0.733 |
 | all 11 | **0.805** | 0.742 | 0.720 | 0.727 |
+| clause_p, all 11 | **0.890** | 0.825 | | |
 
 **Decision: SaT stays.** The LLM gains ~0.02 in English only and loses elsewhere, most of all
 on Vietnamese, where PhoWhisper's text has no punctuation and many recognition errors: its
