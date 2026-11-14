@@ -89,3 +89,25 @@ def test_unknown_runtime_is_unavailable(cfg):
     tr = Router(c, profile="final").route("tts.synthesize", {"tgt_lang": "vi"})
     assert tr.chain == ["fake_tts"]
     assert tr.rejected[0].provider == "remote" and "not running here" in tr.rejected[0].reason
+
+
+def test_profile_overrides_provider_params(cfg, tmp_path):
+    from dub.core.ctx import Ctx
+    from dub.core.executor import Executor
+    from dub.core.trace import Tracer
+    from dub.store import Workspace
+
+    ws = Workspace.open(tmp_path / "ws")
+    m = cfg.providers["omnivoice"]
+    for profile, steps in (("draft", 16), ("final", 32)):  # E9: drafts use 16 steps
+        cx = Ctx(
+            cfg=cfg,
+            ws=ws,
+            router=Router(cfg, profile=profile),
+            executor=Executor(cfg, ws.cas),
+            tracer=Tracer(),
+            job_id="t",
+            log=lambda _m: None,
+            facts={},
+        )
+        assert cx.params_for(m, "tts.synthesize")["num_step"] == steps

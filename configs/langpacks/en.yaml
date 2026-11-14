@@ -2,7 +2,7 @@ lang: en
 name: English
 iso639_2: eng
 speech_unit: syllable
-units_per_s: 4.2
+units_per_s: 4.2               # E7: confirmed for OmniVoice
 joiner: " "
 segment: {max_unit_s: 15, target_unit_s: 7, min_unit_s: 1.0, hard_pause_s: 1.5}
 subs: {cpl: 42, cps: 17, max_lines: 2}

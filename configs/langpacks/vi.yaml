@@ -3,7 +3,7 @@ lang: vi
 name: Vietnamese
 iso639_2: vie
 speech_unit: syllable          # every Vietnamese word is one syllable
-units_per_s: 5.22              # prior; E7 (M3) fits it per voice
+units_per_s: 4.7               # E7: OmniVoice (cross-lingual clone) loses words above ~4.7 syl/s
 joiner: " "
 segment: {max_unit_s: 15, target_unit_s: 7, min_unit_s: 1.0, hard_pause_s: 1.5}
 subs: {cpl: 42, cps: 17, max_lines: 2}

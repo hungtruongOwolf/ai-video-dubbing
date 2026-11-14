@@ -120,11 +120,13 @@ class Profile(Cfg):
     llm_rewrite: bool = False
     max_rewrites: int = 2
     backcheck: bool = True  # transcribe every dubbed line again: subtitle timing + CER
+    # Per-provider params laid over the manifest's, e.g. {omnivoice: {num_step: 16}}.
+    params: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class TimingCfg(Cfg):
     variant_window: float = 0.08  # a variant predicted within ±8% of the slot "fits"
-    safe_ratio: tuple[float, float] = (0.92, 1.08)  # how far an exact engine may be squeezed
+    safe_ratio: tuple[float, float] = (0.85, 1.10)  # how far an exact engine may be squeezed (E3)
     rate_p95: float = 1.10  # faster than this => try a rewrite (if the profile allows)
     rate_cap: float = 1.20  # hard ceiling; beyond it the unit is flagged "overflow"
     early_start_ms: int = 200  # max early start

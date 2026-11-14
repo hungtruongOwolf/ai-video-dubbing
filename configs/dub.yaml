@@ -6,12 +6,13 @@ profile: draft                 # CLI: --profile draft|final
 # A tier only changes what happens AFTER the text layer (TTS chain, rewrites),
 # so lines you fix in a draft survive the promotion to final.
 profiles:
-  draft: {tts_chain: incumbent_only, llm_rewrite: false, max_rewrites: 0}
+  # E9: OmniVoice at 16 steps is 1.9x faster than 32, with no measurable loss (CER, UTMOS).
+  draft: {tts_chain: incumbent_only, llm_rewrite: false, max_rewrites: 0, params: {omnivoice: {num_step: 16}}}
   final: {tts_chain: langpack,       llm_rewrite: true,  max_rewrites: 2}
 
 timing:
   variant_window: 0.08         # a variant predicted within ±8% of the slot "fits"
-  safe_ratio: [0.92, 1.08]     # how much an exact-duration engine may be squeezed (E3 measures it)
+  safe_ratio: [0.85, 1.10]     # E3: exact engine at 0.85x-1.10x of the natural rate (CER rises beyond 1.1x)
   rate_p95: 1.10               # above this speed-up: rewrite (final) or flag "fast"
   rate_cap: 1.20               # hard ceiling: beyond it the unit is flagged "overflow"
   early_start_ms: 200

@@ -2,7 +2,7 @@ lang: zh
 name: Chinese
 iso639_2: zho
 speech_unit: char              # one character = one syllable in Mandarin
-units_per_s: 4.6
+units_per_s: 4.6               # E7: confirmed for OmniVoice
 joiner: ""
 segment: {max_unit_s: 15, target_unit_s: 7, min_unit_s: 1.0, hard_pause_s: 1.5}
 subs: {cpl: 16, cps: 9, max_lines: 2}

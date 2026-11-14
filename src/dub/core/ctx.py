@@ -147,6 +147,14 @@ class Ctx:
     def _record(self, op, provider, subject, key, hit, started_at, dur_ms) -> None:
         self.stats.append(CallStat(op, provider, subject, key, hit, started_at, dur_ms))
 
+    def params_for(self, m: ProviderManifest, op: str) -> dict[str, Any]:
+        """Manifest params, then the profile's overrides for this provider, then prompt hashes."""
+        return {
+            **m.params,
+            **self.router.profile.params.get(m.id, {}),
+            **self._prompt_params(m, op),
+        }
+
     # ------------------------------------------------------------ provider calls
     async def call(
         self,
@@ -168,7 +176,7 @@ class Ctx:
         for pid in trace.chain:
             m = self.cfg.providers[pid]
             req_m = req(m) if callable(req) else req
-            params = {**m.params, **self._prompt_params(m, op)}
+            params = self.params_for(m, op)
             key = call_key(
                 op=op,
                 provider=pid,

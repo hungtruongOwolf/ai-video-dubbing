@@ -2,7 +2,7 @@ lang: th
 name: Thai
 iso639_2: tha
 speech_unit: char              # rough until a Thai syllable counter lands (M3)
-units_per_s: 11.0
+units_per_s: 11.0              # E7: confirmed for OmniVoice
 joiner: ""                     # Thai has no spaces between words; subtitle breaking needs ICU (M3)
 segment: {max_unit_s: 15, target_unit_s: 7, min_unit_s: 1.0, hard_pause_s: 1.5}
 subs: {cpl: 35, cps: 17, max_lines: 2}
