@@ -1,13 +1,15 @@
-# Vietnamese: PhoWhisper's words and times + Whisper large-v3's sentence punctuation where both
-# heard the same words (experiment: PhoWhisper writes no punctuation, SaT then guesses).
+# Vietnamese source ASR (M7): PhoWhisper's words and times + Whisper large-v3's sentence
+# punctuation where both heard the same words. PhoWhisper writes no punctuation and SaT then
+# guesses; with the transfer, sentence F1 0.687 -> 0.724 on 8 real videos (7 better, 1 worse:
+# a 1945 recording). Both models are shared with phowhisper_large_ct2 / whisper_large_v3 in
+# the asr worker (one copy each on the GPU).
 id: phowhisper_punct
-op: [asr.transcribe, asr.backcheck]
+op: [asr.transcribe]
 runtime: http
 env: asr
 impl: dub.providers.asr_whisper:PunctTransferASR
 impl_version: "1"
 libs: [faster-whisper]
-status: candidate
 preload: false
 weights: {hf: kiendt/PhoWhisper-large-ct2, revision: abceb098c94235c16414dda9e1aada82ebcf6288}
 params:

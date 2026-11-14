@@ -30,3 +30,53 @@ def test_long_input_is_aligned_window_by_window():
     donor = ws(" ".join(["Một câu ngắn thôi."] * 200), step=500)
     out = transfer_punct(ours, donor, window_ms=60_000)
     assert sum(w.w.endswith(".") for w in out) >= 190
+
+
+class _FakeCT2:
+    def __init__(self):
+        self.model_is_loaded = True
+        self.loads = 0
+
+    def unload_model(self, to_cpu=False):
+        self.model_is_loaded = False
+
+    def load_model(self):
+        self.model_is_loaded = True
+        self.loads += 1
+
+
+class _FakeWhisper:
+    def __init__(self):
+        self.model = _FakeCT2()
+
+
+def test_providers_with_the_same_weights_share_one_model(monkeypatch):
+    """whisper_large_v3 and the punctuation donor of phowhisper_punct hold one copy of
+    Whisper large-v3; when one parks it in CPU memory, the other brings it back."""
+    from dub.providers import asr_whisper as aw
+
+    monkeypatch.setattr(aw, "_MODELS", {})
+    made = []
+
+    def fake_load(self, ctx):
+        key = (ctx.params["model"], "cuda", "float16")
+        if key not in aw._MODELS:
+            aw._MODELS[key] = _FakeWhisper()
+            made.append(key)
+        self.model = aw._MODELS[key]
+
+    monkeypatch.setattr(aw.FasterWhisperASR, "load", fake_load)
+
+    class Ctx:
+        params = {"model": "Systran/faster-whisper-large-v3"}
+
+    a, b = aw.FasterWhisperASR(None), aw.FasterWhisperASR(None)
+    a._ready(Ctx())
+    b._ready(Ctx())
+    assert a.model is b.model and len(made) == 1
+    a.offload()
+    assert not b.model.model.model_is_loaded
+    b._ready(Ctx())  # b finds it parked and brings it back
+    assert b.model.model.model_is_loaded and b.model.model.loads == 1
+    a.restore()  # already back: no second load
+    assert a.model.model.loads == 1

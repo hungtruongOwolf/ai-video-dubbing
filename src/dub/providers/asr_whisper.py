@@ -25,12 +25,20 @@ Manifest params:
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any
 
 from dub.contracts.v1 import TranscribeReq, Word, WordTimeline
 from dub.core.config import ProviderManifest
 from dub.core.provider_api import ProviderError, RunCtx
 from dub.ops.audio_io import read_wav
+
+# One model object per (weights, device, precision) in a worker process: providers that use
+# the same weights (whisper_large_v3 and the punctuation donor of phowhisper_punct) share it
+# instead of holding two copies on the GPU. The worker runs one call at a time, so sharing is
+# safe; a provider that finds the model parked in CPU memory by another one brings it back.
+_MODELS: dict[tuple, Any] = {}
+_MODELS_LOCK = threading.Lock()
 
 GAP_S = 0.5  # silence between the clips of a batched back-check
 MAX_BATCH_S = 28.0  # a clip longer than this is checked on its own (Whisper's window is 30 s)
@@ -50,15 +58,23 @@ class FasterWhisperASR:
         path = snapshot_download(
             p["model"], revision=p.get("revision"), cache_dir=os.environ.get("DUB_HF_CACHE")
         )
-        self.model = WhisperModel(
-            path, device=p.get("device", "cuda"), compute_type=p.get("compute_type", "float16")
-        )
+        key = (path, p.get("device", "cuda"), p.get("compute_type", "float16"))
+        with _MODELS_LOCK:
+            if key not in _MODELS:
+                _MODELS[key] = WhisperModel(path, device=key[1], compute_type=key[2])
+            self.model = _MODELS[key]
+
+    def _ready(self, ctx: RunCtx) -> None:
+        """Loaded, and on the GPU (a provider sharing the weights may have parked them)."""
+        if self.model is None:
+            self.load(ctx)
+        if not self.model.model.model_is_loaded:
+            self.model.model.load_model()
 
     def run(self, op: str, req: TranscribeReq, ctx: RunCtx) -> WordTimeline:
         if op not in ("asr.transcribe", "asr.backcheck"):
             raise ProviderError(f"{self.manifest.id} does not implement {op}", kind="unsupported")
-        if self.model is None:
-            self.load(ctx)
+        self._ready(ctx)
         p = ctx.params
         forced = p.get("language")
         lang = forced or (None if req.lang in ("", "auto") else req.lang)
@@ -119,18 +135,17 @@ class FasterWhisperASR:
     def offload(self) -> None:
         """Weights to CPU memory (3.6 GB of GPU memory freed in 2.1 s; back in 0.5 s, against
         9.7 s to load from the volume)."""
-        if self.model is not None:
+        if self.model is not None and self.model.model.model_is_loaded:
             self.model.model.unload_model(to_cpu=True)
 
     def restore(self) -> None:
-        if self.model is not None:
+        if self.model is not None and not self.model.model.model_is_loaded:
             self.model.model.load_model()
 
     def run_batch(self, op: str, reqs: list[TranscribeReq], ctx: RunCtx) -> list[WordTimeline]:
         if op != "asr.backcheck" or len(reqs) < 2:
             return [self.run(op, r, ctx) for r in reqs]
-        if self.model is None:
-            self.load(ctx)
+        self._ready(ctx)
         import numpy as np
         from faster_whisper import BatchedInferencePipeline
 
@@ -270,6 +285,13 @@ class PunctTransferASR:
         if prefix:
             params.update({k[len(prefix) :]: v for k, v in p.items() if k.startswith(prefix)})
         return dataclasses.replace(ctx, params=params)
+
+    def offload(self) -> None:
+        self.words_asr.offload()
+        self.punct_asr.offload()
+
+    def restore(self) -> None:
+        pass  # each model comes back on its next use (FasterWhisperASR._ready)
 
     def run(self, op: str, req: TranscribeReq, ctx: RunCtx) -> WordTimeline:
         heard = self.words_asr.run(op, req, self._ctx(ctx, ""))
