@@ -28,3 +28,9 @@ are the subtitles of the first ~5 minutes unchanged, the sentence ends placed by
 | File | YouTube video (via YODAS2 `vi000`/`zh000`) | Licence |
 |---|---|---|
 | `6_HyZDSeLVY.txt` | https://www.youtube.com/watch?v=6_HyZDSeLVY (Bali travel vlog, vi) | CC BY 3.0 (YODAS2: videos published under CC BY), subtitles by the uploader |
+| `v5DZN7rsLh4.txt` | https://www.youtube.com/watch?v=v5DZN7rsLh4 (oil futures analysis, zh) | CC BY 3.0 (YODAS2), subtitles by the uploader |
+| `t5IDTECWpWM.txt` | https://www.youtube.com/watch?v=t5IDTECWpWM (monthly zodiac talk, zh) | CC BY 3.0 (YODAS2), subtitles by the uploader |
+
+Rule for the hand-placed ends, so the labels can be reproduced: an explicit `。！？` in the
+subtitles always ends a sentence (a `；` between two independent clauses too); at a cue end
+without punctuation, a sentence ends when the next cue starts a new statement.
