@@ -209,6 +209,7 @@ Mean F1 (±1 word) over the same videos, baseline → variant:
 | vi: Whisper's punctuation on PhoWhisper's words, sequential Whisper | 8 | 0.687 → 0.724 (+0.037) | 7 / 1 | replaced by ↓ |
 | vi: the same with the punctuation from a **batched** Whisper pass | 8 | 0.687 → **0.779** (+0.092) | **7 / 1** | **yes** |
 | zh: punctuated `hotwords` | 7 | 0.714 → 0.670 (−0.044) | 2 / 5 | no |
+| en, es, zh, ja: Whisper's words + a batched Whisper pass's punctuation (`whisper_punct`) | 14 | en −0.051, es −0.018, ja ±0, zh 0.714 → 0.724 | 3 / 6 | no |
 | zh: punctuated `initial_prompt` | 7 | 0.714 → 0.694 (−0.020) | 2 / 3 | no |
 | SaT min sentence length 3 words | 15 (vi, zh) | 0.687 → 0.685 (vi), 0.714 → 0.715 (zh) | 2 / 3 | no |
 
@@ -226,6 +227,10 @@ Mean F1 (±1 word) over the same videos, baseline → variant:
   back-check keeps PhoWhisper alone (its own chain, batched). The two models are shared with
   `phowhisper_large_ct2` and `whisper_large_v3` in the asr worker: measured +136 MiB of GPU
   memory for the transfer instead of a second copy of each model (~7 GB).
+- **The same transfer for the other languages** (`whisper_punct`, candidate): Whisper's own
+  sequential pass already punctuates, so adding the batched pass's sentence ends only adds
+  false ones (en: precision 0.77 → 0.73, 0.81 → 0.73, 0.70 → 0.58). The gain is specific to a
+  words model that writes no punctuation (PhoWhisper).
 - **zh hotwords**: the +0.134 on zh-polio that looked promising with two videos was the
   exception; on the larger set the punctuated hint lowers F1 on 5 of 7 videos and makes
   Whisper drop text on one (CER 0.10 → 0.20).

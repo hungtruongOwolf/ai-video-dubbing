@@ -2,6 +2,9 @@
 # sentence punctuation of a second, batched pass over VAD chunks where both passes heard the
 # same words. For Vietnamese the batched donor raised sentence F1 from 0.687 to 0.779; this
 # tests whether other source languages gain the same way. One copy of the model on the GPU.
+# Result (M7): no. Whisper's sequential pass already punctuates; the union only adds false
+# ends: en 3 videos -0.028/-0.051/-0.075, es -0.035/0, ja 0/0, zh 7 videos 0.714 -> 0.724
+# (2 better, 2 worse). Kept as a candidate, not routed.
 id: whisper_punct
 op: [asr.transcribe]
 runtime: http
