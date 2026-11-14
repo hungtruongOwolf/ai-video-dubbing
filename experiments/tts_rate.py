@@ -34,7 +34,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from experiments.common import data_dir, documents, joiner_for, run_worker, save_json  # noqa: E402
+from experiments.common import (  # noqa: E402
+    data_dir,
+    documents,
+    joiner_for,
+    run_worker,
+    save_json,
+    worker_url,
+)
 
 REFS = {  # public sample prompts from the F5-TTS repository (MIT)
     "en_f": (
@@ -237,6 +244,42 @@ def mos() -> None:
     print("scored", n)
 
 
+def speed() -> None:
+    """E9 timing, run alone on an idle GPU: 16 vs 32 steps on the same lines, interleaved.
+
+    Uses the worker's own server-side time ("ms"), so HTTP and disk do not count."""
+    from dub.core.config import load_config
+    from dub.ops.timing import count_units
+    from dub.worker.protocol import post_json
+
+    cfg = load_config()
+    out: dict = {}
+    for lang in ("vi", "en", "zh"):
+        lp = cfg.langpack(lang)
+        times: dict[int, list[float]] = {16: [], 32: []}
+        for si, text in enumerate(sentences(lang)):
+            target = round(count_units(text, lp.speech_unit) / lp.units_per_s * 1000)
+            for steps in (32, 16):
+                body = {
+                    "provider": "omnivoice",
+                    "op": "tts.synthesize",
+                    "params": {**cfg.providers["omnivoice"].params, "num_step": steps},
+                    "request": {
+                        "unit_id": f"e9-{lang}-{si}-{steps}",
+                        "text": text,
+                        "lang": lang,
+                        "speaker": "S1",
+                        "target_ms": target,
+                        "seed": 7,
+                    },
+                }
+                reply = post_json(f"{worker_url('tts')}/v1/run", body, timeout=600)
+                times[steps].append(reply["ms"] / max(target, 1))  # ms of compute per ms of audio
+        out[lang] = {str(k): {"rtf_p50": _med(v), "n": len(v)} for k, v in times.items()}
+        print(lang, out[lang], flush=True)
+    save_json(data_dir() / "results" / "tts_speed.json", out)
+
+
 def _med(xs):
     return round(statistics.median(xs), 3) if xs else None
 
@@ -300,13 +343,13 @@ def report() -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("step", choices=["gen", "mos", "report"])
+    ap.add_argument("step", choices=["gen", "mos", "report", "speed"])
     ap.add_argument("--langs", default=",".join(PLAN))
     a = ap.parse_args()
     if a.step == "gen":
         gen(a.langs.split(","))
     else:
-        {"mos": mos, "report": report}[a.step]()
+        {"mos": mos, "report": report, "speed": speed}[a.step]()
 
 
 if __name__ == "__main__":
