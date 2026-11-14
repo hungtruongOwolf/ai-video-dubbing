@@ -169,6 +169,9 @@ class Runpod:
                 return None
             raise
 
+    def update_pod(self, pod_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        return self._call("PATCH", f"/pods/{pod_id}", body)
+
     def delete_pod(self, pod_id: str) -> None:
         self._call("DELETE", f"/pods/{pod_id}")
 
@@ -322,6 +325,17 @@ def pod_up(
     state = PodState.load(ws_root)
     if state and (pod := api.get_pod(state.pod_id)) and pod_status_of(pod) == "RUNNING":
         log(f"[up] reusing pod {state.pod_id} ({state.gpu})")
+        ref = git_ref(repo_root)
+        if ref != state.ref:
+            # New code: change DUB_REF; Runpod restarts the container in place (same machine,
+            # no stock risk) and the bootstrap checks out the new commit.
+            has_secret = "CLAUDE_CODE_OAUTH_TOKEN" in (pod.get("env") or {})
+            env = pod_body(cfg, state.gpu, ref, state.token, has_secret)["env"]
+            api.update_pod(state.pod_id, {"env": env})
+            log(f"[up] updating the pod's code {state.ref[:8]} -> {ref[:8]} (container restart)")
+            state.ref = ref
+            state.save(ws_root)
+            time.sleep(15)  # let the old dubd go away before polling health
     else:
         ref = git_ref(repo_root)
         token = secrets.token_urlsafe(24)
