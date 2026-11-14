@@ -30,10 +30,10 @@ ffmpeg -c:v copy: mux into the original video
 
 | Phase | Steps | Notes |
 |---|---|---|
-| A: analysis | decode → separate ∥ ASR → diarize → segment | whole file; GPU-bound |
+| A: analysis | decode → separate ∥ ASR → diarize → VAD on the vocals → boundary probabilities (SaT) → segment | whole file; GPU-bound |
 | Barrier | `mt.context`: one LLM pass over the whole transcript | summary, glossary, **cast sheet** |
-| B: per unit | translate windows → TTS → timing fit → stretch | units run concurrently |
-| Tail | 30 s mix tiles → subtitles; on export: concat → loudness → AAC → (laptop) mux | tiles are cached one by one |
+| B: per unit | translate windows → TTS → trim to the voice → timing fit → stretch → back-check ASR | units run concurrently |
+| Tail | 30 s mix tiles → subtitles timed on the dub; on export: concat → loudness → AAC → (laptop) mux | tiles are cached one by one |
 
 Granularity: sentence ⊇ dub unit ⊇ subtitle cue.
 
@@ -134,14 +134,22 @@ Runtimes:
 
 ## Segmentation (priority 1)
 
-`src/dub/ops/segment.py`.
+`src/dub/ops/segment.py`. Every ASR word gets a **boundary probability**, P(a sentence ends
+right after it), from the `text.boundaries` op: SaT (`sat_12l_sm`, wtpsplit, 85 languages,
+trained to cope with text without punctuation) on the pod, punctuation rules as the fallback.
+Providers calibrate their output so that 0.5 is their decision threshold.
 
 1. **Hard boundaries:** a speaker change, or a pause of at least 1.5 s.
-2. **Sentences:** split at terminal punctuation. Abbreviations ("Mr.", "Dr.", "e.g.") and initials are not sentence ends.
-3. **Over-long sentences** (more than 15 s): split by dynamic programming. The cost favours cuts after commas and long pauses, and units close to 7 s.
+2. **Sentences:** where the boundary probability reaches the langpack's `segment.threshold`.
+3. **Over-long sentences** (more than 15 s): split by dynamic programming. A cut costs
+   -log(p) minus a bonus for the pause there; units aim at 7 s.
 4. **Tiny units** (under 1 s) are merged into a neighbour of the same speaker.
+5. **Snapping:** unit edges move onto the speech found by an energy VAD on the separated
+   vocals. Whisper starts the first word of a phrase 300–500 ms early, inside the pause
+   before it; an edge in silence moves to the nearest speech (up to 800 ms), an edge inside
+   speech to the edge of its region (up to 400 ms).
 
-M3 replaces the punctuation and pause scores with SaT model probabilities and keeps the same DP.
+Measured in [m3-segmentation-timing.md](m3-segmentation-timing.md) (experiment E4).
 
 ## Timing fit (priority 2)
 
@@ -155,7 +163,7 @@ M3 replaces the punctuation and pause scores with SaT model probabilities and ke
    - The gap between two lines is split at its midpoint, minus a 120 ms minimum pause.
    - A line may only borrow the unused part of its neighbour's half.
    - That part is computed from the neighbour's natural length and slot, never from where the neighbour was placed. So editing line *i* only re-fits *i−1, i, i+1*.
-3. **Exact-duration engines** (OmniVoice) receive `target_ms`, kept within `safe_ratio` [0.92, 1.08] of the natural length.
+3. **Exact-duration engines** (OmniVoice) receive `target_ms`, kept within `safe_ratio` of the natural length. The clip is then **trimmed to the voice** (the engine leaves ~30 ms before and ~130 ms after it), so the voice starts exactly where the clip is placed.
 4. **Rewrite** (profile `final`): ask the LLM for a shorter line, at most 2 times.
 5. **Stretch:**
    - pitch-preserving time stretch (ffmpeg `atempo` in M0; rubberband on the pod);
@@ -163,6 +171,25 @@ M3 replaces the punctuation and pause scores with SaT model probabilities and ke
    - beyond the cap the unit is flagged `overflow`.
 
 Every placement records its speed-up `rate` and flags. The report lists the units to review first.
+
+`metrics.json` (and the report's "Sync and quality" table) measures the result: onset error
+(|dubbed onset − original onset|), speed-up p50/p95/max, unit lengths, back-check CER, end
+drift and subtitle reading speed.
+
+## Subtitles
+
+`src/dub/ops/subs.py`, `src/dub/ops/script.py`, `src/dub/ops/align.py`.
+
+- **Layout per script:** breaks at spaces; between BudouX phrases for Chinese and Japanese,
+  with kinsoku (no line starts with "。" or "」"); for Thai only where PyThaiNLP and BudouX
+  both see a word boundary, with zero-width spaces as break hints. Right-to-left lines start
+  with a RIGHT-TO-LEFT MARK. Widths follow the Netflix guides (tone marks take no width,
+  half-width characters count half in CJK).
+- **Timing follows the voice:** every dubbed line is transcribed again (`asr.backcheck`, the
+  target language's ASR chain); the line's characters are aligned to the recognised words,
+  and cue boundaries inside a line go in the pause between the words. Source subtitles use
+  the original ASR words the same way. Cues may linger 0.5 s, keep a 2-frame gap and last at
+  least 5/6 s when there is room.
 
 ## Forms of address: the cast sheet
 

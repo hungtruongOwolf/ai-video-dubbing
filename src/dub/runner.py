@@ -65,13 +65,20 @@ def audio_key_for(ws: Workspace, video: Path, log: Callable[[str], None] = print
     st = video.stat()
     entry = index.get(str(video))
     if entry and entry["size"] == st.st_size and entry["mtime_ns"] == st.st_mtime_ns \
+            and entry.get("v") == laptop.EXTRACT_VERSION \
             and ws.cas.exists(entry["audio_key"]):  # fmt: skip
         return entry["audio_key"]
     log(f"[laptop] extracting the audio track of {video.name} (no re-encode)")
-    tmp = ws.cas.tmp_path(".mka")
-    laptop.extract_audio(video, tmp)
-    key = ws.cas.put_file(tmp, move=True)
-    index[str(video)] = {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "audio_key": key}
+    placeholder = ws.cas.tmp_path(".audio")  # extract_audio picks the real extension
+    path = laptop.extract_audio(video, placeholder)
+    placeholder.unlink(missing_ok=True)
+    key = ws.cas.put_file(path, move=True)
+    index[str(video)] = {
+        "size": st.st_size,
+        "mtime_ns": st.st_mtime_ns,
+        "audio_key": key,
+        "v": laptop.EXTRACT_VERSION,
+    }
     index_path.write_text(json.dumps(index, indent=1), encoding="utf-8")
     return key
 

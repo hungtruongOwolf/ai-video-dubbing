@@ -21,16 +21,22 @@ lang: ko
 name: Korean
 iso639_2: kor
 speech_unit: char        # syllable | char | word: what the rate model counts
-units_per_s: 7.0         # prior speaking rate; measured later (E7)
+units_per_s: 7.0         # natural TTS speaking rate (see experiments/tts_rate.py, E7)
 joiner: " "              # "" for languages written without spaces
-segment: {max_unit_s: 15, target_unit_s: 7, min_unit_s: 1.0, hard_pause_s: 1.5}
-subs: {cpl: 18, cps: 12, max_lines: 2}
+segment: {max_unit_s: 15, target_unit_s: 7, min_unit_s: 1.0, hard_pause_s: 1.5, threshold: 0.5}
+subs: {cpl: 18, cps: 12, max_lines: 2}  # cpl in display width (CJK half-width counts half)
 chains:
   asr.transcribe: [whisper_large_v3]
   tts.synthesize: [omnivoice]
 ```
 
 Languages without a langpack use `langpacks/default.yaml`.
+
+- `segment.threshold` applies to *calibrated* boundary probabilities: every boundary provider
+  maps its own decision threshold to 0.5 (SaT: `threshold` in its manifest, chosen by E4).
+  Lower it for a language where sentences are under-split.
+- Subtitle layout needs no setting: line breaks follow the script (spaces; BudouX phrases for
+  zh/ja; dictionary words for Thai), see `src/dub/ops/script.py`.
 
 ## Add a model
 
@@ -90,6 +96,10 @@ profiles:
 ```
 
 A profile only changes what happens after the text layer. Lines you fix in a draft survive the switch to final.
+
+`backcheck: true` (the default in both) transcribes every dubbed line again with the target
+language's ASR: subtitle cues then follow the new voice, and the line's CER feeds the risk
+score. Set it to `false` to save one ASR call per line.
 
 ## Timing
 

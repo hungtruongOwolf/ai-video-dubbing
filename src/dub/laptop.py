@@ -36,31 +36,34 @@ def lang3(lang: str) -> str:
     return ISO639_2.get(lang.split("-")[0].lower(), "und")
 
 
-def extract_audio(video: Path, out_mka: Path) -> Path:
+MP4_FAMILY = {".mp4", ".m4v", ".mov", ".m4a", ".3gp"}
+EXTRACT_VERSION = 2  # 2: MP4 sources keep their container (see extract_audio)
+
+
+def extract_audio(video: Path, out: Path) -> Path:
+    """Copy the first audio track into its own file; returns the path written.
+
+    MP4/MOV sources go into an .m4a, others into an .mka. The container matters for sync: an
+    AAC track starts with ~1024 "priming" samples that MP4 hides with an edit list. Copied
+    into Matroska that list is lost, and the whole timeline came out 21 ms late (measured).
+    """
     info = probe(video)
     if not any(s.get("codec_type") == "audio" for s in info.get("streams", [])):
         raise FFmpegError(f"{video} has no audio track")
     # bitexact + no metadata: the same video always gives byte-identical audio, so the same
     # CAS key, the same job id and a 100% cache hit on a rerun.
-    run_ffmpeg(
-        [
-            "-i",
-            str(video),
-            "-map",
-            "0:a:0",
-            "-vn",
-            "-sn",
-            "-dn",
-            "-c:a",
-            "copy",
-            "-map_metadata",
-            "-1",
-            "-fflags",
-            "+bitexact",
-            str(out_mka),
-        ]
-    )
-    return out_mka
+    common = ["-map", "0:a:0", "-vn", "-sn", "-dn", "-c:a", "copy"]
+    common += ["-map_metadata", "-1", "-fflags", "+bitexact"]
+    if video.suffix.lower() in MP4_FAMILY:
+        m4a = out.with_suffix(".m4a")
+        try:
+            run_ffmpeg(["-i", str(video), *common, "-f", "mp4", str(m4a)])
+            return m4a
+        except FFmpegError:
+            m4a.unlink(missing_ok=True)  # a codec MP4 cannot hold: fall back to Matroska
+    mka = out.with_suffix(".mka")
+    run_ffmpeg(["-i", str(video), *common, str(mka)])
+    return mka
 
 
 def output_container(video: Path) -> str:
