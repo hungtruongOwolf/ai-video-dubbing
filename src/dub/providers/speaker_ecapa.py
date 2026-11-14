@@ -118,12 +118,12 @@ class EcapaSpeaker:
         if req.speakers_hint:
             labels = fcluster(z, t=req.speakers_hint, criterion="maxclust")
         else:
-            labels = fcluster(z, t=float(p.get("threshold", 0.6)), criterion="distance")
+            labels = fcluster(z, t=float(p.get("threshold", 0.85)), criterion="distance")
         labels = diar_ops.absorb_small(
             embs,
             np.asarray(labels),
             wins,
-            min_share=float(p.get("min_share", 0.02)),
+            min_share=float(p.get("min_share", 0.05)),
             min_windows=int(p.get("min_windows", 3)),
         )
         turns = diar_ops.turns_from_windows(wins, labels, regions)

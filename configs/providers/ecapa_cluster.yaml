@@ -4,12 +4,13 @@ op: [audio.diarize, audio.embed]
 runtime: http
 env: tts                       # torch models share one env (the volume quota counts each torch copy)
 impl: dub.providers.speaker_ecapa:EcapaSpeaker
-impl_version: "1"
+impl_version: "2"
 weights: {hf: speechbrain/spkrec-ecapa-voxceleb, revision: 0f99f2d0ebe89ac095bcc5903c4dd8f72b367286}
 params:
   model: speechbrain/spkrec-ecapa-voxceleb
   revision: 0f99f2d0ebe89ac095bcc5903c4dd8f72b367286
-  threshold: 0.6               # cosine distance at which two clusters stay apart (E8 sets it)
+  threshold: 0.85              # E8: right speaker count on all 3 sets (0.9 merged 2 people)
+  min_share: 0.05              # E8: a cluster under 5% of the speech joins its nearest speaker
   win_ms: 1500
   hop_ms: 750
 limits: {max_concurrency: 1}
