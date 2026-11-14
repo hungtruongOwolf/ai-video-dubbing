@@ -158,9 +158,47 @@ new separation: mean 0.806 (unchanged).
 | ja: punctuated `hotwords` | ja-digital-q 0.828 → 0.832, ja-mynaportal 0.852 → 0.828 | no |
 
 Every trial helps one video of a language and hurts the other. With two videos per
-language that is not evidence either way; the defaults stay, and the variants stay
-available (`--use asr.transcribe=phowhisper_punct`, `--param whisper_large_v3.hotwords=...`).
-Deciding them needs more evaluation videos with human subtitles in vi and zh.
+language that is not evidence either way, so more evaluation videos were added before
+deciding (next section).
+
+### More evaluation videos: YODAS2
+
+Commons has no more Vietnamese speech with subtitles (its Vietnamese subtitle pages are
+translations of foreign videos, anthems and poems). YODAS2 (espnet/yodas2, CC BY 3.0) has
+YouTube videos published under CC BY with the subtitles their uploaders wrote
+(`experiments/yodas_videos.py`). Candidates were picked from the subsets' text files
+(native-sounding titles and content, sentence punctuation, at least 5 minutes), and every
+one is checked before it counts, because uploaded subtitles are often translations:
+
+- Whisper must hear the expected language: two "Vietnamese" vlogs were in fact German and
+  English with Vietnamese subtitles;
+- the pipeline's own transcript must match the subtitles (CER ≤ 0.35). Two Chinese videos
+  first failed at CER 0.50 and 0.36 because their subtitles are in traditional characters
+  and Whisper writes simplified ones; references are now compared in simplified characters
+  (OpenCC), which brought them to 0.26 and 0.10;
+- the subtitles must be punctuated (≥ 15 reference sentences in 5 minutes); three videos
+  whose subtitles are only partly punctuated got hand-placed sentence ends instead
+  (`experiments/golden/`, rule in its README).
+
+Baseline F1 (±1 word) of the added videos:
+
+| Video | Kind | Check | F1 |
+|---|---|---|---|
+| vi 7cw7ARr0Woc | monk answering a question, spontaneous | vi, CER 0.11 | 0.553 |
+| vi 1eyplFhZu5Y | model essays read aloud | vi, CER 0.02 | 0.860 |
+| vi 1sDqjIs_4rU | written essay read aloud | vi, CER 0.20 | 0.622 |
+| vi 6_HyZDSeLVY | travel vlog (hand labels) | vi, CER 0.21 | 0.769 |
+| vi c6vHKZ9Uho0 | radio essay | vi, CER 0.08 | 0.673 |
+| vi 7KJ6fpaw8vA | podcast | vi, CER 0.10 | 0.622 |
+| zh fGzlkXYo0hI | political commentary | zh, CER 0.04 | 0.576 |
+| zh v5DZN7rsLh4 | market analysis (hand labels) | zh, CER 0.15 | 0.806 |
+| zh dgnjO1qSF3I | tech talk (traditional) | zh, CER 0.26 | 0.771 |
+| zh t5IDTECWpWM | zodiac talk, spontaneous (hand labels) | zh, CER 0.07 | 0.667 |
+| zh lLOvGz4qZWU | story narration (traditional) | zh, CER 0.10 | 0.587 |
+| vi 3oIyhjGnVLA, eremzE9UQi4 | vlogs | heard de / en | not used |
+| vi 2c8OawTG8TQ | book talk | 8 reference sentences (no punctuation) | not used |
+
+Vietnamese now has 8 videos (2 Commons + 6), Chinese 7 (2 + 5).
 
 ## Spoken numbers
 

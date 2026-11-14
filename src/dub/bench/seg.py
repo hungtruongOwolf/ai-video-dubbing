@@ -7,7 +7,10 @@ through that alignment. A boundary counts as found if ours is within `tol` words
 (design metric: +-1 word). The end of the text is not a boundary.
 
 Words are whitespace tokens; dictionary words for Thai (PyThaiNLP); single characters for
-Chinese and Japanese.
+Chinese and Japanese. Chinese is compared in simplified characters: Whisper writes Mandarin in
+simplified characters, and a reference in traditional ones would otherwise misalign (M7: F1
+0.651 -> 0.771 on one video once both sides were simplified). Needs the optional package
+opencc-python-reimplemented (dev dependency); without it the scripts are compared as written.
 
 Not every extra boundary is an error for dubbing: an ASR often puts a full stop where the
 reference has a comma ("...all three. For we meet..."). `soft_fp` counts our extra boundaries
@@ -18,6 +21,7 @@ the others (a cut inside a phrase). `clause_p` = (hits + soft_fp) / ours.
 from __future__ import annotations
 
 import difflib
+import warnings
 from dataclasses import dataclass, field
 
 from dub.ops.align import _norm_chars
@@ -115,6 +119,20 @@ def _stream(sentences: list[str], lang: str) -> tuple[list[str], list[int], list
     return chars, word_of, ends
 
 
+def _simplified(texts: list[str]) -> list[str]:
+    try:
+        from opencc import OpenCC  # opencc-python-reimplemented (Apache-2.0), optional
+    except ImportError:
+        warnings.warn(
+            "opencc-python-reimplemented is not installed: Chinese is scored as written "
+            "(a traditional/simplified mismatch lowers F1)",
+            stacklevel=3,
+        )
+        return texts
+    cc = OpenCC("t2s")
+    return [cc.convert(t) for t in texts]
+
+
 def boundary_f1(pred_sentences: list[str], gold_sentences: list[str], lang: str, tol: int = 1):
     """F1 of our sentence ends against the reference sentence ends (in our word positions).
 
@@ -122,6 +140,8 @@ def boundary_f1(pred_sentences: list[str], gold_sentences: list[str], lang: str,
     did not produce that character (a number read out: "832" vs "tam tram ba muoi hai"), the
     first character of the next sentence is used instead: the boundary is just before it.
     """
+    if base_lang(lang) == "zh":
+        pred_sentences, gold_sentences = _simplified(pred_sentences), _simplified(gold_sentences)
     pc, pw, pends = _stream(pred_sentences, lang)
     gc, _, _ = _stream(gold_sentences, lang)
     spans, n = [], 0  # (first, last) char index of each gold sentence in the gold stream

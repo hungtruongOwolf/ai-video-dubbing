@@ -20,6 +20,7 @@ dub = "dub.cli:main"
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
+    "opencc-python-reimplemented==0.1.7",  # dub bench seg: zh in simplified characters
 ]
 
 [build-system]

@@ -138,3 +138,16 @@ def test_min_length_guard_drops_short_sentence_ends_unless_sure():
     # word 5 would close 1 word but SaT is sure: kept; the last word always ends one
     assert [i for i, p in enumerate(out) if p >= 0.5] == [4, 5, 7]
     assert min_length_guard(probs, raw, 0) == probs
+
+
+def test_chinese_is_scored_in_simplified_characters(monkeypatch):
+    """A traditional-character reference against simplified ASR output: same boundaries,
+    so the same F1 as when both sides are simplified."""
+    from dub.bench import seg
+
+    pred = ["我们今天来聊聊数据。", "这个话题很重要。", "请大家记住这个。"]
+    gold_trad = ["我們今天來聊聊數據。", "這個話題很重要。", "請大家記住這個。"]  # 據|這 differ
+    mixed = seg.boundary_f1(pred, gold_trad, "zh")
+    assert mixed.f1 == 1.0 and mixed.n_gold == 2  # the end of the text is not a boundary
+    monkeypatch.setattr(seg, "_simplified", lambda texts: texts)  # scripts as written
+    assert seg.boundary_f1(pred, gold_trad, "zh").f1 < 1.0
