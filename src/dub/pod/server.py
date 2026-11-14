@@ -100,6 +100,7 @@ class Jobs:
             analysis_only=bool(body.get("analysis_only", False)),
             confirm_cast=bool(body.get("confirm_cast", False)),
             fresh=bool(body.get("fresh", False)),
+            params=dict(body.get("params") or {}),
         )
         overrides = overrides_for(self.cfg, list(body.get("use", [])), bool(body.get("fake")))
         job_id = uuid.uuid4().hex[:12]

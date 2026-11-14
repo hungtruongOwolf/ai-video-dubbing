@@ -14,7 +14,7 @@ from pathlib import Path
 from dub import laptop
 from dub.contracts.v1 import Word
 from dub.core.config import default_config_dir, load_config
-from dub.core.pipeline import JobSpec, run_job
+from dub.core.pipeline import JobSpec, parse_params, run_job
 from dub.edits import EditStore
 from dub.pod.server import overrides_for
 from dub.store import Workspace
@@ -29,6 +29,7 @@ class RunOptions:
     remote: bool = False
     fake: bool = False
     use: list[str] = field(default_factory=list)
+    params: list[str] = field(default_factory=list)  # "provider.key=value" overrides
     transcript: Path | None = None
     speakers: int | None = None
     subs_only: bool = False
@@ -105,6 +106,7 @@ def run_video(opts: RunOptions, ws: Workspace, log: Callable[[str], None] = prin
         profile=opts.profile, transcript_key=transcript_key_for(ws, opts, log),
         speakers_hint=opts.speakers, subs_only=opts.subs_only, edits=edits, export=opts.export,
         analysis_only=opts.analysis_only, confirm_cast=opts.confirm_cast, fresh=opts.fresh,
+        params=parse_params(opts.params),
     )  # fmt: skip
     if opts.remote:
         return _run_remote(opts, ws, spec, log)
@@ -147,7 +149,7 @@ def _run_remote(opts: RunOptions, ws: Workspace, spec: JobSpec, log) -> RunOutpu
         "speakers_hint": spec.speakers_hint, "subs_only": spec.subs_only,
         "use": opts.use, "fake": opts.fake, "export": spec.export,
         "analysis_only": spec.analysis_only, "confirm_cast": spec.confirm_cast,
-        "fresh": spec.fresh,
+        "fresh": spec.fresh, "params": spec.params,
         "edits": [e.model_dump(mode="json") for e in spec.edits],
     }  # fmt: skip
     if spec.transcript_key:

@@ -19,6 +19,7 @@ Manifest params:
                   Whisper's own detection
     compute_type: float16 on GPU
     beam_size:    5
+    batch_size:   0 = sequential decoding of the source; > 0 = batched (VAD chunks)
 """
 
 from __future__ import annotations
@@ -69,15 +70,30 @@ class FasterWhisperASR:
         extra: dict = {}
         if req.clips:  # one speaker turn per clip: Whisper cannot merge words across turns
             extra["clip_timestamps"] = [round(t / 1000, 3) for c in req.clips for t in c]
-        segments, info = self.model.transcribe(
-            audio.mean(axis=1),
-            language=lang,
-            word_timestamps=True,
-            vad_filter=bool(p.get("vad_filter", True)) and not req.clips,
-            beam_size=int(p.get("beam_size", 5)),
-            condition_on_previous_text=False,  # fewer runaway repetitions on long files
-            **extra,
-        )
+        batch_size = int(p.get("batch_size", 0))
+        if batch_size > 0 and not req.clips and op == "asr.transcribe":
+            # M5: VAD chunks of <= 30 s decoded in batches (BatchedInferencePipeline)
+            from faster_whisper import BatchedInferencePipeline
+
+            if self.batched is None:
+                self.batched = BatchedInferencePipeline(self.model)
+            segments, info = self.batched.transcribe(
+                audio.mean(axis=1),
+                language=lang,
+                word_timestamps=True,
+                batch_size=batch_size,
+                beam_size=int(p.get("beam_size", 5)),
+            )
+        else:
+            segments, info = self.model.transcribe(
+                audio.mean(axis=1),
+                language=lang,
+                word_timestamps=True,
+                vad_filter=bool(p.get("vad_filter", True)) and not req.clips,
+                beam_size=int(p.get("beam_size", 5)),
+                condition_on_previous_text=False,  # fewer runaway repetitions on long files
+                **extra,
+            )
         words: list[Word] = []
         for seg in segments:  # a generator: decoding happens while we iterate
             for w in seg.words or []:

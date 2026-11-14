@@ -63,6 +63,13 @@ def _video_args(p: argparse.ArgumentParser) -> None:
         help='force a provider, e.g. --use "mt.*=claude_cli" (repeatable)',
     )
     p.add_argument(
+        "--param",
+        action="append",
+        default=[],
+        metavar="PROVIDER.KEY=VALUE",
+        help="override a provider parameter for this run, e.g. whisper_large_v3.batch_size=16",
+    )
+    p.add_argument(
         "--remote",
         action="store_true",
         help="run on the GPU pod (starts one with `dub up` if needed)",
@@ -161,6 +168,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="override routing, e.g. asr.transcribe=whisper_large_v3",
     )
+    b.add_argument(
+        "--param",
+        action="append",
+        default=[],
+        metavar="PROVIDER.KEY=VALUE",
+        help="override a provider parameter for this run, e.g. whisper_large_v3.batch_size=16",
+    )
     _common(b)
     return ap
 
@@ -181,7 +195,7 @@ def cmd_demo(a) -> int:
 def _opts(a, **over) -> RunOptions:
     return RunOptions(
         video=a.video, tgt=a.tgt, src=a.src, profile=a.profile, remote=a.remote, fake=a.fake,
-        use=a.use, transcript=getattr(a, "transcript", None),
+        use=a.use, params=getattr(a, "param", []), transcript=getattr(a, "transcript", None),
         speakers=getattr(a, "speakers", None), subs_only=getattr(a, "subs_only", False),
         confirm_cast=getattr(a, "confirm_cast", False), config_dir=a.config_dir, **over,
     )  # fmt: skip
@@ -435,7 +449,7 @@ def cmd_bench_speed(a) -> int:
     else:  # a media file: dub it first (cached stages are reused, so bench a fresh run)
         opts = RunOptions(
             video=a.target, tgt=a.tgt, src=a.src, profile=a.profile, remote=a.remote,
-            fake=a.fake, config_dir=a.config_dir, use=a.use, fresh=a.fresh,
+            fake=a.fake, config_dir=a.config_dir, use=a.use, fresh=a.fresh, params=a.param,
         )  # fmt: skip
         job = run_video(opts, Workspace.open(a.workspace), log=print).job_dir
     media_s = None
@@ -463,7 +477,7 @@ def cmd_bench(a) -> int:
     else:  # a media file: run the analysis (phase A) first
         opts = RunOptions(
             video=a.target, tgt="und", src=a.src, remote=a.remote, fake=a.fake,
-            analysis_only=True, config_dir=a.config_dir, use=a.use,
+            analysis_only=True, config_dir=a.config_dir, use=a.use, params=a.param,
         )  # fmt: skip
         job = run_video(opts, Workspace.open(a.workspace), log=print).job_dir
     seg = json.loads((job / "segmentation.json").read_text(encoding="utf-8"))

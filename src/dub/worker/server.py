@@ -216,6 +216,10 @@ def make_handler(state: WorkerState):
                         "env": state.env,
                         "providers": sorted(state.allowed),
                         "loaded": sorted(state.instances),
+                        # batch size -> runs (continuous batching at work)
+                        "batches": {
+                            str(n): state.batches.count(n) for n in sorted(set(state.batches))
+                        },
                     },
                 )
             else:

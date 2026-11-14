@@ -172,3 +172,14 @@ def test_one_source_many_targets_shares_the_analysis(demo, tmp_path, capsys):
     assert (out_dir / "interview.vi.mp4").exists() and (out_dir / "interview.es.mp4").exists()
     jobs = sorted(p.name for p in (ws / "jobs").iterdir())
     assert any("-vi-" in j for j in jobs) and any("-es-" in j for j in jobs)
+
+
+def test_param_overrides_reach_the_call_keys():
+    from dub.core.pipeline import parse_params
+
+    assert parse_params(["whisper_large_v3.batch_size=16", "omnivoice.model=x/y"]) == {
+        "whisper_large_v3": {"batch_size": 16},
+        "omnivoice": {"model": "x/y"},
+    }
+    with pytest.raises(ValueError):
+        parse_params(["batch_size=16"])

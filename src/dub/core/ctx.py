@@ -120,6 +120,7 @@ class Ctx:
         facts: dict[str, Any],
         log: Callable[[str], None] = print,
         fresh: bool = False,
+        params: dict[str, dict[str, Any]] | None = None,
     ):
         self.cfg = cfg
         self.ws = ws
@@ -130,6 +131,7 @@ class Ctx:
         self.facts = facts
         self.log = log
         self.fresh = fresh  # benchmarks: recompute everything (results are still stored)
+        self.overrides = params or {}  # --param provider.key=value, part of the call keys
         self.routes: list[v1.RouteTrace] = []
         self.stats: list[CallStat] = []
         self._prompt_cache: dict[str, str] = {}
@@ -176,10 +178,12 @@ class Ctx:
         self.stats.append(CallStat(op, provider, subject, key, hit, started_at, dur_ms))
 
     def params_for(self, m: ProviderManifest, op: str) -> dict[str, Any]:
-        """Manifest params, then the profile's overrides for this provider, then prompt hashes."""
+        """Manifest params, the profile's overrides, the run's --param overrides, then prompt
+        hashes."""
         return {
             **m.params,
             **self.router.profile.params.get(m.id, {}),
+            **self.overrides.get(m.id, {}),
             **self._prompt_params(m, op),
         }
 

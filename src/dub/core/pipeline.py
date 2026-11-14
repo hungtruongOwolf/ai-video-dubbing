@@ -112,6 +112,7 @@ class JobSpec:
     analysis_only: bool = False  # stop after segmentation (benchmarks: dub bench seg)
     confirm_cast: bool = False  # stop after the cast sheet, for the user to correct it
     fresh: bool = False  # recompute every step, ignoring the cache (dub bench speed --fresh)
+    params: dict[str, dict[str, Any]] = field(default_factory=dict)  # provider -> overrides
 
 
 @dataclass
@@ -131,6 +132,23 @@ class JobResult:
     metrics: dict[str, Any] = field(default_factory=dict)  # sync and quality numbers (report)
     calls: int = 0
     cache_hits: int = 0
+
+
+def parse_params(items: list[str]) -> dict[str, dict[str, Any]]:
+    """["whisper_large_v3.batch_size=16"] -> {"whisper_large_v3": {"batch_size": 16}}.
+    Values are read as JSON when they parse (numbers, true/false), else kept as text."""
+    out: dict[str, dict[str, Any]] = {}
+    for item in items:
+        target, _, value = item.partition("=")
+        pid, _, key = target.partition(".")
+        if not pid or not key or not _:
+            raise ValueError(f"--param wants PROVIDER.KEY=VALUE, got {item!r}")
+        try:
+            v: Any = json.loads(value)
+        except json.JSONDecodeError:
+            v = value
+        out.setdefault(pid, {})[key] = v
+    return out
 
 
 def job_id_for(spec: JobSpec, profile: str) -> str:
@@ -163,6 +181,7 @@ async def run_job(
         log=log,
         facts={"src_lang": spec.src_lang, "tgt_lang": spec.tgt_lang, "profile": profile_name},
         fresh=spec.fresh,
+        params=spec.params,
     )
     ws.db.upsert_job(
         job_id,
