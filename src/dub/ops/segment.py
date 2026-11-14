@@ -155,6 +155,27 @@ def assign_speakers(words: list[Word], turns: list[Turn], anchor: float = 0.3) -
     return [w.model_copy(update={"speaker": s_}) for w, s_ in zip(words, spk, strict=True)]
 
 
+def turn_clips(
+    turns: list[Turn], end_ms: int, join_gap_ms: int = 800, pad_ms: int = 150
+) -> list[tuple[int, int]]:
+    """Clips for turn-by-turn ASR: consecutive turns of one speaker joined when the gap is
+    short, each clip padded a little without reaching into the neighbouring clips."""
+    merged: list[list] = []
+    for t in sorted(turns, key=lambda t: t.start_ms):
+        if merged and merged[-1][0] == t.speaker and t.start_ms - merged[-1][2] < join_gap_ms:
+            merged[-1][2] = max(merged[-1][2], t.end_ms)
+        else:
+            merged.append([t.speaker, t.start_ms, t.end_ms])
+    clips: list[tuple[int, int]] = []
+    for i, (_spk, s0, e0) in enumerate(merged):
+        lo = merged[i - 1][2] if i else 0
+        hi = merged[i + 1][1] if i + 1 < len(merged) else end_ms
+        a = max(lo + (s0 - lo) // 2 if i else 0, s0 - pad_ms)
+        b = min(e0 + (hi - e0) // 2 if i + 1 < len(merged) else end_ms, e0 + pad_ms)
+        clips.append((int(a), int(b)))
+    return clips
+
+
 def smooth_speakers(words: list[Word], max_ms: int = 600, max_words: int = 2) -> list[Word]:
     """A word or two given to another speaker in the middle of one speaker's run is almost
     always a diarization slip at a turn edge: give them back (no unit is cut there)."""

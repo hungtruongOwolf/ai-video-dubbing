@@ -58,13 +58,17 @@ class FasterWhisperASR:
         audio, sr = read_wav(ctx.cas.path(req.audio_key))
         if sr != 16000:
             raise ProviderError(f"expected 16 kHz audio, got {sr} Hz", kind="bad_input")
+        extra: dict = {}
+        if req.clips:  # one speaker turn per clip: Whisper cannot merge words across turns
+            extra["clip_timestamps"] = [round(t / 1000, 3) for c in req.clips for t in c]
         segments, info = self.model.transcribe(
             audio.mean(axis=1),
             language=lang,
             word_timestamps=True,
-            vad_filter=bool(p.get("vad_filter", True)),
+            vad_filter=bool(p.get("vad_filter", True)) and not req.clips,
             beam_size=int(p.get("beam_size", 5)),
             condition_on_previous_text=False,  # fewer runaway repetitions on long files
+            **extra,
         )
         words: list[Word] = []
         for seg in segments:  # a generator: decoding happens while we iterate

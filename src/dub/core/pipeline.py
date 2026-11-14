@@ -204,6 +204,19 @@ async def run_job(
             replay_key=spec.transcript_key,
         ),
     )
+    if len(diar.speakers) > 1 and not spec.transcript_key:
+        # Several speakers: transcribe again turn by turn. A whole-file pass merges words
+        # across turns ("...keep my promises dad" took the next speaker's "Dad,") and the
+        # translator then picks the wrong listener (measured on the drama, E10).
+        log(f"      {len(diar.speakers)} speakers: transcribing turn by turn")
+        words = await cx.call(
+            "asr.transcribe",
+            TranscribeReq(
+                audio_key=media.a16k_key,
+                lang=src_lang,
+                clips=segment_ops.turn_clips(diar.turns, media.duration_ms),
+            ),
+        )
     asr_words = segment_ops.normalize_words(
         sorted((w for w in words.words if w.w.strip()), key=lambda w: (w.start_ms, w.end_ms))
     )

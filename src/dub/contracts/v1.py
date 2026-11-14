@@ -76,6 +76,9 @@ class TranscribeReq(Model):
     # What the audio should say (back-check of a dubbed clip). Only fakes may use it to invent
     # timed words; a real ASR must NOT see it, or the check would check nothing.
     expected_text: str | None = None
+    # Transcribe only these spans, each on its own (one per speaker turn): no word can cross
+    # from one speaker into the next.
+    clips: list[tuple[int, int]] = Field(default_factory=list)
 
 
 class BoundaryReq(Model):

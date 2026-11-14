@@ -191,3 +191,15 @@ def test_an_early_first_word_goes_with_its_phrase_not_the_previous_speaker():
         Word(w="spoil", start_ms=2600, end_ms=3000),
     ]
     assert [w.speaker for w in assign_speakers(ws, turns)] == ["S1", "S2", "S2", "S2"]
+
+
+def test_turn_clips_join_one_speaker_and_never_overlap():
+    from dub.ops.segment import turn_clips
+
+    turns = [
+        Turn(speaker="S1", start_ms=0, end_ms=2000),
+        Turn(speaker="S1", start_ms=2300, end_ms=4000),  # same speaker, short gap: joined
+        Turn(speaker="S2", start_ms=4100, end_ms=6000),  # quick turn-take: 100 ms gap
+    ]
+    clips = turn_clips(turns, 7000)
+    assert clips == [(0, 4050), (4050, 6150)]
