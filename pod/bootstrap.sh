@@ -7,7 +7,10 @@ mkdir -p "$ROOT"/bin "$ROOT"/logs "$ROOT"/envs
 exec > >(tee -a "$ROOT/logs/bootstrap.log") 2>&1
 echo "== bootstrap $(date -u +%FT%TZ) pod=${RUNPOD_POD_ID:-local} ref=${DUB_REF:-main}"
 
-export UV_CACHE_DIR=$ROOT/uv-cache UV_PYTHON_INSTALL_DIR=$ROOT/python UV_LINK_MODE=hardlink
+# The uv cache lives on the container disk, venvs on the volume, files COPIED into them:
+# the volume quota counts every hardlink as a full copy (measured: 35 GB of data counted
+# as 52 GB with a hardlinked cache), so a cache on the volume doubled every install.
+export UV_CACHE_DIR=${DUB_UV_CACHE:-/root/.cache/uv} UV_PYTHON_INSTALL_DIR=$ROOT/python UV_LINK_MODE=copy
 export HF_HOME=$ROOT/hf DUB_HF_CACHE=$ROOT/hf/hub DUB_MODELS=$ROOT/models
 export PATH=$ROOT/bin:$HOME/.local/bin:$PATH
 fail() { echo "!! bootstrap failed: $*"; sleep infinity; }  # keep the pod up so logs can be read

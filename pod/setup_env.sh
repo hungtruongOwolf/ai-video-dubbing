@@ -9,7 +9,10 @@ NAME=$1
 REPO=$ROOT/repo
 REQ=$REPO/pod/envs/$NAME.txt
 VENV=$ROOT/envs/$NAME
-export UV_CACHE_DIR=$ROOT/uv-cache UV_PYTHON_INSTALL_DIR=$ROOT/python UV_LINK_MODE=hardlink
+# The uv cache lives on the container disk, venvs on the volume, files COPIED into them:
+# the volume quota counts every hardlink as a full copy (measured: 35 GB of data counted
+# as 52 GB with a hardlinked cache), so a cache on the volume doubled every install.
+export UV_CACHE_DIR=${DUB_UV_CACHE:-/root/.cache/uv} UV_PYTHON_INSTALL_DIR=$ROOT/python UV_LINK_MODE=copy
 export PATH=$ROOT/bin:$PATH
 
 STAMP="$(cat "$REQ" "$REPO/pyproject.toml" | sha256sum | cut -c1-16)"
