@@ -292,6 +292,7 @@ async def run_job(
         "mt.context",
         ContextReq(src_lang=src_lang, tgt_lang=spec.tgt_lang, units=base_units, voices=diar.voices),
     )
+    sheet = edits_ops.apply_cast(sheet, edits)  # the user's corrections win
 
     # ---------------------------------------------------------------- Phase B: translate
     log("[5/7] translating")

@@ -1,0 +1,24 @@
+# Vietnamese voice-cloning TTS: VieNeu-TTS v3 Turbo (48 kHz, GPU batching + CUDA graphs).
+# A candidate until experiment E1 compares it with OmniVoice; switch the vi chain in
+# configs/langpacks/vi.yaml to make it the default (one line).
+id: vieneu_v3_turbo
+op: [tts.synthesize]
+runtime: http
+env: tts2
+impl: dub.providers.tts_vieneu:VieNeuTTS
+impl_version: "1"
+status: candidate
+preload: false
+weights: {hf: pnnbao-ump/VieNeu-TTS-v3-Turbo}
+params:
+  model: pnnbao-ump/VieNeu-TTS-v3-Turbo
+  temperature: 0.8
+caps:
+  langs: [vi, en]
+  duration_control: none       # autoregressive: the timing ladder picks variants and stretches
+  max_out_s: 30
+  needs_ref_text: false
+  sample_rate: 48000
+limits: {max_concurrency: 1}
+license: Apache-2.0
+description: Vietnamese/English TTS with instant voice cloning (VieNeu-TTS v3 Turbo).

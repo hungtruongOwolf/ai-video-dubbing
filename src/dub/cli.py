@@ -190,7 +190,10 @@ EDIT_HELP = """actions:
   merge UNIT                merge with the next unit (same speaker)
   lock UNIT / unlock UNIT   protect the line from automatic rewrites
   undo [EDIT_ID]            cancel the latest edit (or the given one)
-Then run `dub run ...` (or the review page) again: only what changed is redone."""
+Then run `dub run ...` (or the review page) again: only what changed is redone.
+  cast S2 gender=female name=Linda          correct a speaker in the cast sheet
+  cast S1>S2 self_term=mẹ other_term=con    set how S1 and S2 address each other
+"""
 
 
 def cmd_edit(a) -> int:
@@ -232,6 +235,18 @@ def cmd_edit(a) -> int:
         e = store.add(unit, "merge_next")
     elif act in ("lock", "unlock"):
         e = store.add(unit, "lock", act == "lock")
+    elif act == "cast":
+        # cast S2 gender=female name=Linda      |   cast S1>S2 self_term=mẹ other_term=con
+        value: dict = {}
+        if ">" in unit:
+            value["speaker"], value["listener"] = unit.split(">", 1)
+            value["lang"] = a.tgt
+        else:
+            value["speaker"] = unit
+        for kv in args[1:]:
+            k, _, v = kv.partition("=")
+            value[k.strip()] = int(v) if k.strip() == "since_ms" else v.strip()
+        e = store.add("cast", "cast", value)
     else:
         raise SystemExit(f"error: unknown action {act!r}\n\n{EDIT_HELP}")
     print(f"saved {e.field} for {e.unit_id} ({e.id}). Run `dub run` or `dub review` to render.")

@@ -19,7 +19,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from dub.contracts.v1 import Edit, Translation, Unit, Word, join_words
+from dub.contracts.v1 import (
+    AddressTerms,
+    CastSpeaker,
+    ContextSheet,
+    Edit,
+    Relation,
+    Translation,
+    Unit,
+    Word,
+    join_words,
+)
 
 STRUCTURE = {"split", "merge_next"}
 
@@ -148,3 +158,49 @@ class UnitEdits:
         if t is None:
             return tr
         return tr.model_copy(update={"short": t, "target": t, "long": t, "note": "edited"})
+
+
+SPEAKER_FIELDS = ("name", "gender", "age_band", "role", "style")
+
+
+def apply_cast(sheet: ContextSheet, edits: list[Edit]) -> ContextSheet:
+    """Human corrections of the cast sheet, applied over the LLM's (later edits win).
+
+    A speaker correction locks that speaker; a relation correction sets the address terms of
+    one speaker -> listener pair in one language. Only the translation windows where those
+    speakers appear are translated again (their cast rows are part of the window's key).
+    """
+    cast = sheet.cast.model_copy(deep=True)
+    for e in edits:
+        if e.field != "cast" or not isinstance(e.value, dict):
+            continue
+        v = e.value
+        spk = str(v.get("speaker", ""))
+        if not spk:
+            continue
+        if "listener" in v:
+            lang = str(v.get("lang", "vi"))
+            since = int(v.get("since_ms", 0))
+            rel = next((r for r in cast.relations if r.speaker == spk
+                        and r.listener == v["listener"] and r.since_ms == since), None)  # fmt: skip
+            if rel is None:
+                rel = Relation(speaker=spk, listener=str(v["listener"]), since_ms=since)
+                cast.relations.append(rel)
+            terms = rel.address.get(lang, AddressTerms())
+            rel.address[lang] = terms.model_copy(update={
+                k: v[k] for k in ("self_term", "other_term") if k in v
+            })  # fmt: skip
+            rel.conf = 1.0
+            rel.evidence = ["confirmed by the user"]
+            continue
+        row = next((s_ for s_ in cast.speakers if s_.id == spk), None)
+        if row is None:
+            row = CastSpeaker(id=spk)
+            cast.speakers.append(row)
+        for k in SPEAKER_FIELDS:
+            if k in v:
+                setattr(row, k, v[k])
+        row.locked = True
+        row.conf = 1.0
+        row.evidence = ["confirmed by the user"]
+    return sheet.model_copy(update={"cast": cast})

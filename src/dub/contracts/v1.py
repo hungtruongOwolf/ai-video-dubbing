@@ -514,7 +514,9 @@ class SubtitleTrack(Model):
 
 # ---------------------------------------------------------------- human edits
 
-EditField = Literal["text", "seed", "speaker", "nudge", "lock", "split", "merge_next", "undo"]
+EditField = Literal[
+    "text", "seed", "speaker", "nudge", "lock", "split", "merge_next", "undo", "cast"
+]
 
 
 class Edit(Model):
@@ -528,6 +530,9 @@ class Edit(Model):
     split       value: {at_ms} | None  split the unit at the word boundary nearest at_ms
     merge_next  value: None          merge the unit with the next one (same speaker)
     undo        value: edit id       cancel an earlier edit
+    cast        value: {speaker, gender?, name?, age_band?, role?}  or
+                       {speaker, listener, lang, self_term?, other_term?, since_ms?}
+                (unit_id "cast") correct the cast sheet; corrected rows are locked
     """
 
     id: str  # sortable: <time_ns>-<random>

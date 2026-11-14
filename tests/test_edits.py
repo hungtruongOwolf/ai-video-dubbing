@@ -247,3 +247,22 @@ def test_review_app_api(demo, tmp_path):
     post("/api/undo", {})
     assert json.loads(get("/api/state"))["edits"] == []
     httpd.shutdown()
+
+
+def test_cast_corrections_override_and_lock_the_sheet():
+    from dub.contracts.v1 import CastSheet, CastSpeaker, ContextSheet, Edit
+    from dub.ops.edits import apply_cast
+
+    sheet = ContextSheet(summary="", cast=CastSheet(speakers=[CastSpeaker(id="S2", gender="male")]))
+    edits = [
+        Edit(id="1", unit_id="cast", field="cast", value={"speaker": "S2", "gender": "female"}),
+        Edit(id="2", unit_id="cast", field="cast",
+             value={"speaker": "S1", "listener": "S2", "lang": "vi", "self_term": "mẹ",
+                    "other_term": "con"}),
+    ]  # fmt: skip
+    out = apply_cast(sheet, edits).cast
+    s2 = next(s for s in out.speakers if s.id == "S2")
+    assert s2.gender == "female" and s2.locked
+    rel = out.relations[0]
+    assert (rel.speaker, rel.listener) == ("S1", "S2") and rel.address["vi"].self_term == "mẹ"
+    assert sheet.cast.speakers[0].gender == "male"  # the input is not modified
