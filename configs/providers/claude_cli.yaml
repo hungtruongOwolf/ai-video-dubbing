@@ -5,7 +5,7 @@ op: [mt.context, mt.translate, mt.rewrite, text.boundaries]
 runtime: inproc
 impl: dub.providers.claude_cli:ClaudeCLI
 requires_bin: [claude]
-impl_version: "2"   # 2: cast speakers carry `characters` (merged voices)
+impl_version: "3"   # 2: cast speakers carry `characters` (merged voices); 3: required
 params:
   model: sonnet                # alias of the current Sonnet model
   max_turns: 2                 # structured output counts as an extra turn

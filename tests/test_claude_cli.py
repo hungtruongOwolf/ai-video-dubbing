@@ -93,6 +93,7 @@ def test_context_pass_builds_a_cast_sheet(cfg, ctx, calls, monkeypatch):
                         "role": "host",
                         "style": "warm",
                         "evidence": ["voice only"],
+                        "characters": 1,
                     },
                     {
                         "id": "S2",
@@ -103,6 +104,7 @@ def test_context_pass_builds_a_cast_sheet(cfg, ctx, calls, monkeypatch):
                         "role": "guest",
                         "style": None,
                         "evidence": ["'Mr. Tu'"],
+                        "characters": 1,
                     },
                 ],
                 "relations": [

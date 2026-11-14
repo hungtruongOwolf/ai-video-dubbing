@@ -76,7 +76,7 @@ class LLMSpeaker(_S):
     role: str | None
     style: str | None
     evidence: list[str]
-    characters: int = 1  # different people speaking under this id (diarization merged them)
+    characters: int  # different people speaking under this id (diarization merged them)
 
 
 class LLMRelation(_S):
