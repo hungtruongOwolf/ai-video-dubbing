@@ -229,7 +229,8 @@ on the RTX 4090.
 - [x] M5's RoFormer `batch_size` was ignored by audio-separator: **claim corrected, setting removed**
 - [x] Silence inside OmniVoice's takes compensated per voice: LLM rewrites 140 → 25, speech 4.82 → 4.31 syl/s: **kept**
 - [x] Per-line loudness from the original vocals: **kept**
-- [x] Voice audition (candidate reference clips tried before voicing): see the note
+- [x] Voice audition (candidate reference clips tried before voicing): whole-job voice similarity unchanged (0.599 → 0.600): **off by default**, available
+- [x] Mix stage off the critical path (levels per line, export while subtitles render): 72 → 51 s: **kept**
 - [x] Segmentation trials (punctuation transfer for vi, Whisper prompts for zh/ja, minimum sentence length): **inconclusive, defaults kept** (two videos per language)
 - [x] Worker restarts, versioned result keys, single-flight cancellation fix: **kept**
 - [ ] More evaluation videos with human subtitles in vi and zh, to decide the segmentation trials

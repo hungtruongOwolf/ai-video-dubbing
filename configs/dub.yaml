@@ -37,7 +37,10 @@ mix:
   level_max_gain_db: 24.0       # the overall voice offset; per-line changes are bounded above
 
 voice:
-  audition: 4                  # reference clips tried per speaker (two test sentences each)
+  # Reference clips tried per speaker (two test sentences each); 1 = off. M7: on the 60-min
+  # speech the audition picked clip 4 of 4 (+0.07 on the test sentences) but the whole job's
+  # voice similarity did not move (0.599 -> 0.600): off until a source with uneven clips shows a gain.
+  audition: 1
   audition_cer_slack: 0.05
 
 translate:

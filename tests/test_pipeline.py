@@ -165,7 +165,6 @@ def test_bench_speed_reports_stages_lanes_and_ops(demo, tmp_path, capsys):
     lines = [e for e in synth if not e["args"]["subject"].startswith("calibration")]
     units = json.loads((job / "units.json").read_text(encoding="utf-8"))
     assert len(lines) == len(units)
-    assert len(synth) - len(lines) >= 2  # the voice audition: two test sentences per clip
 
 
 def test_one_source_many_targets_shares_the_analysis(demo, tmp_path, capsys):
@@ -196,10 +195,10 @@ def test_dub_settings_can_be_overridden_for_one_run(cfg):
 
     from dub.core.pipeline import parse_params, with_settings
 
-    params = parse_params(["dub.voice.audition=1", "dub.mix.match_level=false"])
+    params = parse_params(["dub.voice.audition=4", "dub.mix.match_level=false"])
     new = with_settings(cfg, params["dub"])
-    assert new.dub.voice.audition == 1 and new.dub.mix.match_level is False
-    assert cfg.dub.voice.audition != 1  # the loaded config is untouched
+    assert new.dub.voice.audition == 4 and new.dub.mix.match_level is False
+    assert cfg.dub.voice.audition != 4  # the loaded config is untouched
     with pytest.raises(ValueError, match="no setting"):
         with_settings(cfg, {"voice.auditon": 1})
     with pytest.raises(ValueError, match="no section"):

@@ -14,8 +14,8 @@ en → vi, final profile.
 | Separation: `batch_size` (kept in M5) | ignored by audio-separator for RoFormer; the M5 "speed-up" was noise | removed |
 | Silence compensation for OmniVoice (per-voice pad) | LLM rewrites 140 → 25; speech 4.82 → 4.31 syl/s (p90 6.11 → 4.90); CER p95 0.136 → 0.107 | yes |
 | Per-line loudness from the original vocals | raw TTS levels uncorrelated with the original (r = −0.08), 4 dB line-to-line mismatch (p90) now corrected | yes |
-| Voice audition (4 candidate clips per speaker) | see [below](#voice-audition) | see below |
-| Mix stage: levels per line, export in the background | see [below](#mix-stage) | yes |
+| Voice audition (4 candidate clips per speaker) | picked another clip (+0.07 on the test sentences), whole-job voice similarity unchanged (0.599 → 0.600) | no: off by default, available |
+| Mix stage: levels per line, export in the background | 72 → 51 s on the 60-min final | yes |
 | Spoken numbers (pronunciation layer) | OmniVoice reads vi numbers right in 10 of 11 lines | not needed |
 | Segmentation trials (6) | each helps one video and hurts another | none kept |
 | Worker restarts, versioned result keys, single-flight fix | robustness, see [below](#robustness) | yes |
@@ -110,11 +110,38 @@ it, so bleed in one slot cannot make a line jump), the gain capped at 24 dB. The
 
 ## Voice audition
 
-(results pending)
+Some projects pick the reference clip by how well it clones rather than by how typical it is
+of the speaker. `voice.audition: N` tries that: the N most typical 3-10 s clips of each speaker
+say the langpack's two calibration sentences (the same takes that measure the silence pad),
+each take is back-checked and embedded, and among the intelligible clips (CER within 0.05 of
+the best) the one whose takes are closest to the speaker's centroid becomes the reference.
+
+A/B on the 60-minute speech, final profile, same pod:
+
+| | First clip (most typical) | Audition of 4 |
+|---|---|---|
+| clip kept | 1 | 4 (test sentences: similarity 0.484 against 0.415) |
+| voice similarity ratio p50 / p10, all 415 lines | 0.599 / 0.527 | 0.600 / 0.529 |
+| QA passed | 94.7% | 94.0% |
+| back-check CER p95 | 0.107 | 0.128 |
+
+The gain on the two test sentences did not carry over to the job: on clean speech the
+candidate clips clone about equally well, and two sentences per clip cannot tell them apart
+(the line-to-line spread of similarity is larger than the differences between clips). The
+audition is therefore off by default (`audition: 1`), kept for sources whose clips differ in
+quality (noise, music, reverberation), where it can be measured again with
+`--param dub.voice.audition=4`. The drama of M4 could not test it: in 2 minutes no speaker
+has more than one 3-10 s line.
 
 ## Mix stage
 
-(results pending)
+On the first final with per-line levels the mix stage took 72 s, all in sequence: levels of
+the 415 lines 19 s, tiles 5 s, concat 4 s, master 40 s, subtitles 8 s. Now each line's level
+(and the original's) is measured as soon as the line is voiced (`audio.line_level`, cached
+per line, off the critical path); the gains need every line of a speaker and are computed at
+the end in no time; concat and master run in the background while the subtitles are
+written. The stage takes **51 s**. The master (one loudness measurement plus an AAC encode
+of the hour) is what is left; the AAC encoder is single-threaded.
 
 ## Segmentation trials
 

@@ -180,14 +180,14 @@ the cache keys, so the variant is cached apart):
 dub run VIDEO --to vi --remote --param whisper_large_v3.batch_size=16
 dub bench speed VIDEO --to vi --remote --profile final --fresh   # time it, nothing from cache
 dub run VIDEO --to vi,es,ja --remote                             # three languages, one analysis
-dub run VIDEO --to vi --remote --param dub.voice.audition=1      # a dub.yaml setting, this run only
+dub run VIDEO --to vi --remote --param dub.voice.audition=4      # a dub.yaml setting, this run only
 ```
 
 ## Voice and mix
 
 ```yaml
 voice:
-  audition: 4                  # reference clips tried per speaker (two test sentences each)
+  audition: 1                  # reference clips tried per speaker (1 = off; M7 measured no gain)
   audition_cer_slack: 0.05     # intelligible: back-check CER within this of the best clip
 mix:
   match_level: true            # each line at the level of the original line
@@ -195,7 +195,7 @@ mix:
   level_max_gain_db: 24.0
 ```
 
-- **Audition**: before voicing, each speaker's candidate reference clips (the most typical
+- **Audition** (off by default, no gain measured in M7): before voicing, each speaker's candidate reference clips (the most typical
   ones) say the langpack's `calibration` sentences. Among the clips whose takes are
   intelligible, the one whose takes sound closest to the speaker (embedding similarity) is
   kept. The same takes measure the silence an exact-duration engine adds inside the length

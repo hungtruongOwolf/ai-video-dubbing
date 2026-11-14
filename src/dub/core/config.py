@@ -187,7 +187,7 @@ class VoiceCfg(Cfg):
     # Reference clips auditioned per speaker before voicing (1 = take the most typical clip).
     # Each says the langpack's two calibration sentences; the clip whose takes sound most like
     # the speaker (embedding similarity), among the intelligible ones, is kept.
-    audition: int = 4
+    audition: int = 1  # off by default: no gain measured (M7, docs/m7-quality-pass.md)
     audition_cer_slack: float = 0.05  # intelligible: back-check CER within this of the best
 
 
