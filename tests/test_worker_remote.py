@@ -263,3 +263,19 @@ def test_remote_gc_runs_in_the_background_and_reports(dubd, tmp_path, monkeypatc
     rep = remote.Dubd(url, "t" * 24).gc(min_age_s=0)
     assert rep["deleted"] >= 1 and not srv.ws.cas.exists(orphan)
     assert srv.gc_state["status"] == "done"
+
+
+def test_direct_worker_calls_keep_the_pod_awake(cfg, ws, dubd, monkeypatch):
+    """Experiments call workers directly; dubd's idle watchdog must see that activity."""
+    url, srv = dubd
+    state = WorkerState("fx", ["fake_tts"], cfg, ws.cas)
+    httpd = serve_worker(state, "127.0.0.1", 0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    wurl = f"http://127.0.0.1:{httpd.server_address[1]}"
+    monkeypatch.setenv("DUB_WORKERS", json.dumps({"fx": wurl}))
+    state.submit("fake_tts", "tts.synthesize", {},
+                 SynthReq(unit_id="u", text="xin chào", lang="vi", speaker="S1"))  # fmt: skip
+    assert srv._workers_busy()
+    state.last_active -= 3600
+    assert not srv._workers_busy()
+    httpd.shutdown()

@@ -62,6 +62,7 @@ class WorkerState:
         self.cv = threading.Condition()
         self.batches: list[int] = []  # sizes of the batches run (health, tests)
         self.offloaded: set[str] = set()  # models parked in CPU memory (restored on next use)
+        self.last_active = time.time()  # dubd's idle watchdog reads it (direct callers count)
         self._runner: threading.Thread | None = None
 
     # ------------------------------------------------------------ the model runner
@@ -95,9 +96,11 @@ class WorkerState:
     def _loop(self) -> None:
         while True:
             batch = self._take()
+            self.last_active = time.time()
             try:
                 self._execute(batch)
             finally:
+                self.last_active = time.time()
                 for t in batch:
                     t.done.set()
 
@@ -231,6 +234,9 @@ def make_handler(state: WorkerState):
                         "providers": sorted(state.allowed),
                         "loaded": sorted(state.instances),
                         "offloaded": sorted(state.offloaded),
+                        "idle_s": round(time.time() - state.last_active, 1)
+                        if not state.queue
+                        else 0.0,
                         # batch size -> runs (continuous batching at work)
                         "batches": {
                             str(n): state.batches.count(n) for n in sorted(set(state.batches))

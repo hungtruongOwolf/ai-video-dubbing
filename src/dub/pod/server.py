@@ -47,6 +47,7 @@ from dub.ops.preview import cut_mp3
 from dub.pod.envs import EnvManager
 from dub.pod.gpu import GpuSampler, total_memory_mib
 from dub.store import Workspace
+from dub.worker.protocol import get_json
 
 JOB_FILES = {
     "report.md",
@@ -244,13 +245,21 @@ class DubServer:
         return self.ws.cas.put_file(tmp, ext=ext, move=True)
 
     # ------------------------------------------------------------ watchdog
+    def _workers_busy(self) -> bool:
+        """Experiments call the workers directly (not through a job): their activity counts."""
+        for url in json.loads(os.environ.get("DUB_WORKERS") or "{}").values():
+            idle = _worker_idle_s(url)
+            if idle is not None and idle < 60:
+                return True
+        return False
+
     def watchdog(self, terminate: Callable[[], None]) -> None:
         while True:
             time.sleep(30)
             # Never idle out while a job runs or while the first boot is still installing envs
             # and downloading weights (that can take longer than the idle limit).
             installing = self.envs.started and not self.envs.settled.is_set()
-            if self.jobs.running() or installing:
+            if self.jobs.running() or installing or self._workers_busy():
                 self.touch()
                 continue
             if time.time() - self.last_activity > self.idle_s:
@@ -259,6 +268,13 @@ class DubServer:
                 )
                 terminate()
                 return
+
+
+def _worker_idle_s(url: str) -> float | None:
+    try:
+        return float(get_json(f"{url}/v1/health", timeout=5).get("idle_s", 1e9))
+    except (OSError, ValueError):
+        return None
 
 
 def terminate_this_pod() -> None:
