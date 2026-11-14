@@ -91,12 +91,34 @@ def under(turns: list[dict], c: dict) -> str:
     return best
 
 
-def cluster(vecs: np.ndarray, long_idx: list[int], t: float) -> list[int]:
-    from scipy.cluster.hierarchy import fcluster, linkage
+def average_linkage(vecs: np.ndarray, t: float) -> np.ndarray:
+    """Agglomerative clustering, average linkage on cosine distance, cut at distance t
+    (numpy only: the core env has no scipy)."""
+    n = len(vecs)
+    groups = [[i] for i in range(n)]
+    d = 1.0 - vecs @ vecs.T
+    np.fill_diagonal(d, np.inf)
+    while len(groups) > 1:
+        k = int(np.argmin(d))
+        a, b = divmod(k, len(groups))
+        if d[a, b] > t:
+            break
+        a, b = min(a, b), max(a, b)
+        na, nb = len(groups[a]), len(groups[b])
+        merged = (d[a] * na + d[b] * nb) / (na + nb)
+        d[a, :], d[:, a] = merged, merged
+        d[a, a] = np.inf
+        d = np.delete(np.delete(d, b, axis=0), b, axis=1)
+        groups[a] += groups.pop(b)
+    labels = np.zeros(n, dtype=int)
+    for g, members in enumerate(groups):
+        labels[members] = g + 1
+    return labels
 
+
+def cluster(vecs: np.ndarray, long_idx: list[int], t: float) -> list[int]:
     labels = np.zeros(len(vecs), dtype=int)
-    lab = fcluster(linkage(vecs[long_idx], method="average", metric="cosine"), t=t,
-                   criterion="distance")  # fmt: skip
+    lab = average_linkage(vecs[long_idx], t)
     cents = {k: vecs[long_idx][lab == k].mean(axis=0) for k in np.unique(lab)}
     keys = sorted(cents)
     cmat = np.stack([cents[k] / np.linalg.norm(cents[k]) for k in keys])
@@ -136,6 +158,7 @@ def main() -> None:
                        params={"threshold": t})  # fmt: skip
         diar_turns[t] = d["turns"]
         res[f"diar_{t}"] = score(cues, [under(d["turns"], c) for c in cues])
+        print(f"diar_{t}", json.dumps(res[f"diar_{t}"]), flush=True)
 
     spans = [(c["start_ms"], c["end_ms"]) for c in cues]
     vecs = np.asarray(run_worker("tts", "ecapa_cluster", "audio.embed",
