@@ -53,5 +53,9 @@ fi
 unset ANTHROPIC_API_KEY  # never bill an API key instead of the subscription
 
 export DUB_ROOT=$ROOT DUB_REPO_DIR=$ROOT/repo
+# Hugging Face download locks live on the network volume. A download cut by a container
+# restart leaves its lock held for good (the volume keeps the dead holder's lock), and the
+# next worker waits on it forever. Nothing is running yet, so every lock is stale here.
+rm -rf "$ROOT/hf/hub/.locks"
 echo "== starting dubd"
 exec "$ROOT/envs/core/bin/python" -m dub.pod

@@ -151,6 +151,17 @@ What the Vietnamese numbers are made of (`e6_asr.py analyse`, largest word diffe
   sentences of the speech with YouTube outros ("hãy subscribe cho kênh…"): CER 0.47.
   PhoWhisper does not.
 
+Sentence segmentation with each model as the ASR (`dub bench seg --use
+asr.transcribe=whisper_large_v3`, F1 at ±1 word against the M3 references):
+
+| Video | PhoWhisper | Whisper large-v3 |
+|---|---|---|
+| vi-hcm-1945 | **0.766** (P 0.73, R 0.80) | 0.672 (P 0.54, R 0.89) |
+| vi-pho-lai | 0.627 (P 0.62, R 0.64) | **0.732** (P 0.61, R 0.91) |
+
+A draw on average (0.70 each). Whisper's punctuation splits more (recall up, precision
+down); neither model fixes Vietnamese segmentation, which stays the weakest language of M3.
+
 **Decisions:**
 - The ASR keeps hearing the **mix**: vocals help on 6 of 13 rows (mostly by < 0.01), hurt on
   4, change nothing on 3, and triggered the worst failure (the hallucination); the mix also
