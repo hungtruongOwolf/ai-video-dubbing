@@ -30,6 +30,12 @@ from dub.worker.protocol import get_json
 
 BASE_PORT = 7101
 READY_TIMEOUT_S = 30 * 60  # first boot downloads several GB of weights
+# A worker that dies (CUDA fault, killed for memory) is started again; one that keeps dying
+# is left failed rather than crash-looping. Calls in flight retry while it reloads (see
+# protocol.post_json: kind "unavailable").
+MAX_RESTARTS = 3
+RESTART_WINDOW_S = 15 * 60
+WATCH_EVERY_S = 5.0
 
 
 @dataclass
@@ -41,6 +47,7 @@ class EnvInfo:
     detail: str = ""
     started_at: float = field(default_factory=time.time)
     proc: subprocess.Popen | None = None
+    restarts: list[float] = field(default_factory=list)  # when the worker was started again
 
 
 class EnvManager:
@@ -73,7 +80,12 @@ class EnvManager:
 
     def snapshot(self) -> dict[str, dict]:
         return {
-            n: {"status": e.status, "detail": e.detail, "providers": e.providers}
+            n: {
+                "status": e.status,
+                "detail": e.detail,
+                "providers": e.providers,
+                "restarts": len(e.restarts),
+            }
             for n, e in self.envs.items()
         }
 
@@ -107,6 +119,37 @@ class EnvManager:
                 t.join()
         finally:
             self.settled.set()
+        for e in self.envs.values():
+            if e.status == "ready":
+                threading.Thread(target=self._watch, args=(e,), daemon=True).start()
+
+    def _watch(self, e: EnvInfo) -> None:
+        """Start the worker again when its process exits, at most MAX_RESTARTS times within
+        RESTART_WINDOW_S."""
+        while True:
+            time.sleep(WATCH_EVERY_S)
+            if not self.check_worker(e):
+                return
+
+    def check_worker(self, e: EnvInfo, now: float | None = None) -> bool:
+        """One supervision step; False once the worker is given up."""
+        if e.proc is None or e.proc.poll() is None:
+            return True
+        now = time.time() if now is None else now
+        code = e.proc.returncode
+        e.restarts = [t for t in e.restarts if now - t < RESTART_WINDOW_S]
+        if len(e.restarts) >= MAX_RESTARTS:
+            self._set(e, "failed", f"worker exited ({code}) {MAX_RESTARTS} times, given up")
+            return False
+        e.restarts.append(now)
+        self._set(e, "restarting", f"worker exited ({code}), restart {len(e.restarts)}")
+        try:
+            self._launch(e)
+        except Exception as exc:  # noqa: BLE001 - reported, the next step gives up or retries
+            self._set(e, "failed", f"restart failed: {exc}")
+            return False
+        self._wait_ready(e)
+        return e.status == "ready"
 
     def _logs(self) -> Path:
         d = self.root / "logs"

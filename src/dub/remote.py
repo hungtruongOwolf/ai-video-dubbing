@@ -438,7 +438,8 @@ def wait_ready(state: PodState, log: Callable[[str], None], wait_minutes: float)
             if line != last:
                 log(f"[up] {time.time() - t0:5.0f}s  dubd up, {line}")
                 last = line
-            if h.get("ready"):
+            restarting = any(e["status"] == "restarting" for e in envs.values())
+            if h.get("ready") and not restarting:
                 failed = {n: e for n, e in envs.items() if e["status"] != "ready"}
                 if failed:
                     for n, e in failed.items():

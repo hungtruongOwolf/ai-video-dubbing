@@ -279,3 +279,84 @@ def test_direct_worker_calls_keep_the_pod_awake(cfg, ws, dubd, monkeypatch):
     state.last_active -= 3600
     assert not srv._workers_busy()
     httpd.shutdown()
+
+
+# -------------------------------------------------------------------- worker restarts
+
+
+def test_a_down_worker_is_reported_as_unavailable(cfg, ws, monkeypatch):
+    import socket
+
+    with socket.socket() as s:  # a free port nobody listens on
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    monkeypatch.setenv("DUB_WORKERS", json.dumps({"fx": f"http://127.0.0.1:{port}"}))
+    hcfg = _http_cfg(cfg)
+    req = SynthReq(unit_id="u", text="x", lang="vi", speaker="S1")
+    with pytest.raises(ProviderError) as e:
+        asyncio.run(
+            Executor(hcfg, ws.cas).run(hcfg.providers["fake_tts"], "tts.synthesize", req, {})
+        )
+    assert e.value.kind == "unavailable" and e.value.retryable
+
+
+class _Proc:
+    def __init__(self, code):
+        self.returncode = code
+
+    def poll(self):
+        return self.returncode
+
+
+def test_dubd_restarts_a_dead_worker_but_not_forever(cfg, tmp_path, monkeypatch):
+    from dub.pod import envs as envs_mod
+    from dub.pod.envs import EnvInfo
+
+    mgr = EnvManager(cfg, tmp_path, tmp_path, tmp_path, log=lambda _m: None)
+    e = EnvInfo("fx", ["fake_tts"], 7199, status="ready", proc=_Proc(None))
+    launched = []
+
+    def launch(env):
+        launched.append(env.name)
+        env.proc = _Proc(-9)  # dies again at once
+
+    monkeypatch.setattr(mgr, "_launch", launch)
+    monkeypatch.setattr(mgr, "_wait_ready", lambda env: setattr(env, "status", "ready"))
+    assert mgr.check_worker(e, now=0.0) and launched == []  # alive: nothing to do
+    e.proc = _Proc(-11)
+    for i in range(envs_mod.MAX_RESTARTS):
+        assert mgr.check_worker(e, now=float(i)) and e.status == "ready"
+    assert len(launched) == envs_mod.MAX_RESTARTS
+    assert not mgr.check_worker(e, now=10.0) and e.status == "failed"  # crash loop: given up
+    # restarts older than the window no longer count
+    e.status = "ready"
+    assert mgr.check_worker(e, now=10.0 + envs_mod.RESTART_WINDOW_S)
+    assert len(launched) == envs_mod.MAX_RESTARTS + 1
+
+
+def test_ctx_waits_for_a_restarting_worker(cfg, ws, monkeypatch):
+    from dub.core import ctx as ctx_mod
+    from dub.core.ctx import Ctx
+
+    monkeypatch.setattr(ctx_mod, "UNAVAILABLE_WAITS_S", (0.0, 0.0, 0.0))
+    calls = {"n": 0}
+    real_run = Executor.run
+
+    async def flaky(self, m, op, req, params):
+        calls["n"] += 1
+        if calls["n"] <= 3:  # down for three attempts (more than the 2 generic retries)
+            raise ProviderError("worker unreachable", kind="unavailable", retryable=True)
+        return await real_run(self, m, op, req, params)
+
+    monkeypatch.setattr(Executor, "run", flaky)
+    from dub.core.router import Router
+    from dub.core.trace import Tracer
+
+    cx = Ctx(
+        cfg=cfg, ws=ws, router=Router(cfg, overrides=[("tts.synthesize", ["fake_tts"])]),
+        executor=Executor(cfg, ws.cas), tracer=Tracer(), job_id="j", facts={"tgt_lang": "vi"},
+        log=lambda m: None,
+    )  # fmt: skip
+    req = SynthReq(unit_id="u", text="xin chào", lang="vi", speaker="S1", target_ms=500)
+    res = asyncio.run(cx.call("tts.synthesize", req, subject="u"))
+    assert isinstance(res, SynthRes) and calls["n"] == 4

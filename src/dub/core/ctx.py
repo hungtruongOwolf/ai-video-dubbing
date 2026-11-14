@@ -62,6 +62,9 @@ LANES = {
     "tts.synthesize": "gpu · tts",
 }
 
+# Waits for a worker that went down (dubd restarts it; loading the models takes 1-3 min).
+UNAVAILABLE_WAITS_S = (5.0, 10.0, 20.0, 30.0, 45.0, 60.0, 60.0, 60.0)
+
 
 # Calls in flight in this process, by key: jobs run in their own threads and event loops.
 _INFLIGHT: dict[str, concurrent.futures.Future] = {}
@@ -245,6 +248,8 @@ class Ctx:
             list(m.on_error.retry_wait_s) if m.on_error.usage_limit == "pause_then_retry" else []
         )
         retries = [2.0, 8.0]  # transient failures (GPU memory shared by workers, network)
+        # a worker that went down is restarted by dubd and reloads its models (1-3 min)
+        down_waits = list(UNAVAILABLE_WAITS_S)
         while True:
             started, t0 = time.time(), time.perf_counter()
             try:
@@ -257,7 +262,12 @@ class Ctx:
                     self.log(f"[{pid}] usage limit reached, pausing {wait:.0f}s then retrying")
                     await asyncio.sleep(wait)
                     continue
-                if e.retryable and e.kind != "usage_limit" and retries:
+                if e.kind == "unavailable" and down_waits:
+                    wait = down_waits.pop(0)
+                    self.log(f"[{pid}] worker down, retrying {op} in {wait:.0f}s")
+                    await asyncio.sleep(wait)
+                    continue
+                if e.retryable and e.kind not in ("usage_limit", "unavailable") and retries:
                     wait = retries.pop(0)
                     self.log(f"[{pid}] {op} failed ({e.kind}), retrying in {wait:.0f}s")
                     await asyncio.sleep(wait)

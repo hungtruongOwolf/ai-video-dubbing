@@ -25,7 +25,8 @@ from dub.store.cas import CAS
 class ProviderError(RuntimeError):
     """A classified error so the core can decide to retry, fall back, or stop.
 
-    kind: usage_limit | bad_input | unsupported | timeout | oom | crash
+    kind: usage_limit | bad_input | unsupported | timeout | oom | unavailable | crash
+    (unavailable: the worker process is down; dubd restarts it and the core waits longer)
     retryable: the same provider may succeed if asked again (the core retries twice)
     """
 

@@ -55,8 +55,12 @@ def post_json(url: str, body: dict[str, Any], timeout: float = 3600.0) -> dict[s
             retryable=bool(err.get("retryable", False)),
         ) from e
     except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+        reason = getattr(e, "reason", e)
+        # Refused or cut connection: the worker process is down (dubd starts it again and it
+        # reloads its models), so the caller waits longer than for a passing error.
+        down = isinstance(reason, ConnectionError)
         msg = f"worker unreachable at {url}: {e}"
-        raise ProviderError(msg, kind="crash", retryable=True) from e
+        raise ProviderError(msg, kind="unavailable" if down else "crash", retryable=True) from e
 
 
 def get_json(url: str, timeout: float = 10.0) -> dict[str, Any]:
