@@ -5,7 +5,8 @@ spoken language). For each video the ASR runs on the original mix (16 kHz) and o
 separated vocals, with every candidate model for that language:
 - whisper_large_v3 for all languages;
 - phowhisper_large_ct2 for Vietnamese;
-- kotoba_whisper_v2 for Japanese.
+- (kotoba_whisper_v2 for Japanese was tried: faster-whisper cannot align its words, the
+  distilled decoder has no alignment heads, and crashes; it cannot serve the pipeline.)
 Score: CER against the subtitles (letters and digits only, case and punctuation ignored).
 Subtitles are not always verbatim, so compare columns; the absolute level includes their
 own deviations.
@@ -31,7 +32,7 @@ MODELS = {
     "es": ["whisper_large_v3"],
     "vi": ["phowhisper_large_ct2", "whisper_large_v3"],
     "zh": ["whisper_large_v3"],
-    "ja": ["kotoba_whisper_v2", "whisper_large_v3"],
+    "ja": ["whisper_large_v3"],
 }
 
 
@@ -57,7 +58,7 @@ def prep() -> None:
     print(key)
 
 
-def run(input_key: str) -> None:
+def run(input_key: str, only: list[str] | None = None) -> None:
     from dub.contracts.v1 import AudioReq, DecodeReq
     from dub.ops import media
     from dub.ops.align import cer
@@ -66,7 +67,7 @@ def run(input_key: str) -> None:
     ws = Workspace.open(Path(os.environ.get("DUB_ROOT", "/workspace/dub")) / "ws",
                         db_path=Path("/tmp/exp.sqlite"))  # fmt: skip
     cas = ws.cas
-    items = json.loads(cas.read_text(input_key))
+    items = [it for it in json.loads(cas.read_text(input_key)) if not only or it["id"] in only]
     results = {}
     for it in items:
         info = media.decode(DecodeReq(src_key=it["audio_key"]), cas)
@@ -83,18 +84,21 @@ def run(input_key: str) -> None:
                 row[f"{model}/{name}"] = round(cer(it["reference"], heard), 4)
         results[it["id"]] = {"lang": it["lang"], **row}
         print(it["id"], row, flush=True)
-    save_json(data_dir() / "results" / "e6.json", results)
+    out = data_dir() / "results" / "e6.json"
+    old = json.loads(out.read_text(encoding="utf-8")) if out.exists() and only else {}
+    save_json(out, {**old, **results})
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("step", choices=["prep", "run"])
     ap.add_argument("--input")
+    ap.add_argument("--only", default="", help="comma-separated video ids")
     a = ap.parse_args()
     if a.step == "prep":
         prep()
     else:
-        run(a.input)
+        run(a.input, [x for x in a.only.split(",") if x])
 
 
 if __name__ == "__main__":

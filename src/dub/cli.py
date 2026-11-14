@@ -139,6 +139,12 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--remote", action="store_true", help="analyse on the GPU pod")
     b.add_argument("--fake", action="store_true", help="fake models (tests only)")
     b.add_argument("--json", type=Path, help="also write the scores to this file")
+    b.add_argument(
+        "--use",
+        action="append",
+        default=[],
+        help="override routing, e.g. asr.transcribe=whisper_large_v3",
+    )
     _common(b)
     return ap
 
@@ -361,7 +367,7 @@ def cmd_bench(a) -> int:
     else:  # a media file: run the analysis (phase A) first
         opts = RunOptions(
             video=a.target, tgt="und", src=a.src, remote=a.remote, fake=a.fake,
-            analysis_only=True, config_dir=a.config_dir,
+            analysis_only=True, config_dir=a.config_dir, use=a.use,
         )  # fmt: skip
         job = run_video(opts, Workspace.open(a.workspace), log=print).job_dir
     seg = json.loads((job / "segmentation.json").read_text(encoding="utf-8"))

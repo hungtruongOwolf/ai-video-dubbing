@@ -16,4 +16,5 @@ params:
 caps: {langs: [ja]}
 limits: {max_concurrency: 1}
 license: MIT
-description: Japanese ASR with word timestamps (candidate; E6 decides).
+status: candidate
+description: Japanese ASR. E6 - faster-whisper cannot align its words (distilled decoder, no alignment heads), so it cannot serve the pipeline yet.
