@@ -27,7 +27,8 @@ otherwise: RTX PRO 4500 Blackwell (32 GB, $0.72/h), zh → vi, final profile.
 | Dub is the only audio track of the output video | players picked the original Chinese track | yes |
 | Untranslated CJK characters sent back to the translator | guard against Chinese left in a Vietnamese line | yes |
 | Short lines planned 1.6x longer (≤ 6 syllables, fading to 12) | 4-6 syllable lines understood 67% → 96% | yes |
-| Accent of cross-lingual clones | see [accent](#chinese-accent) | (pending) |
+| Accent retry: VieNeu voices the lines whose every take sounds Chinese | heard as Chinese: OmniVoice 22% (18% best of 3), VieNeu 3.7%; on the run 6 lines retried, 0 left | yes |
+| Classifier-free guidance 3.0 for OmniVoice | heard as Chinese 22% → 29% | no |
 
 ## 1. Who says each line
 
@@ -129,10 +130,22 @@ invented text), and ECAPA similarity to the reference.
 | OmniVoice, as the job did (seed 0) | 22.0% | 0.175 | 0.50 | 0.531 |
 | OmniVoice, classifier-free guidance 3.0 (default 2.0) | 29.3% | 0.164 | 0.50 | 0.529 |
 | OmniVoice, best of 3 seeds (not heard as zh first, then CER) | 18.3% | 0.123 | 0.43 | 0.532 |
-| VieNeu-TTS v3 Turbo, same references | (pending) | | | |
+| VieNeu-TTS v3 Turbo, same references | **3.7%** | 0.148 | 0.50 | 0.512 |
 
 Stronger guidance makes it worse. Choosing among three takes helps the words more than the
-accent: the accent is in the voice, not in the seed.
+accent: the accent is in the voice, not in the seed. VieNeu, a Vietnamese model, clones the
+same actors with a sixth of the accent and nearly the same likeness; E1 (M4) kept OmniVoice
+as the default for its likeness on non-Chinese voices and its exact durations, so VieNeu
+became the second opinion:
+
+- the QA gate fails a take of 1.5 s or more that Whisper (language auto) hears as the source
+  language (`qa.source_lid`; shorter clips are not judged, language identification on a
+  second of speech is noise);
+- when every take of a line fails that way, the `accent-retry` route voices it once with
+  VieNeu, kept if it passes or scores better.
+
+On the drama's one-pass run, 6 lines went to VieNeu and no line was left failing for its
+accent.
 
 ## 3. Unclear Vietnamese
 

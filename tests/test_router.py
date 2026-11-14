@@ -127,10 +127,21 @@ def test_a_take_with_an_accent_is_retried_by_the_accent_route(cfg):
     off the pod its worker is absent, which the pipeline reports and skips."""
     rule = next(r for r in cfg.dub.routes["tts.synthesize"] if r.id == "accent-retry")
     assert rule.use == ["vieneu_v3_turbo"]
-    r = Router(cfg, profile="final")
-    with pytest.raises(RoutingError, match="vieneu_v3_turbo: worker 'tts2' is not running"):
-        r.route("tts.synthesize", {"tgt_lang": "vi", "take.accent_retry": True})
-    with pytest.raises(RoutingError, match="language es"):
-        r.route("tts.synthesize", {"tgt_lang": "es", "take.accent_retry": True})
-    c = _cfg_with_tts(cfg)  # without the fact the langpack chain is used as before
+    c = _cfg_with_tts(cfg)
+    r = Router(c, profile="final")
+    # off the pod VieNeu's worker is absent: the line falls back to the langpack chain
+    tr = r.route("tts.synthesize", {"tgt_lang": "vi", "take.accent_retry": True})
+    assert tr.rule_id == "accent-retry" and tr.source == "langpack"
+    assert tr.chain == ["fake_tts", "fake_tts_exact"]
+    assert any(x.provider == "vieneu_v3_turbo" and "tts2" in x.reason for x in tr.rejected)
     assert Router(c, profile="final").route("tts.synthesize", {"tgt_lang": "vi"}).rule_id is None
+
+
+def test_short_vietnamese_lines_go_to_vieneu(cfg):
+    rule = next(r for r in cfg.dub.routes["tts.synthesize"] if r.id == "short-line-vi")
+    from dub.core.router import rule_matches
+
+    assert rule_matches(rule, {"tgt_lang": "vi", "line.units": 3})
+    assert not rule_matches(rule, {"tgt_lang": "vi", "line.units": 7})
+    assert not rule_matches(rule, {"tgt_lang": "es", "line.units": 3})
+    assert not rule_matches(rule, {"tgt_lang": "vi"})  # length unknown: the usual chain

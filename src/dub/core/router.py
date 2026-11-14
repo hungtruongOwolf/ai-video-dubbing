@@ -154,6 +154,16 @@ class Router:
 
         chain = self._filter(candidates, op, facts, require, rejected)
 
+        # A rule's engines cannot run here (a worker this pod does not start): the line is
+        # voiced as if the rule did not exist, rather than not at all.
+        if not chain and source == "rule":
+            side = "src_lang" if op in SOURCE_SIDE_OPS else "tgt_lang"
+            lp = self.cfg.langpack(str(facts.get(side, "default")))
+            fallback = lp.chains.get(op) or lp.chains.get(CHAIN_FALLBACK.get(op, ""))
+            source = "langpack"
+            candidates = list(fallback or self._defaults(op))
+            chain = self._filter(candidates, op, facts, require, rejected)
+
         # The langpack has a chain but nothing in it can run: try the defaults, and say so
         # in the trace.
         if not chain and source == "langpack":

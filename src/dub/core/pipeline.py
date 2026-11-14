@@ -590,6 +590,10 @@ async def run_job(
     def unit_facts(u: Unit) -> dict[str, Any]:
         return {"unit.slot_ms": u.slot_ms, "unit.words": u.n_words, "unit.asr_conf": u.asr_conf}
 
+    def line_facts(u: Unit, text: str) -> dict[str, Any]:
+        """The unit's facts and the length of the line to voice (routes by line length)."""
+        return {**unit_facts(u), "line.units": count_units(text, tgt_lp.speech_unit)}
+
     def synth_request(u: Unit, text: str, pred: int, seed: int, m: ProviderManifest) -> SynthReq:
         ref = refs.for_speaker(u.speaker)
         exact = m.caps.duration_control == "exact"
@@ -654,7 +658,7 @@ async def run_job(
                 take: SynthRes = await cx.call(
                     "tts.synthesize",
                     lambda m: synth_request(u, text, pred, seed, m),
-                    facts=unit_facts(u),
+                    facts=line_facts(u, text),
                     subject=u.id,
                 )
                 trimmed: TrimRes = await cx.local(
@@ -860,7 +864,7 @@ async def run_job(
                             return synth_request(u, text, pred, seed, m)
 
                         take: SynthRes = await cx.call(
-                            "tts.synthesize", make_req, facts=facts, subject=u.id
+                            "tts.synthesize", make_req, facts=line_facts(u, text), subject=u.id
                         )
                         # Fit the voice, not the clip: silence the engine left around it
                         # would shift the onset and waste the slot.
