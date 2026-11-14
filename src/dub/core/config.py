@@ -102,6 +102,9 @@ class Langpack(Cfg):
     chains: dict[str, list[str]] = Field(default_factory=dict)  # op -> preferred providers
     # Pronouns that are wrong where a relation calls for kinship terms (dub.ops.address).
     address_generic: list[str] = Field(default_factory=list)
+    # Two plain sentences in the language: each voice speaks them once so we can measure the
+    # silence the TTS adds inside the length we ask for, and ask for that much more.
+    calibration: list[str] = Field(default_factory=list)
 
     def segment_params(self) -> SegmentParams:
         s = self.segment

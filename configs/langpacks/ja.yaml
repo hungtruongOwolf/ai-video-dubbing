@@ -9,3 +9,7 @@ subs: {cpl: 16, cps: 8, max_lines: 2}
 chains:
   asr.transcribe: [kotoba_whisper_v2, whisper_large_v3]
   tts.synthesize: [omnivoice]
+# Voice calibration: the silence a TTS adds inside the requested length (per voice).
+calibration:
+  - "今日はとても天気がいいので、散歩に行きましょう。"
+  - "この話を聞いてくれて、ありがとうございました。"

@@ -71,7 +71,7 @@ from dub.contracts.v1 import (
     WordTimeline,
     join_words,
 )
-from dub.core.config import Config, ProviderManifest
+from dub.core.config import Config, Langpack, ProviderManifest
 from dub.core.ctx import Ctx
 from dub.core.executor import Executor
 from dub.core.provider_api import ProviderError
@@ -337,6 +337,12 @@ async def run_job(
 
     # ---------------------------------------------------------------- Barrier: context pass
     stage("[4/7] reading the whole script: summary, glossary, cast sheet")
+    # Meanwhile, each voice is calibrated: how much silence its takes carry (see below).
+    calib = (
+        asyncio.create_task(_calibrate_voices(cx, refs, tgt_lp, spec.tgt_lang))
+        if not spec.subs_only and not spec.confirm_cast
+        else None
+    )
     sheet: ContextSheet = await cx.call(
         "mt.context",
         ContextReq(src_lang=src_lang, tgt_lang=spec.tgt_lang, units=base_units, voices=diar.voices),
@@ -345,6 +351,11 @@ async def run_job(
     if spec.confirm_cast:
         return _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, voiced, src_lang, media,
                             diar.voices, profile_name)  # fmt: skip
+
+    tts_pad = await calib if calib is not None else {}
+    if tts_pad:
+        pads = ", ".join(f"{k} {v} ms" for k, v in sorted(tts_pad.items()))
+        log(f"      voice calibration (silence added per take): {pads}")
 
     # ---------------------------------------------------------------- Phase B: translate
     stage("[5/7] translating")
@@ -429,7 +440,10 @@ async def run_job(
             seed=seed,
             voice_key=ref.audio_key if ref else None,
             voice_text=ref.text if ref else None,
-            target_ms=exact_target_ms(u.slot_ms, pred, t.safe_ratio) if exact else None,
+            # the voice's own silence comes on top, so its speech fills the planned length
+            target_ms=exact_target_ms(u.slot_ms, pred, t.safe_ratio) + tts_pad.get(u.speaker, 0)
+            if exact
+            else None,
         )
 
     def engine_exact(u: Unit) -> bool:
@@ -990,6 +1004,48 @@ def _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, units, src_lang, 
     )  # fmt: skip
 
 
+CALIB_MAX_PAD_MS = 800
+
+
+async def _calibrate_voices(cx: Ctx, refs: RefBank, lp: Langpack, lang: str) -> dict[str, int]:
+    """Silence an exact-duration TTS adds inside the length we ask for, per voice.
+
+    OmniVoice fills the requested duration with speech plus some silence, mostly at the start;
+    after trimming, the speech is squeezed (on a 60-minute speech: 90% of the requested length
+    at p50, 76% for lines under 2 s, ~340 ms lead silence). Each voice says the langpack's two
+    calibration sentences at their predicted length; the median silence trimmed off is added
+    to every later request for that voice. Cached like any call, so runs stay reproducible.
+    """
+    if not lp.calibration:
+        return {}
+    try:
+        pid = cx.router.route("tts.synthesize", dict(cx.facts)).chain[0]
+    except Exception:  # noqa: BLE001 - no TTS: nothing to calibrate
+        return {}
+    if cx.cfg.providers[pid].caps.duration_control != "exact":
+        return {}
+
+    async def one(ref) -> tuple[str, int]:
+        gaps = []
+        for k, text in enumerate(lp.calibration[:2]):
+            pred = predict_ms(text, lp.speech_unit, lp.units_per_s)
+            req = SynthReq(
+                unit_id=f"calibration-{ref.speaker}-{k}", text=text, lang=lang,
+                speaker=ref.speaker, seed=0, voice_key=ref.audio_key, voice_text=ref.text,
+                target_ms=pred,
+            )  # fmt: skip
+            take: SynthRes = await cx.call("tts.synthesize", req, subject=f"calibration-{k}")
+            tr: TrimRes = await cx.local(
+                "audio.trim", media_ops.trim, TrimReq(audio_key=take.audio_key), TrimRes,
+                subject=f"calibration-{k}",
+            )  # fmt: skip
+            gaps.append(tr.lead_ms + tr.tail_ms)
+        return ref.speaker, min(CALIB_MAX_PAD_MS, int(statistics.median(gaps)))
+
+    pairs = await asyncio.gather(*(one(r) for r in refs.refs if r.audio_key))
+    return dict(pairs)
+
+
 def _voice_spans(
     units: list[Unit], purity: dict[str, float], per_speaker: int = 5
 ) -> tuple[list[tuple[int, int]], list[str]]:
@@ -1088,6 +1144,17 @@ def sync_metrics(
         m["speedup_p95"] = round(_pct(rates, 0.95), 3)
         m["speedup_max"] = round(max(rates), 3)
         m["overflow"] = sum(1 for p in placements if "overflow" in p.flags)
+        # How fast the dub really speaks (units per second of placed voice), against the
+        # language's natural rate: the speed-up above compares with a prediction, this does not.
+        spoken = [
+            count_units(p.text, tgt_lp.speech_unit) / ((p.end_ms - p.start_ms) / 1000)
+            for p in placements
+            if p.end_ms - p.start_ms > 300
+        ]
+        if spoken:
+            m["speech_rate_p50"] = round(statistics.median(spoken), 2)
+            m["speech_rate_p90"] = round(_pct(spoken, 0.90), 2)
+            m["speech_rate_natural"] = tgt_lp.units_per_s
         if trims:
             lead = [t.lead_ms for t in trims.values()]
             tail = [t.tail_ms for t in trims.values()]

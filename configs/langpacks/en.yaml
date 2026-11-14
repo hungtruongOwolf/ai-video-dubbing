@@ -9,3 +9,7 @@ subs: {cpl: 42, cps: 17, max_lines: 2}
 chains:
   asr.transcribe: [whisper_large_v3]
   tts.synthesize: [omnivoice]
+# Voice calibration: the silence a TTS adds inside the requested length (per voice).
+calibration:
+  - "The weather is lovely today, so let's go for a walk."
+  - "Thank you all for listening to this story."

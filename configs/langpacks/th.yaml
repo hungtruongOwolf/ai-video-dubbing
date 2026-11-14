@@ -9,3 +9,7 @@ subs: {cpl: 35, cps: 17, max_lines: 2}
 chains:
   asr.transcribe: [thonburian_whisper_ct2]   # never use large-v3-turbo for Thai
   tts.synthesize: [omnivoice]
+# Voice calibration: the silence a TTS adds inside the requested length (per voice).
+calibration:
+  - "วันนี้อากาศดีมาก เราไปเดินเล่นกันเถอะ"
+  - "ขอบคุณทุกคนที่ฟังเรื่องนี้"

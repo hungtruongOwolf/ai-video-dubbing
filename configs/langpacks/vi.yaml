@@ -12,3 +12,7 @@ address_generic: [tôi, tao, tớ, mày, cậu, bạn]   # not mình/ta: also "w
 chains:
   asr.transcribe: [phowhisper_large_ct2, whisper_large_v3]   # E6 (M4): Whisper invents sentences on hard audio
   tts.synthesize: [omnivoice]                                # E1 (M4): kept over VieNeu-TTS (voice similarity, rate)
+# Voice calibration: the silence a TTS adds inside the requested length (per voice).
+calibration:
+  - "Hôm nay trời rất đẹp, chúng ta cùng đi dạo nhé."
+  - "Cảm ơn mọi người đã lắng nghe câu chuyện này."
