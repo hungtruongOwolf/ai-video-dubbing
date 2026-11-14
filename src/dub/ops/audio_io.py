@@ -49,3 +49,29 @@ def read_wav_range(path: Path, start_frame: int, n_frames: int) -> tuple[np.ndar
         raw = w.readframes(max(0, n_frames))
     data = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
     return data.reshape(-1, ch), sr
+
+
+def _lowpass(cutoff: float, half_width: int) -> np.ndarray:
+    """Windowed-sinc low-pass FIR (Kaiser, beta 8.6); cutoff as a fraction of Nyquist."""
+    n = np.arange(-half_width, half_width + 1)
+    h = cutoff * np.sinc(cutoff * n) * np.kaiser(len(n), 8.6)
+    return (h / h.sum()).astype(np.float64)
+
+
+def resample_int(x: np.ndarray, up: int, down: int) -> np.ndarray:
+    """Resample a mono signal by up/down (small integers, e.g. 2/1 or 1/3), in numpy.
+
+    For TTS clips this replaces an ffmpeg process (~150-350 ms per call on the pod, most of it
+    process start and network-volume I/O) with ~10 ms of convolution.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    if up == down:
+        return x.astype(np.float32)
+    factor = max(up, down)
+    h = _lowpass(0.95 / factor, 16 * factor) * up
+    if up > 1:
+        z = np.zeros(len(x) * up)
+        z[::up] = x
+        x = z
+    y = np.convolve(x, h, mode="same")
+    return y[::down].astype(np.float32)

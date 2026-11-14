@@ -71,3 +71,21 @@ def test_boundary_f1_aligns_different_texts():
     assert boundary_f1(pred, gold, "en", tol=0).hits == 0
     zh = boundary_f1(["你好。", "今天天气很好。"], ["你好。", "今天天气很好。"], "zh", tol=0)
     assert zh.f1 == 1.0
+
+
+def test_numpy_resampling_keeps_speech_band_and_removes_aliases():
+    from dub.ops.audio_io import resample_int
+
+    def tone(f, sr, sec=1.0):
+        t = np.arange(int(sr * sec)) / sr
+        return np.sin(2 * np.pi * f * t).astype(np.float32)
+
+    def amp(x, f, sr):
+        spec = np.abs(np.fft.rfft(x * np.hanning(len(x)))) / (len(x) / 4)
+        return spec[int(round(f * len(x) / sr))]
+
+    up = resample_int(tone(1000, 24000), 2, 1)  # 24 -> 48 kHz
+    assert len(up) == 48000 and abs(amp(up, 1000, 48000) - 1.0) < 0.05
+    down = resample_int(tone(1000, 48000) + tone(10000, 48000), 1, 3)  # 48 -> 16 kHz
+    assert len(down) == 16000 and abs(amp(down, 1000, 16000) - 1.0) < 0.05
+    assert amp(down, 6000, 16000) < 0.01  # 10 kHz would alias to 6 kHz without the filter

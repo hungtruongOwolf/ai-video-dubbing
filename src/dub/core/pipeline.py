@@ -408,21 +408,6 @@ async def run_job(
                     subject=u.id,
                 )
                 trims[u.id] = trimmed
-                if profile.backcheck:
-                    clip16: AudioRes = await cx.local(
-                        "audio.to_mono16k",
-                        media_ops.to_mono16k,
-                        AudioReq(audio_key=stretched.audio_key),
-                        AudioRes,
-                        subject=u.id,
-                    )
-                    checks[u.id] = await cx.call(
-                        "asr.backcheck",
-                        TranscribeReq(
-                            audio_key=clip16.audio_key, lang=spec.tgt_lang, expected_text=text
-                        ),
-                        subject=u.id,
-                    )
             flags = list(fit.flags) + (["untranslated"] if u.id in untranslated else [])
             return Placement(
                 unit_id=u.id,
@@ -442,6 +427,24 @@ async def run_job(
             )
 
         placements = list(await asyncio.gather(*(dub_unit(i) for i in range(len(units)))))
+
+    async def backcheck(p: Placement) -> None:
+        """Transcribe one dubbed clip again (target language): subtitle timing + CER."""
+        clip16: AudioRes = await cx.local(
+            "audio.to_mono16k",
+            media_ops.to_mono16k,
+            AudioReq(audio_key=p.audio_key),
+            AudioRes,
+            subject=p.unit_id,
+        )
+        checks[p.unit_id] = await cx.call(
+            "asr.backcheck",
+            TranscribeReq(audio_key=clip16.audio_key, lang=spec.tgt_lang, expected_text=p.text),
+            subject=p.unit_id,
+        )
+
+    # Back-checks run while the tiles are mixed: they only feed subtitles and the report.
+    checking = asyncio.gather(*(backcheck(p) for p in placements if profile.backcheck))
 
     # ---------------------------------------------------------------- mix + subtitles
     log("[7/7] mixing and writing subtitles")
@@ -488,6 +491,7 @@ async def run_job(
                 AudioRes,
             )
             dub_m4a_key = m4a.audio_key
+        await checking
         tgt_items = [
             SubItem(
                 start_ms=p.start_ms,
@@ -498,6 +502,7 @@ async def run_job(
             for p in placements
         ]
     else:
+        await checking
         tgt_items = [
             SubItem(start_ms=u.start_ms, end_ms=u.end_ms, text=choices[u.id][1]) for u in units
         ]
@@ -525,10 +530,11 @@ async def run_job(
     )
 
     # ---------------------------------------------------------------- outputs for review
+    backcheck_text = {uid: join_words(c.words, tgt_lp.joiner) for uid, c in checks.items()}
     backcheck_cer = {
-        p.unit_id: round(cer(p.text, join_words(checks[p.unit_id].words, tgt_lp.joiner)), 3)
+        p.unit_id: round(cer(p.text, backcheck_text[p.unit_id]), 3)
         for p in placements
-        if p.unit_id in checks
+        if p.unit_id in backcheck_text
     }
     metrics = sync_metrics(
         units,
@@ -574,6 +580,7 @@ async def run_job(
         tgt_lp,
         metrics,
         backcheck_cer,
+        backcheck_text,
     )
     cx.flush_stats()
     ws.db.upsert_job(
@@ -654,6 +661,7 @@ def _write_outputs(
     tgt_lp,
     metrics,
     backcheck_cer,
+    backcheck_text,
 ) -> None:
     tracer.save(job_dir / "trace.json")
     with open(job_dir / "routes.jsonl", "w", encoding="utf-8") as f:
@@ -678,6 +686,7 @@ def _write_outputs(
                 "locked": ue.is_protected(u.id),
                 "seed": ue.seed.get(u.id, 0),
                 "backcheck_cer": backcheck_cer.get(u.id),
+                "backcheck_text": backcheck_text.get(u.id),
             }
         )
     (job_dir / "tiles.json").write_text(

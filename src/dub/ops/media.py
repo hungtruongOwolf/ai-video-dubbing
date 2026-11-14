@@ -24,7 +24,7 @@ from dub.contracts.v1 import (
     TrimReq,
     TrimRes,
 )
-from dub.ops.audio_io import duration_ms, read_wav, write_wav
+from dub.ops.audio_io import duration_ms, read_wav, resample_int, write_wav
 from dub.store.cas import CAS
 
 
@@ -131,6 +131,13 @@ def stretch(req: StretchReq, cas: CAS) -> AudioRes:
     """
     src = cas.path(req.audio_key)
     out = cas.tmp_path(".wav")
+    if abs(req.rate - 1.0) <= 1e-3 and src.suffix == ".wav":
+        audio, sr = read_wav(src)
+        ratio = _integer_ratio(sr, req.sample_rate)
+        if ratio:  # no tempo change: only a resample, done in numpy
+            write_wav(out, resample_int(audio.mean(axis=1), *ratio), req.sample_rate)
+            dur = duration_ms(out)
+            return AudioRes(audio_key=cas.put_file(out, move=True), dur_ms=dur)
     args = ["-i", str(src)]
     if abs(req.rate - 1.0) > 1e-3:
         if req.engine == "rubberband":
@@ -143,9 +150,25 @@ def stretch(req: StretchReq, cas: CAS) -> AudioRes:
     return AudioRes(audio_key=cas.put_file(out, move=True), dur_ms=dur)
 
 
+def _integer_ratio(src: int, dst: int) -> tuple[int, int] | None:
+    for up in (1, 2):
+        for down in (1, 2, 3, 6):
+            if src * up == dst * down:
+                return up, down
+    return None
+
+
 def to_mono16k(req: AudioReq, cas: CAS) -> AudioRes:
     """Any WAV -> 16 kHz mono 16-bit WAV (what ASR and the VAD read)."""
     out = cas.tmp_path(".wav")
+    path = cas.path(req.audio_key)
+    if path.suffix == ".wav" and path.stat().st_size < 50_000_000:  # clips: numpy is faster
+        audio, sr = read_wav(path)
+        ratio = _integer_ratio(sr, 16000)
+        if ratio:
+            write_wav(out, resample_int(audio.mean(axis=1), *ratio), 16000)
+            dur = duration_ms(out)
+            return AudioRes(audio_key=cas.put_file(out, move=True), dur_ms=dur)
     run_ffmpeg(
         [
             "-i",

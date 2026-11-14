@@ -156,6 +156,7 @@ function detailHtml(row) {
       <span class="tags">${p ? `slot ${clock(p.slot_start_ms)}–${clock(p.slot_end_ms)}, placed ${clock(p.start_ms)}–${clock(p.end_ms)}` : ""}</span>
     </div>
     ${row.risk_reasons.length ? `<ul class="why">${row.risk_reasons.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+    ${row.backcheck_text != null ? `<div class="tags">The ASR heard: “${esc(row.backcheck_text)}”${row.backcheck_cer != null ? ` (CER ${(row.backcheck_cer * 100).toFixed(0)}%)` : ""}</div>` : ""}
     <div><label>Dubbed line</label>
       <textarea id="txt-${esc(u.id)}">${esc(p ? p.text : (row.translation || {}).target)}</textarea></div>
     <div class="line">
