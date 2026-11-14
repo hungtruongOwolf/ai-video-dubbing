@@ -1,0 +1,7 @@
+# Sentence boundaries from punctuation only: the pre-SaT baseline, and the fallback.
+id: punct_rules
+op: [text.boundaries]
+impl: dub.providers.simple:PunctRules
+impl_version: "1"            # bump when dub.ops.segment.rule_probs changes
+fake: true                   # --fake uses it (no model needed)
+description: Punctuation rules with abbreviations; fails on ASR text without punctuation.

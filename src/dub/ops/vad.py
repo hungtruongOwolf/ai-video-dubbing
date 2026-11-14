@@ -1,11 +1,17 @@
-"""Tiny energy-based voice activity detection (VAD). Good enough for fakes and tests.
+"""Energy-based voice activity detection (VAD).
 
-The real pipeline uses Silero VAD (ONNX, CPU) from M1.
+Run on the SEPARATED vocals (music and effects removed), a relative energy threshold finds
+speech onsets to within a frame (10 ms), which is what slot snapping needs. On a raw mix
+with music it would not be reliable; the fake providers use it on synthetic audio only.
 """
 
 from __future__ import annotations
 
 import numpy as np
+
+from dub.contracts.v1 import SpeechRegions, VadReq
+from dub.ops.audio_io import read_wav
+from dub.store.cas import CAS
 
 
 def energy_vad(
@@ -47,3 +53,12 @@ def energy_vad(
         else:
             merged.append((s, e))
     return [(s, e) for s, e in merged if e - s >= min_speech_ms]
+
+
+def speech_regions(req: VadReq, cas: CAS) -> SpeechRegions:
+    """Speech regions of the separated vocals (16 kHz mono), with 10 ms precision."""
+    audio, sr = read_wav(cas.path(req.audio_key))
+    regions = energy_vad(
+        audio.mean(axis=1), sr, frame_ms=10, min_speech_ms=120, merge_gap_ms=150, floor_db=-50.0
+    )
+    return SpeechRegions(regions=regions)

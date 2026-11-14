@@ -44,6 +44,8 @@ OP_RESULT: dict[str, type[BaseModel]] = {op: res for op, (_req, res) in v1.OPS.i
 LANES = {
     "audio.separate": "gpu · separate",
     "asr.transcribe": "gpu · asr",
+    "asr.backcheck": "gpu · asr",
+    "text.boundaries": "gpu · text",
     "audio.diarize": "gpu · diarize",
     "mt.context": "llm",
     "mt.translate": "llm",

@@ -58,12 +58,37 @@ class Word(Model):
     end_ms: int
     conf: float = 1.0
     speaker: str | None = None
+    space_before: bool = False  # zh/ja/th...: the ASR put a space before this piece
+
+
+def join_words(words: list[Word], joiner: str) -> str:
+    """Text of consecutive words. Scripts without spaces keep the spaces the ASR produced
+    (Thai separates phrases and sentences with them)."""
+    if joiner:
+        return joiner.join(w.w.strip() for w in words).strip()
+    return "".join((" " if w.space_before else "") + w.w.strip() for w in words).strip()
 
 
 class TranscribeReq(Model):
     audio_key: str
     lang: str = "auto"
     replay_key: str | None = None  # fake provider: replay an existing transcript
+    # What the audio should say (back-check of a dubbed clip). Only fakes may use it to invent
+    # timed words; a real ASR must NOT see it, or the check would check nothing.
+    expected_text: str | None = None
+
+
+class BoundaryReq(Model):
+    """Ask for sentence-boundary probabilities over a sequence of ASR words."""
+
+    lang: str
+    words: list[str]  # word texts in time order
+    space_before: list[bool] = Field(default_factory=list)  # for scripts without spaces
+    joiner: str = " "
+
+
+class Boundaries(Model):
+    probs: list[float]  # P(a sentence ends right after word i), one per word
 
 
 class WordTimeline(Model):
@@ -113,6 +138,7 @@ class SegmentParams(Model):
     min_unit_ms: int = 1000  # shorter units get merged when possible
     hard_pause_ms: int = 1500  # a longer silence is a mandatory boundary
     joiner: str = " "  # "" for zh/ja/th
+    threshold: float = 0.5  # boundary probability at which a sentence ends
 
 
 class SegmentReq(Model):
@@ -120,6 +146,8 @@ class SegmentReq(Model):
     words: list[Word]
     turns: list[Turn]
     params: SegmentParams
+    probs: list[float] = Field(default_factory=list)  # boundary probability per word (or rules)
+    speech: list[tuple[int, int]] = Field(default_factory=list)  # VAD regions to snap slots to
 
 
 class Sentence(Model):
@@ -370,6 +398,32 @@ class AudioRes(Model):
     dur_ms: int
 
 
+class AudioReq(Model):
+    audio_key: str
+
+
+class TrimReq(Model):
+    """Cut the silence before and after the voice in a TTS clip."""
+
+    audio_key: str
+    pad_ms: int = 20  # air kept on each side
+
+
+class TrimRes(Model):
+    audio_key: str
+    dur_ms: int
+    lead_ms: int  # silence removed at the start
+    tail_ms: int  # silence removed at the end
+
+
+class VadReq(Model):
+    audio_key: str  # 16 kHz mono WAV of the separated vocals
+
+
+class SpeechRegions(Model):
+    regions: list[tuple[int, int]]  # (start_ms, end_ms) where someone speaks
+
+
 class EncodeReq(Model):
     audio_key: str
     codec: str = "aac"
@@ -410,13 +464,24 @@ class Cue(Model):
     text: str
 
 
+class SubItem(Model):
+    """One line on the timeline, to be laid out and split into cues."""
+
+    start_ms: int
+    end_ms: int
+    text: str
+    words: list[Word] = Field(default_factory=list)  # timed words of the audio (absolute ms)
+
+
 class SubsReq(Model):
     lang: str
-    items: list[Cue]  # one item per line with timing; gets wrapped/split into cues
-    cpl: int = 42
+    items: list[SubItem]
+    cpl: int = 42  # width per line (see dub.ops.script.display_len)
     cps: float = 17.0
     max_lines: int = 2
-    joiner: str = " "
+    min_cue_ms: int = 833  # 5/6 s, when there is room
+    linger_ms: int = 500  # a cue may stay up this long after the voice stops
+    gap_ms: int = 84  # 2 frames at 24 fps between cues
 
 
 class SubtitleTrack(Model):
@@ -476,6 +541,8 @@ ALL_MODELS: list[type[BaseModel]] = [
     Word,
     TranscribeReq,
     WordTimeline,
+    BoundaryReq,
+    Boundaries,
     DiarizeReq,
     Turn,
     SpeakerVoice,
@@ -504,7 +571,13 @@ ALL_MODELS: list[type[BaseModel]] = [
     Placement,
     StretchReq,
     AudioRes,
+    AudioReq,
+    TrimReq,
+    TrimRes,
+    VadReq,
+    SpeechRegions,
     Cue,
+    SubItem,
     SubsReq,
     SubtitleTrack,
     Rejection,
@@ -525,6 +598,8 @@ ALL_MODELS: list[type[BaseModel]] = [
 OPS: dict[str, tuple[type[BaseModel], type[BaseModel]]] = {
     "audio.separate": (SeparateReq, Stems),
     "asr.transcribe": (TranscribeReq, WordTimeline),
+    "asr.backcheck": (TranscribeReq, WordTimeline),
+    "text.boundaries": (BoundaryReq, Boundaries),
     "audio.diarize": (DiarizeReq, Diarization),
     "mt.context": (ContextReq, ContextSheet),
     "mt.translate": (TranslateReq, TranslationBatch),

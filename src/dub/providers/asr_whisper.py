@@ -3,6 +3,11 @@
 Used for Whisper large-v3 and for PhoWhisper (a Vietnamese fine-tune of Whisper converted to
 CTranslate2). Runs in the `asr` worker env on the GPU pod.
 
+Two ops share the model:
+- asr.transcribe: the original audio (source language);
+- asr.backcheck: one dubbed clip (target language). Its words time the subtitles of the
+  dub and give the line's CER. It never sees the expected text.
+
 Manifest params:
     model:        Hugging Face repo id of a CTranslate2 model
     revision:     commit to pin (weights_rev in the cache key)
@@ -41,7 +46,7 @@ class FasterWhisperASR:
         )
 
     def run(self, op: str, req: TranscribeReq, ctx: RunCtx) -> WordTimeline:
-        if op != "asr.transcribe":
+        if op not in ("asr.transcribe", "asr.backcheck"):
             raise ProviderError(f"{self.manifest.id} does not implement {op}", kind="unsupported")
         if self.model is None:
             self.load(ctx)
@@ -72,6 +77,8 @@ class FasterWhisperASR:
                             start_ms=round(w.start * 1000),
                             end_ms=round(w.end * 1000),
                             conf=round(float(w.probability), 3),
+                            # zh/ja/th "words" are pieces; keep the spaces the model wrote
+                            space_before=bool(words) and w.word[:1].isspace(),
                         )
                     )
         return WordTimeline(lang=lang or info.language, words=words)

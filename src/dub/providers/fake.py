@@ -5,7 +5,8 @@ output video plays. Use them with `dub run ... --fake`.
 
 - fake_separate: "bed" = original mix at -20 dB (a real separator removes the speech).
 - fake_asr: replays a transcript (`<video>.words.json`) if given, otherwise invents
-  placeholder words over the speech regions found by an energy VAD.
+  placeholder words over the speech regions found by an energy VAD. As a back-check of a
+  dubbed clip it "hears" exactly the expected text, spread over the voice.
 - fake_diarize: speakers from the replayed transcript, otherwise a single speaker S1.
 - fake_mt: "translation" = the source text with a "[vi]" tag; short/long variants are
   shorter/longer so the timing ladder has real choices to make.
@@ -117,6 +118,22 @@ class FakeASR(_Base):
                 ws = round(start + j * step)
                 words.append(Word(w=text, start_ms=ws, end_ms=round(ws + step * 0.85), conf=0.9))
         return WordTimeline(lang="en" if req.lang == "auto" else req.lang, words=words)
+
+    def op_asr_backcheck(self, req: TranscribeReq, ctx: RunCtx) -> WordTimeline:
+        audio, sr = read_wav(ctx.cas.path(req.audio_key))
+        lang = req.lang if req.lang != "auto" else "en"
+        tokens = (req.expected_text or "").split()
+        if not tokens or len(audio) == 0:
+            return WordTimeline(lang=lang, words=[])
+        start, end = 0, round(len(audio) * 1000 / sr)  # dubbed clips are trimmed to the voice
+        weights = [max(1, count_units(t, "syllable")) for t in tokens]
+        total, t = sum(weights), float(start)
+        words = []
+        for tok, w in zip(tokens, weights, strict=True):
+            d = (end - start) * w / total
+            words.append(Word(w=tok, start_ms=round(t), end_ms=round(t + d * 0.9), conf=0.9))
+            t += d
+        return WordTimeline(lang=lang, words=words)
 
 
 # ---------------------------------------------------------------- diarization

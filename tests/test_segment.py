@@ -78,3 +78,66 @@ def test_deterministic_ids():
     a = run(words_from("Hello there. General Kenobi."))
     b = run(words_from("Hello there. General Kenobi."))
     assert [u.id for u in a.units] == [u.id for u in b.units]
+
+
+# ---------------------------------------------------------------- M3: boundary probabilities
+
+
+def test_model_probabilities_split_text_without_punctuation():
+    # PhoWhisper-style output: no punctuation, no capitals. Rules see one long sentence.
+    ws = words_from("xin chào các bạn hôm nay chúng ta nấu canh cá rất ngon nhé")
+    assert len(run(ws).sentences) == 1
+    probs = [0.02] * len(ws)
+    probs[3] = 0.9  # "...các bạn" | "hôm nay..."
+    seg = segment(SegmentReq(lang="vi", words=ws, turns=[], params=SegmentParams(), probs=probs))
+    assert [s.text for s in seg.sentences] == [
+        "xin chào các bạn",
+        "hôm nay chúng ta nấu canh cá rất ngon nhé",
+    ]
+
+
+def test_long_sentence_cuts_follow_the_probabilities():
+    ws = words_from(" ".join(f"w{i}" for i in range(40)), step=500)  # 20 s, no punctuation
+    probs = [0.02] * 40
+    probs[17] = 0.4  # below the sentence threshold, but the best place to cut
+    seg = segment(SegmentReq(lang="en", words=ws, turns=[], params=SegmentParams(), probs=probs))
+    assert len(seg.sentences) == 1 and len(seg.units) == 2
+    assert seg.units[0].text.endswith("w17")
+
+
+def test_probs_follow_the_words_when_input_is_unsorted():
+    ws = words_from("a b c d e f")
+    probs = [0.02, 0.02, 0.9, 0.02, 0.02, 0.02]
+    shuffled = [ws[i] for i in (5, 2, 0, 4, 1, 3)]
+    sprobs = [probs[i] for i in (5, 2, 0, 4, 1, 3)]
+    seg = segment(
+        SegmentReq(lang="en", words=shuffled, turns=[], params=SegmentParams(), probs=sprobs)
+    )
+    assert [s.text for s in seg.sentences] == ["a b c", "d e f"]
+
+
+def test_thai_keeps_the_spaces_the_asr_wrote():
+    ws = [
+        Word(w="สวัสดี", start_ms=0, end_ms=400),
+        Word(w="ครับ", start_ms=400, end_ms=700),
+        Word(w="วันนี้", start_ms=900, end_ms=1300, space_before=True),
+        Word(w="อากาศดี", start_ms=1300, end_ms=1900),
+    ]
+    seg = segment(SegmentReq(lang="th", words=ws, turns=[], params=SegmentParams(joiner="")))
+    assert seg.units[0].text == "สวัสดีครับ วันนี้อากาศดี"
+
+
+def test_unit_edges_snap_to_speech_onsets():
+    from dub.ops.segment import snap_to_speech
+
+    seg = run(words_from("one two three.") + words_from("four five six.", start_ms=3000))
+    u1, u2 = seg.units
+    # The VAD says the voice really starts 180 ms before the first word and 120 ms after
+    # the second unit's first word time; the first unit ends 150 ms after its last word.
+    speech = [(u1.start_ms - 180 + 0, u1.end_ms + 150), (u2.start_ms + 120, u2.end_ms)]
+    s1, s2 = snap_to_speech([u1, u2], speech)
+    assert s1.start_ms == 0 and s1.end_ms == u1.end_ms + 150 + 30  # clamped at 0, pad 30
+    assert s2.start_ms == u2.start_ms + 120 - 30
+    # Far-away regions (continuous speech) leave the edges alone.
+    far = snap_to_speech([u1], [(u1.start_ms - 2000, u1.end_ms + 2000)])
+    assert (far[0].start_ms, far[0].end_ms) == (u1.start_ms, u1.end_ms)

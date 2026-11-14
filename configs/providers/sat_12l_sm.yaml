@@ -1,0 +1,15 @@
+# Sentence boundaries with SaT (wtpsplit), 85 languages, robust to missing punctuation.
+id: sat_12l_sm
+op: [text.boundaries]
+runtime: http
+env: text
+impl: dub.providers.boundaries_sat:SaTBoundaries
+impl_version: "1"
+weights: {hf: segment-any-text/sat-12l-sm, revision: d70c72a9331b2d5a9e82baad00c64964a23a09bb}
+params:
+  model: segment-any-text/sat-12l-sm
+  revision: d70c72a9331b2d5a9e82baad00c64964a23a09bb
+  threshold: 0.25            # wtpsplit's default for -sm models; experiment E4 sets it
+limits: {max_concurrency: 1}
+license: MIT
+description: Segment any Text, 12 layers, trained for short and unpunctuated text.

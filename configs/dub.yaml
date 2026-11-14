@@ -33,6 +33,7 @@ translate:
 defaults:
   audio.separate: [mel_roformer]
   asr.transcribe: [whisper_large_v3]
+  text.boundaries: [sat_12l_sm, punct_rules]
   audio.diarize:  [pyannote_community1, single_speaker]
   mt.context:     [claude_cli, llm_api]
   mt.translate:   [claude_cli, llm_api]

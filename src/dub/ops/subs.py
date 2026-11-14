@@ -1,82 +1,78 @@
-"""Subtitles: wrap lines by characters per line (CPL), split long cues, write SRT.
+"""Subtitles: lay lines out per writing system, split long lines into cues, time the cues.
 
-M0 wraps on spaces (space-delimited languages) or on characters (zh/ja). Thai needs
-dictionary-based word breaking (pythainlp/ICU), planned for M3.
+Layout (see `dub.ops.script`): lines break only at the break opportunities of the script
+(spaces; BudouX phrases for Chinese/Japanese; dictionary words for Thai), widths are counted
+as the style guides count them, and cues hold at most `max_lines` lines of `cpl` characters.
+
+Timing: every item is one dubbed (or original) line with its time on the timeline. When the
+item carries timed words of its audio, cue boundaries inside the line follow the voice:
+each boundary is placed in the pause between the last word of one cue and the first word of
+the next. Without words, time is shared by length. Afterwards cues may linger up to
+`linger_ms` after the voice stops (easier to read), keep a `gap_ms` gap before the next cue,
+and are stretched to `min_cue_ms` when there is room.
 """
 
 from __future__ import annotations
 
-from dub.contracts.v1 import Cue, SubsReq, SubtitleTrack
+import unicodedata
+
+from dub.contracts.v1 import Cue, SubItem, SubsReq, SubtitleTrack
+from dub.ops.align import char_times
+from dub.ops.script import CLAUSE_END, SENTENCE_END, break_tokens, display_len, ends_with, join_line
 from dub.store.cas import CAS
 
-
-def _tokens(text: str, joiner: str) -> list[str]:
-    return text.split() if joiner == " " else list(text.replace(" ", ""))
+_PUNCT = SENTENCE_END | CLAUSE_END
 
 
-def wrap_lines(text: str, cpl: int, joiner: str) -> list[str]:
-    lines: list[str] = []
-    cur: list[str] = []
-    for tok in _tokens(text, joiner):
-        cand = joiner.join(cur + [tok])
-        if cur and len(cand) > cpl:
-            lines.append(joiner.join(cur))
-            cur = [tok]
-        else:
-            cur.append(tok)
-    if cur:
-        lines.append(joiner.join(cur))
-    return lines
+def _width(tokens: list[str], lang: str) -> float:
+    return display_len("".join(tokens).strip(), lang)
 
 
-_BREAK_AFTER = set(",.;:!?，。；：！？、")
-
-
-def balanced_lines(tokens: list[str], cpl: int, joiner: str, max_lines: int) -> list[str] | None:
-    """Lay tokens out on <= max_lines lines of <= cpl chars, with lines of similar length.
+def balanced_lines(tokens: list[str], cpl: int, lang: str, max_lines: int) -> list[str] | None:
+    """Lay tokens out on <= max_lines lines of <= cpl width, with lines of similar width.
 
     Returns None if the tokens do not fit.
     """
-    one = joiner.join(tokens)
-    if len(one) <= cpl:
-        return [one]
+    if _width(tokens, lang) <= cpl:
+        return [join_line(tokens, lang)]
     if max_lines < 2 or len(tokens) < 2:
         return None
     best: tuple[float, list[str]] | None = None
     for i in range(1, len(tokens)):
-        first = joiner.join(tokens[:i])
-        if len(first) > cpl:
+        first = tokens[:i]
+        w_first = _width(first, lang)
+        if w_first > cpl:
             break
-        rest = balanced_lines(tokens[i:], cpl, joiner, max_lines - 1)
+        rest = balanced_lines(tokens[i:], cpl, lang, max_lines - 1)
         if rest is None:
             continue
-        lines = [first, *rest]
-        score = max(len(x) for x in lines) - (3 if tokens[i - 1][-1:] in _BREAK_AFTER else 0)
+        widths = [w_first] + [display_len(x, lang) for x in rest]
+        score = max(widths) - (3 if ends_with(tokens[i - 1], _PUNCT) else 0)
         if best is None or score < best[0]:
-            best = (score, lines)
+            best = (score, [join_line(first, lang), *rest])
     return best[1] if best else None
 
 
 NO_PUNCT_PENALTY = 0.6  # cost of a cue break that is not after punctuation
 
 
-def split_into_cues(tokens: list[str], cpl: int, joiner: str, max_lines: int) -> list[list[str]]:
+def split_into_cues(tokens: list[str], cpl: int, lang: str, max_lines: int) -> list[list[str]]:
     """Split one long line into the fewest cues that fit, using dynamic programming:
     every cue must fit in max_lines x cpl; among those splits, prefer cues of similar size
     and breaks right after punctuation."""
     n = len(tokens)
-    total = len(joiner.join(tokens))
-    fits = {}
+    total = _width(tokens, lang)
+    fits: dict[tuple[int, int], bool] = {}
 
     def ok(i: int, j: int) -> bool:
         if (i, j) not in fits:
-            fits[(i, j)] = balanced_lines(tokens[i:j], cpl, joiner, max_lines) is not None
+            fits[(i, j)] = balanced_lines(tokens[i:j], cpl, lang, max_lines) is not None
         return fits[(i, j)]
 
-    k_min = max(1, -(-total // (cpl * max_lines)))  # ceil
+    k_min = max(1, int(-(-total // (cpl * max_lines))))  # ceil
+    inf = float("inf")
     for k in range(k_min, n + 1):
         target = total / k
-        inf = float("inf")
         # best[c][j]: min cost covering tokens[:j] with c cues
         best = [[inf] * (n + 1) for _ in range(k + 1)]
         back = [[0] * (n + 1) for _ in range(k + 1)]
@@ -86,9 +82,9 @@ def split_into_cues(tokens: list[str], cpl: int, joiner: str, max_lines: int) ->
                 for i in range(c - 1, j):
                     if best[c - 1][i] == inf or not ok(i, j):
                         continue
-                    size = len(joiner.join(tokens[i:j]))
+                    size = _width(tokens[i:j], lang)
                     cost = ((size - target) / target) ** 2
-                    if j < n and tokens[j - 1][-1:] not in _BREAK_AFTER:
+                    if j < n and not ends_with(tokens[j - 1], _PUNCT):
                         cost += NO_PUNCT_PENALTY
                     if best[c - 1][i] + cost < best[c][j]:
                         best[c][j], back[c][j] = best[c - 1][i] + cost, i
@@ -102,27 +98,61 @@ def split_into_cues(tokens: list[str], cpl: int, joiner: str, max_lines: int) ->
     return [[t] for t in tokens]
 
 
+def _chunk_times(
+    item: SubItem, text: str, chunks: list[list[str]], lang: str
+) -> list[tuple[int, int]]:
+    """(start, end) of the voice for each chunk of one item."""
+    span = max(item.end_ms - item.start_ms, 1)
+    times = char_times(text, item.words) if item.words else None
+    if times is None:
+        sizes = [max(_width(c, lang), 1.0) for c in chunks]
+        total = sum(sizes)
+        out, t = [], float(item.start_ms)
+        for s in sizes:
+            out.append((round(t), round(t + span * s / total)))
+            t += span * s / total
+        return out
+    out, pos = [], 0
+    for c in chunks:
+        length = len("".join(c))
+        a, b = pos, max(pos, pos + length - 1)
+        # Skip leading/trailing spaces and punctuation inside the chunk for the voice times.
+        while a < b and not text[a].isalnum():
+            a += 1
+        while b > a and not text[b].isalnum():
+            b -= 1
+        out.append((times[a][0], times[b][1]))  # type: ignore[index]
+        pos += length
+    # Boundaries between chunks go in the middle of the pause between them; the first and
+    # last edges are the item's own edges (the clip was trimmed to the voice).
+    bounds = [item.start_ms]
+    for (_, e), (s, _) in zip(out, out[1:], strict=False):
+        mid = (e + s) // 2 if s >= e else s
+        bounds.append(min(max(mid, bounds[-1] + 1), item.end_ms - 1))
+    bounds.append(item.end_ms)
+    return [(bounds[i], bounds[i + 1]) for i in range(len(chunks))]
+
+
 def build_cues(req: SubsReq) -> list[Cue]:
     out: list[Cue] = []
     for item in sorted(req.items, key=lambda c: c.start_ms):
-        tokens = _tokens(" ".join(item.text.split()), req.joiner)
+        text = unicodedata.normalize("NFC", " ".join(item.text.split()))
+        tokens = break_tokens(text, req.lang)
         if not tokens:
             continue
-        chunks = split_into_cues(tokens, req.cpl, req.joiner, req.max_lines)
-        sizes = [len(req.joiner.join(c)) for c in chunks]
-        total_chars = sum(sizes) or 1
-        t = item.start_ms
-        span = max(item.end_ms - item.start_ms, 1)
-        for chunk, size in zip(chunks, sizes, strict=True):
-            end = t + round(span * size / total_chars)
-            lines = balanced_lines(chunk, req.cpl, req.joiner, req.max_lines) or [
-                req.joiner.join(chunk)
+        chunks = split_into_cues(tokens, req.cpl, req.lang, req.max_lines)
+        for chunk, (a, b) in zip(chunks, _chunk_times(item, text, chunks, req.lang), strict=True):
+            lines = balanced_lines(chunk, req.cpl, req.lang, req.max_lines) or [
+                join_line(chunk, req.lang)
             ]
-            out.append(Cue(start_ms=t, end_ms=end, text="\n".join(lines)))
-            t = end
-    for a, b in zip(out, out[1:], strict=False):  # cues must not overlap
-        if a.end_ms > b.start_ms:
-            a.end_ms = b.start_ms
+            out.append(Cue(start_ms=a, end_ms=b, text="\n".join(lines)))
+    out.sort(key=lambda c: c.start_ms)
+    for k, c in enumerate(out):
+        nxt = out[k + 1].start_ms - req.gap_ms if k + 1 < len(out) else None
+        want = max(c.end_ms + req.linger_ms, c.start_ms + req.min_cue_ms)
+        c.end_ms = max(c.end_ms, min(want, nxt) if nxt is not None else want)
+        if nxt is not None and c.end_ms > out[k + 1].start_ms:
+            c.end_ms = out[k + 1].start_ms  # cues never overlap
     return [c for c in out if c.end_ms > c.start_ms]
 
 
@@ -139,11 +169,11 @@ def to_srt(cues: list[Cue]) -> str:
     )
 
 
-def cps_violations(cues: list[Cue], cps: float) -> int:
+def cps_violations(cues: list[Cue], cps: float, lang: str = "und") -> int:
     """Number of cues read much faster than the comfortable characters-per-second rate."""
     bad = 0
     for c in cues:
-        chars = len(c.text.replace("\n", ""))
+        chars = display_len(c.text.replace("\n", ""), lang)
         if chars / max((c.end_ms - c.start_ms) / 1000, 0.001) > cps * 1.5:
             bad += 1
     return bad

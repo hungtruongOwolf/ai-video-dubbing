@@ -1,5 +1,5 @@
 id: fake_asr
-op: [asr.transcribe]
+op: [asr.transcribe, asr.backcheck]
 impl: dub.providers.fake:FakeASR
 impl_version: auto           # re-run when the fake code changes
 fake: true

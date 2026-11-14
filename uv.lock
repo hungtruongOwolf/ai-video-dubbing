@@ -11,6 +11,7 @@ name = "ai-video-dubbing"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "budoux" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pydantic" },
@@ -20,11 +21,13 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "pythainlp" },
     { name = "ruff" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "budoux", specifier = ">=0.7" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -33,6 +36,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest", specifier = ">=8.0" },
+    { name = "pythainlp", specifier = ">=5.0" },
     { name = "ruff", specifier = ">=0.6" },
 ]
 
@@ -43,6 +47,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5f/56/a8120250d128bed162cd73c76d45f6ef9991f3e068f62a8ee060afa3104a/annotated_types-0.8.0.tar.gz", hash = "sha256:13b2beaad985e05e2d6407ee4c4f35590b11f8d693a258a561055cac8f64cab7", size = 15893, upload-time = "2026-07-23T20:16:13.995Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/99/91/8acff4f5e50511b911bbccb72b8628a49c68ce14148cd9f6431094859a90/annotated_types-0.8.0-py3-none-any.whl", hash = "sha256:f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0", size = 13427, upload-time = "2026-07-23T20:16:12.938Z" },
+]
+
+[[package]]
+name = "budoux"
+version = "0.10.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fe/84/d944d6279b5e8be55885d8ec0b4caa67cd708a2d4c3940131127bf2328a2/budoux-0.10.3.tar.gz", hash = "sha256:04b02c3de6c2c2ab4c4c2d99c168bb35eed86fda52d455d8d4644f33cdfda06e", size = 121730, upload-time = "2026-11-06T09:19:55.305Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1e/af/baff9b98f9a60630249009c355568983e4b0a3981b07246d5c081a011831/budoux-0.10.3-py3-none-any.whl", hash = "sha256:83d45169488467b670eea33766f479c17c2fb5e830ef01cd35717106fc54825e", size = 115769, upload-time = "2026-11-06T09:19:53.875Z" },
 ]
 
 [[package]]
@@ -416,6 +429,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pythainlp"
+version = "5.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9f/7f/7fa41bea1a9927eedf831f6ddcd71e104650c4881260984575fe4b84cc55/pythainlp-5.4.0.tar.gz", hash = "sha256:85cd4eed4a5a942c978d751be969a496581d7acc250fc9c8a2d54088cb6d19cd", size = 21481113, upload-time = "2026-10-09T00:59:27.424Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6d/13/3304199eec02b89573b6042078fd780e627d6637228dd6f69fad45f3262e/pythainlp-5.4.0-py3-none-any.whl", hash = "sha256:9239753df877202da1a50dd2842d9569eff764034f31f20222b3df4def5df193", size = 21936258, upload-time = "2026-10-09T00:59:24.506Z" },
+]
+
+[[package]]
 name = "pyyaml"
 version = "6.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -514,4 +539,13 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ff/50/0195198eb1d75bab716bb0a813abea4cc394bfa17a92a189f021a34859af/typing_inspection-0.4.5.tar.gz", hash = "sha256:7f16c411e7930dc79596d42ab44672a3fe5f60eb34b781a1647e7872363120c7", size = 81194, upload-time = "2026-11-04T14:13:23.774Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/de/0c/ea2544850a7c135e15033a5c7a8e7211136184b7ae63e2239d557c2b3019/typing_inspection-0.4.5-py3-none-any.whl", hash = "sha256:bc210535442b39e1bf2805e0c7a17dfd6a4ace760c84c7f7d16245d23a6b1c39", size = 14874, upload-time = "2026-11-04T14:13:22.616Z" },
+]
+
+[[package]]
+name = "tzdata"
+version = "2026.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/29/6a1391d31cd00ff9e927215a224a880e1e84e826b64ba80a499e51c074d8/tzdata-2026.6.tar.gz", hash = "sha256:85d2cd9c09f81f0bb29db27759fc83af4f1e620efb814f8c5bf8b4cc4feece6d", size = 201017, upload-time = "2026-10-28T09:57:09.137Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0a/66/9a06c2227fedfd4919f0eaaa8b94377d9730882a7e4f95823c9a331ab5e1/tzdata-2026.6-py2.py3-none-any.whl", hash = "sha256:0a10eec6e13ef16b627fabed9a5f2ba61a62b1c67f327305f4e7e412a70b4aec", size = 348210, upload-time = "2026-10-28T09:57:07.276Z" },
 ]

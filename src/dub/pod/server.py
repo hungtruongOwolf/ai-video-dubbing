@@ -47,7 +47,16 @@ from dub.ops.preview import cut_mp3
 from dub.pod.envs import EnvManager
 from dub.store import Workspace
 
-JOB_FILES = {"report.md", "trace.json", "units.json", "cast.json", "routes.jsonl", "tiles.json"}
+JOB_FILES = {
+    "report.md",
+    "trace.json",
+    "units.json",
+    "cast.json",
+    "routes.jsonl",
+    "tiles.json",
+    "metrics.json",
+    "segmentation.json",
+}
 _ID = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
 _KEY = re.compile(r"^[0-9a-f]{32}(\.[A-Za-z0-9]{1,8})?$")
 

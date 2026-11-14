@@ -17,7 +17,7 @@ from fnmatch import fnmatch
 from typing import Any
 
 from dub.contracts.v1 import Rejection, RouteTrace
-from dub.core.config import SOURCE_SIDE_OPS, Config, ProviderManifest, RouteRule
+from dub.core.config import CHAIN_FALLBACK, SOURCE_SIDE_OPS, Config, ProviderManifest, RouteRule
 from dub.worker.protocol import worker_urls
 
 
@@ -141,18 +141,19 @@ class Router:
                 source, candidates = "rule", list(rule.use)
             else:
                 side = "src_lang" if op in SOURCE_SIDE_OPS else "tgt_lang"
-                lp_chain = self.cfg.langpack(str(facts.get(side, "default"))).chains.get(op)
+                lp = self.cfg.langpack(str(facts.get(side, "default")))
+                lp_chain = lp.chains.get(op) or lp.chains.get(CHAIN_FALLBACK.get(op, ""))
                 if lp_chain:
                     source, candidates = "langpack", list(lp_chain)
                 else:
-                    source, candidates = "default", list(self.cfg.dub.defaults.get(op, []))
+                    source, candidates = "default", list(self._defaults(op))
 
         chain = self._filter(candidates, op, facts, require, rejected)
 
         # The langpack has a chain but nothing in it can run: try the defaults, and say so
         # in the trace.
         if not chain and source == "langpack":
-            extra = [p for p in self.cfg.dub.defaults.get(op, []) if p not in candidates]
+            extra = [p for p in self._defaults(op) if p not in candidates]
             chain = self._filter(extra, op, facts, require, rejected)
             if chain:
                 source = "default"
@@ -168,6 +169,10 @@ class Router:
         return RouteTrace(
             op=op, subject=subject, source=source, rule_id=rule_id, chain=chain, rejected=rejected
         )
+
+    def _defaults(self, op: str) -> list[str]:
+        d = self.cfg.dub.defaults
+        return list(d.get(op) or d.get(CHAIN_FALLBACK.get(op, ""), []))
 
     def _filter(self, candidates, op, facts, require, rejected) -> list[str]:
         out = []

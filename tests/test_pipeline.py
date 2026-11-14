@@ -71,6 +71,14 @@ def test_job_folder_has_review_files(demo, tmp_path):
     units = json.loads((job / "units.json").read_text(encoding="utf-8"))
     assert all(u["placement"]["audio_key"] for u in units)
     assert all(u["unit"]["end_ms"] - u["unit"]["start_ms"] <= 15000 for u in units)
+    # M3: every line is heard again (the fake ASR hears exactly the text) and measured.
+    assert all(u["backcheck_cer"] == 0.0 for u in units)
+    m = json.loads((job / "metrics.json").read_text(encoding="utf-8"))
+    assert m["units_over_15s"] == 0 and m["onset_err_ms_p95"] >= 0 and m["drift_ms"] == 0
+    assert m["speedup_p95"] >= 1.0 and m["backcheck_cer_p50"] == 0.0
+    assert "## Sync and quality" in (job / "report.md").read_text(encoding="utf-8")
+    seg = json.loads((job / "segmentation.json").read_text(encoding="utf-8"))
+    assert seg["units"] and seg["sentences"]
 
 
 def test_exact_duration_engine_and_subs_only(demo, tmp_path):

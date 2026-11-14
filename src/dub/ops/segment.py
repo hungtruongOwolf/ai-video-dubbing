@@ -1,17 +1,24 @@
 """Segmentation: timed words -> sentences -> dub units.
 
-This is the project's #1 priority. The M0 version is a rule + dynamic-programming baseline;
-M3 replaces the boundary scores with SaT model probabilities but keeps the algorithm.
+This is the project's #1 priority. Every word carries a boundary probability: P(a sentence
+ends right after this word). It comes from the `text.boundaries` op: the SaT model on the
+pod, or `rule_probs` below (punctuation rules) as the fallback and in tests.
 
 Three layers of boundaries:
 1. Mandatory: speaker change, or a pause >= hard_pause (1.5 s). No unit crosses one.
-2. Sentence: after terminal punctuation (. ? ! 。 ？ ！ …).
-3. Over-long sentences (> max_unit, 15 s) are split with dynamic programming, preferring
-   cuts at commas and long pauses, and keeping each unit close to target_unit (7 s).
-Finally, units shorter than min_unit (1 s) are merged into a neighbour of the same speaker.
+2. Sentence: where the boundary probability reaches `threshold`.
+3. Over-long sentences (> max_unit, 15 s) are split with dynamic programming. A cut costs
+   -log(p) minus a bonus for the pause there, so the DP prefers likely boundaries and long
+   pauses, and keeps each unit close to target_unit (7 s).
+Units shorter than min_unit (1 s) are merged into a neighbour of the same speaker.
+
+Finally, unit edges are snapped to the speech regions found by a VAD on the separated
+vocals: ASR word times are often 100-300 ms off, and the dub is placed on these edges.
 """
 
 from __future__ import annotations
+
+import math
 
 from dub.contracts.v1 import (
     Segmentation,
@@ -21,6 +28,7 @@ from dub.contracts.v1 import (
     Turn,
     Unit,
     Word,
+    join_words,
 )
 
 TERMINAL = set(".?!。？！…؟।")
@@ -71,6 +79,22 @@ def _ends_sentence(w: str) -> bool:
     return True
 
 
+P_SENTENCE, P_CLAUSE, P_NONE = 0.95, 0.3, 0.02
+
+
+def rule_probs(words: list[str]) -> list[float]:
+    """Boundary probabilities from punctuation alone (the pre-SaT baseline)."""
+    out = []
+    for w in words:
+        if _ends_sentence(w):
+            out.append(P_SENTENCE)
+        elif _last_char(w) in SOFT:
+            out.append(P_CLAUSE)
+        else:
+            out.append(P_NONE)
+    return out
+
+
 def assign_speakers(words: list[Word], turns: list[Turn]) -> list[Word]:
     """Give each word the speaker of the turn it overlaps most (or the nearest turn)."""
     if not turns:
@@ -90,25 +114,28 @@ def assign_speakers(words: list[Word], turns: list[Turn]) -> list[Word]:
     return out
 
 
-def _blocks(words: list[Word], p: SegmentParams) -> list[list[Word]]:
-    blocks: list[list[Word]] = []
-    for w in words:
+def _blocks(words: list[Word], probs: list[float], p: SegmentParams):
+    """Split at mandatory boundaries: [(words, probs)] per block."""
+    blocks: list[tuple[list[Word], list[float]]] = []
+    for w, pr in zip(words, probs, strict=True):
         if blocks:
-            prev = blocks[-1][-1]
+            prev = blocks[-1][0][-1]
             if w.speaker == prev.speaker and w.start_ms - prev.end_ms < p.hard_pause_ms:
-                blocks[-1].append(w)
+                blocks[-1][0].append(w)
+                blocks[-1][1].append(pr)
                 continue
-        blocks.append([w])
+        blocks.append(([w], [pr]))
     return blocks
 
 
-def _sentences(block: list[Word]) -> list[list[Word]]:
-    out: list[list[Word]] = [[]]
-    for w in block:
-        out[-1].append(w)
-        if _ends_sentence(w.w):
-            out.append([])
-    return [s for s in out if s]
+def _sentences(block: list[Word], probs: list[float], threshold: float):
+    out: list[tuple[list[Word], list[float]]] = [([], [])]
+    for w, pr in zip(block, probs, strict=True):
+        out[-1][0].append(w)
+        out[-1][1].append(pr)
+        if pr >= threshold:
+            out.append(([], []))
+    return [s for s in out if s[0]]
 
 
 def _unit_cost(dur: int, p: SegmentParams) -> float:
@@ -119,19 +146,26 @@ def _unit_cost(dur: int, p: SegmentParams) -> float:
     return cost
 
 
-def _cut_cost(ws: list[Word], i: int) -> float:
-    """Cost of cutting between ws[i-1] and ws[i]. Lower means a better place to cut."""
-    base = 0.5 if _last_char(ws[i - 1].w) in SOFT else 3.0
+def _cut_cost(ws: list[Word], probs: list[float], i: int) -> float:
+    """Cost of cutting between ws[i-1] and ws[i]. Lower means a better place to cut.
+
+    -log(p): a clause boundary (p 0.3) costs 1.2, an unlikely place (p 0.02) 3.9.
+    """
+    base = min(4.0, -math.log(max(probs[i - 1], 0.02)))
     gap = ws[i].start_ms - ws[i - 1].end_ms
     bonus = min(2.0, gap / 250.0)  # a 0.5 s pause takes 2 points off
     return max(0.1, base - bonus) + 1.0  # +1 per cut so we do not over-split
 
 
-def split_long(ws: list[Word], p: SegmentParams) -> list[list[Word]]:
+def split_long(
+    ws: list[Word], p: SegmentParams, probs: list[float] | None = None
+) -> list[list[Word]]:
     """Split one long sentence into pieces <= max_unit_ms using dynamic programming.
 
     best[j] = lowest cost to cover ws[:j]; the last piece is ws[i:j].
     """
+    if probs is None:
+        probs = rule_probs([w.w for w in ws])
     if len(ws) <= 1 or ws[-1].end_ms - ws[0].start_ms <= p.max_unit_ms:
         return [ws]
     n = len(ws)
@@ -144,7 +178,7 @@ def split_long(ws: list[Word], p: SegmentParams) -> list[list[Word]]:
                 break  # moving i further left only makes the piece longer
             if best[i] == INF:
                 continue
-            c = best[i] + _unit_cost(dur, p) + (_cut_cost(ws, i) if i > 0 else 0.0)
+            c = best[i] + _unit_cost(dur, p) + (_cut_cost(ws, probs, i) if i > 0 else 0.0)
             if c < best[j]:
                 best[j], back[j] = c, i
     chunks, j = [], n
@@ -181,19 +215,62 @@ def _merge_tiny(chunks: list[tuple[list[Word], list[str]]], p: SegmentParams):
     return chunks
 
 
-def _join(ws: list[Word], joiner: str) -> str:
-    return joiner.join(w.w.strip() for w in ws).strip()
+SNAP_EARLY_MS = 400  # a start may move this far earlier to a speech onset
+SNAP_LATE_MS = 250  # ...and this far later
+SNAP_PAD_MS = 30  # air kept before an onset and after an offset
+
+
+def snap_to_speech(
+    units: list[Unit], speech: list[tuple[int, int]], min_gap_ms: int = 60
+) -> list[Unit]:
+    """Move unit edges to the nearest VAD speech onset/offset, within a small window.
+
+    ASR word times (Whisper's especially) are often 100-300 ms off. A start moves to the
+    closest speech onset in [start - 400, start + 250] ms, an end to the closest offset in
+    [end - 250, end + 400] ms. Edges never cross the neighbouring units, and an edge with no
+    onset/offset nearby (continuous speech) stays where it is.
+    """
+    if not speech:
+        return units
+    onsets = [s for s, _ in speech]
+    offsets = [e for _, e in speech]
+    out: list[Unit] = []
+    for k, u in enumerate(units):
+        lo = out[-1].end_ms + min_gap_ms if out else 0
+        hi = units[k + 1].start_ms - min_gap_ms if k + 1 < len(units) else None
+        start, end = u.start_ms, u.end_ms
+        near = [o for o in onsets if u.start_ms - SNAP_EARLY_MS <= o <= u.start_ms + SNAP_LATE_MS]
+        if near:
+            start = max(lo, min(near, key=lambda o: abs(o - u.start_ms)) - SNAP_PAD_MS)
+        near = [o for o in offsets if u.end_ms - SNAP_LATE_MS <= o <= u.end_ms + SNAP_EARLY_MS]
+        if near:
+            end = min(near, key=lambda o: abs(o - u.end_ms)) + SNAP_PAD_MS
+            if hi is not None:
+                end = min(end, hi)
+        if end - start < 200:  # never collapse a unit: keep the ASR edges instead
+            start, end = u.start_ms, u.end_ms
+        out.append(u.model_copy(update={"start_ms": int(start), "end_ms": int(end)}))
+    return out
 
 
 def segment(req: SegmentReq) -> Segmentation:
     p = req.params
-    words = sorted((w for w in req.words if w.w.strip()), key=lambda w: (w.start_ms, w.end_ms))
-    words = assign_speakers(words, req.turns)
+    order = sorted(
+        (i for i, w in enumerate(req.words) if w.w.strip()),
+        key=lambda i: (req.words[i].start_ms, req.words[i].end_ms),
+    )
+    words = assign_speakers([req.words[i] for i in order], req.turns)
+    if req.probs:
+        if len(req.probs) != len(req.words):
+            raise ValueError(f"{len(req.probs)} boundary probs for {len(req.words)} words")
+        probs = [req.probs[i] for i in order]
+    else:
+        probs = rule_probs([w.w for w in words])
     sentences: list[Sentence] = []
     units: list[Unit] = []
-    for block in _blocks(words, p):
+    for block, bprobs in _blocks(words, probs, p):
         chunks: list[tuple[list[Word], list[str]]] = []
-        for sw in _sentences(block):
+        for sw, sprobs in _sentences(block, bprobs, p.threshold):
             sid = f"s{sw[0].start_ms:07d}-{sw[0].speaker}"
             sentences.append(
                 Sentence(
@@ -201,10 +278,10 @@ def segment(req: SegmentReq) -> Segmentation:
                     speaker=sw[0].speaker or "S1",
                     start_ms=sw[0].start_ms,
                     end_ms=sw[-1].end_ms,
-                    text=_join(sw, p.joiner),
+                    text=join_words(sw, p.joiner),
                 )
             )
-            chunks.extend((c, [sid]) for c in split_long(sw, p))
+            chunks.extend((c, [sid]) for c in split_long(sw, p, sprobs))
         for ws, sids in _merge_tiny(chunks, p):
             spk = ws[0].speaker or "S1"
             units.append(
@@ -214,10 +291,11 @@ def segment(req: SegmentReq) -> Segmentation:
                     sentence_ids=sids,
                     start_ms=ws[0].start_ms,
                     end_ms=ws[-1].end_ms,
-                    text=_join(ws, p.joiner),
+                    text=join_words(ws, p.joiner),
                     n_words=len(ws),
                     asr_conf=round(sum(w.conf for w in ws) / len(ws), 3),
                 )
             )
     units.sort(key=lambda u: (u.start_ms, u.speaker))
+    units = snap_to_speech(units, req.speech)
     return Segmentation(lang=req.lang, sentences=sentences, units=units)

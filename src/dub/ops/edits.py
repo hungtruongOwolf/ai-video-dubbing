@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from dub.contracts.v1 import Edit, Translation, Unit, Word
+from dub.contracts.v1 import Edit, Translation, Unit, Word, join_words
 
 STRUCTURE = {"split", "merge_next"}
 
@@ -32,7 +32,7 @@ def effective(edits: list[Edit]) -> list[Edit]:
 
 
 def _join(words: list[Word], joiner: str) -> str:
-    return joiner.join(w.w.strip() for w in words).strip()
+    return join_words(words, joiner)
 
 
 def _words_in(unit: Unit, words: list[Word]) -> list[Word]:

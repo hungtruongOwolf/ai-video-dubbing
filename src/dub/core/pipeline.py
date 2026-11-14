@@ -24,11 +24,13 @@ from pathlib import Path
 from typing import Any
 
 from dub.contracts.v1 import (
+    AudioReq,
     AudioRes,
+    Boundaries,
+    BoundaryReq,
     ConcatReq,
     ContextReq,
     ContextSheet,
-    Cue,
     DecodeReq,
     Diarization,
     DiarizeReq,
@@ -42,8 +44,10 @@ from dub.contracts.v1 import (
     Segmentation,
     SegmentReq,
     SeparateReq,
+    SpeechRegions,
     Stems,
     StretchReq,
+    SubItem,
     SubsReq,
     SubtitleTrack,
     SynthReq,
@@ -54,8 +58,13 @@ from dub.contracts.v1 import (
     TranslateReq,
     Translation,
     TranslationBatch,
+    TrimReq,
+    TrimRes,
     Unit,
+    VadReq,
+    Word,
     WordTimeline,
+    join_words,
 )
 from dub.core.config import Config, ProviderManifest
 from dub.core.ctx import Ctx
@@ -69,6 +78,8 @@ from dub.ops import refs as refs_ops
 from dub.ops import risk as risk_ops
 from dub.ops import segment as segment_ops
 from dub.ops import subs as subs_ops
+from dub.ops import vad as vad_ops
+from dub.ops.align import cer
 from dub.ops.timing import (
     Neighbor,
     count_units,
@@ -110,6 +121,7 @@ class JobResult:
     a48k_key: str | None = None  # original audio, 48 kHz (for side-by-side previews)
     warnings: list[str] = field(default_factory=list)
     redone: dict[str, int] = field(default_factory=dict)  # op -> calls that actually ran
+    metrics: dict[str, Any] = field(default_factory=dict)  # sync and quality numbers (report)
     calls: int = 0
     cache_hits: int = 0
 
@@ -183,11 +195,37 @@ async def run_job(
             replay_key=spec.transcript_key,
         ),
     )
+    asr_words = sorted(
+        (w for w in words.words if w.w.strip()), key=lambda w: (w.start_ms, w.end_ms)
+    )
+    vocals16: AudioRes = await cx.local(
+        "audio.to_mono16k", media_ops.to_mono16k, AudioReq(audio_key=stems.vocals_key), AudioRes
+    )
+    speech: SpeechRegions = await cx.local(
+        "audio.vad",
+        vad_ops.speech_regions,
+        VadReq(audio_key=vocals16.audio_key),
+        SpeechRegions,
+    )
+    bounds: Boundaries = await cx.call(
+        "text.boundaries",
+        BoundaryReq(
+            lang=src_lang,
+            words=[w.w for w in asr_words],
+            space_before=[w.space_before for w in asr_words] if not src_lp.joiner else [],
+            joiner=src_lp.joiner,
+        ),
+    )
     seg: Segmentation = await cx.local(
         "text.segment",
         segment_ops.segment,
         SegmentReq(
-            lang=src_lang, words=words.words, turns=diar.turns, params=src_lp.segment_params()
+            lang=src_lang,
+            words=asr_words,
+            turns=diar.turns,
+            params=src_lp.segment_params(),
+            probs=bounds.probs,
+            speech=speech.regions,
         ),
         Segmentation,
         with_cas=False,
@@ -195,10 +233,7 @@ async def run_job(
     base_units = seg.units
     edits = edits_ops.effective(spec.edits)
     ue = edits_ops.UnitEdits.from_edits(edits)
-    worded = segment_ops.assign_speakers(
-        sorted((w for w in words.words if w.w.strip()), key=lambda w: (w.start_ms, w.end_ms)),
-        diar.turns,
-    )
+    worded = segment_ops.assign_speakers(asr_words, diar.turns)
     units, warnings = edits_ops.apply_structure(base_units, worded, edits, src_lp.joiner)
     for w in warnings:
         log(f"      edit skipped: {w}")
@@ -270,6 +305,8 @@ async def run_job(
     units = voiced
 
     placements: list[Placement] = []
+    checks: dict[str, WordTimeline] = {}  # unit id -> back-check words (relative to the clip)
+    trims: dict[str, TrimRes] = {}
     engine = media_ops.stretch_engine()
     if not spec.subs_only:
         log(f"[6/7] voicing and fitting {len(units)} units")
@@ -320,12 +357,21 @@ async def run_job(
                     synth: SynthRes = await cx.call(
                         "tts.synthesize", make_req, facts=facts, subject=u.id
                     )
-                    natural = pred if synth.exact else synth.dur_ms
+                    # Fit the voice, not the clip: silence the engine left around it would
+                    # shift the onset and waste the slot.
+                    trimmed: TrimRes = await cx.local(
+                        "audio.trim",
+                        media_ops.trim,
+                        TrimReq(audio_key=synth.audio_key),
+                        TrimRes,
+                        subject=u.id,
+                    )
+                    natural = pred if synth.exact else trimmed.dur_ms
                     fit = fit_unit(
                         slot_start=u.start_ms,
                         slot_end=u.end_ms,
                         natural_ms=natural,
-                        clip_ms=synth.dur_ms,
+                        clip_ms=trimmed.dur_ms,
                         prev=prev,
                         next_=nxt,
                         t=t,
@@ -357,10 +403,26 @@ async def run_job(
                 stretched: AudioRes = await cx.local(
                     "audio.stretch",
                     media_ops.stretch,
-                    StretchReq(audio_key=synth.audio_key, rate=fit.stretch, engine=engine),
+                    StretchReq(audio_key=trimmed.audio_key, rate=fit.stretch, engine=engine),
                     AudioRes,
                     subject=u.id,
                 )
+                trims[u.id] = trimmed
+                if profile.backcheck:
+                    clip16: AudioRes = await cx.local(
+                        "audio.to_mono16k",
+                        media_ops.to_mono16k,
+                        AudioReq(audio_key=stretched.audio_key),
+                        AudioRes,
+                        subject=u.id,
+                    )
+                    checks[u.id] = await cx.call(
+                        "asr.backcheck",
+                        TranscribeReq(
+                            audio_key=clip16.audio_key, lang=spec.tgt_lang, expected_text=text
+                        ),
+                        subject=u.id,
+                    )
             flags = list(fit.flags) + (["untranslated"] if u.id in untranslated else [])
             return Placement(
                 unit_id=u.id,
@@ -370,7 +432,7 @@ async def run_job(
                 start_ms=fit.start_ms,
                 end_ms=fit.start_ms + stretched.dur_ms,
                 natural_ms=natural,
-                clip_ms=synth.dur_ms,
+                clip_ms=trimmed.dur_ms,
                 rate=fit.rate,
                 variant=variant,
                 text=text,
@@ -426,30 +488,60 @@ async def run_job(
                 AudioRes,
             )
             dub_m4a_key = m4a.audio_key
-        tgt_items = [Cue(start_ms=p.start_ms, end_ms=p.end_ms, text=p.text) for p in placements]
+        tgt_items = [
+            SubItem(
+                start_ms=p.start_ms,
+                end_ms=p.end_ms,
+                text=p.text,
+                words=_shift(checks[p.unit_id].words, p.start_ms) if p.unit_id in checks else [],
+            )
+            for p in placements
+        ]
     else:
         tgt_items = [
-            Cue(start_ms=u.start_ms, end_ms=u.end_ms, text=choices[u.id][1]) for u in units
+            SubItem(start_ms=u.start_ms, end_ms=u.end_ms, text=choices[u.id][1]) for u in units
         ]
 
-    async def subs_for(lang: str, items: list[Cue]) -> SubtitleTrack:
+    async def subs_for(lang: str, items: list[SubItem]) -> SubtitleTrack:
         lp = cfg.langpack(lang)
         req = SubsReq(
-            lang=lang,
-            items=items,
-            cpl=lp.subs.cpl,
-            cps=lp.subs.cps,
-            max_lines=lp.subs.max_lines,
-            joiner=lp.joiner,
+            lang=lang, items=items, cpl=lp.subs.cpl, cps=lp.subs.cps, max_lines=lp.subs.max_lines
         )
         return await cx.local("subs.render", subs_ops.render, req, SubtitleTrack, subject=lang)
 
-    src_items = [Cue(start_ms=u.start_ms, end_ms=u.end_ms, text=u.text) for u in units]
+    src_items = [
+        SubItem(
+            start_ms=u.start_ms,
+            end_ms=u.end_ms,
+            text=u.text,
+            words=[
+                w for w in worded if w.start_ms >= u.start_ms - 50 and w.end_ms <= u.end_ms + 50
+            ],
+        )
+        for u in units
+    ]
     tgt_track, src_track = await asyncio.gather(
         subs_for(spec.tgt_lang, tgt_items), subs_for(src_lang, src_items)
     )
 
     # ---------------------------------------------------------------- outputs for review
+    backcheck_cer = {
+        p.unit_id: round(cer(p.text, join_words(checks[p.unit_id].words, tgt_lp.joiner)), 3)
+        for p in placements
+        if p.unit_id in checks
+    }
+    metrics = sync_metrics(
+        units,
+        placements,
+        trims,
+        backcheck_cer,
+        tgt_track,
+        tgt_lp,
+        spec.tgt_lang,
+        seg,
+        media.duration_ms,
+        tiles,
+    )
     result = JobResult(
         job_id=job_id,
         job_dir=job_dir,
@@ -463,6 +555,7 @@ async def run_job(
         a48k_key=media.a48k_key,
         warnings=warnings,
         redone=dict(Counter(st.op for st in cx.stats if not st.hit)),
+        metrics=metrics,
         calls=len(cx.stats),
         cache_hits=sum(1 for s in cx.stats if s.hit),
     )
@@ -479,6 +572,8 @@ async def run_job(
         tiles,
         tgt_track,
         tgt_lp,
+        metrics,
+        backcheck_cer,
     )
     cx.flush_stats()
     ws.db.upsert_job(
@@ -495,6 +590,55 @@ async def run_job(
 # -------------------------------------------------------------------- report
 
 
+def _shift(words: list[Word], offset_ms: int) -> list[Word]:
+    return [
+        w.model_copy(update={"start_ms": w.start_ms + offset_ms, "end_ms": w.end_ms + offset_ms})
+        for w in words
+    ]
+
+
+def sync_metrics(
+    units, placements, trims, backcheck_cer, tgt_track, tgt_lp, tgt_lang, seg, media_ms, tiles
+) -> dict[str, Any]:
+    """The numbers behind priorities 1 and 2 (segmentation, timing) and the subtitles.
+
+    onset error: |where the dubbed voice starts - where the original voice starts|. Clips are
+    trimmed to the voice, so the dubbed onset is the placement start.
+    """
+    m: dict[str, Any] = {}
+    lens = [u.slot_ms for u in seg.units]
+    m["units"] = len(seg.units)
+    m["unit_s_max"] = round(max(lens) / 1000, 2) if lens else 0
+    m["units_over_15s"] = sum(1 for x in lens if x > 15000)
+    m["units_under_1s"] = sum(1 for x in lens if x < 1000)
+    if placements:
+        by_id = {u.id: u for u in units}
+        onset = [abs(p.start_ms - by_id[p.unit_id].start_ms) for p in placements]
+        rates = [p.rate for p in placements]
+        m["onset_err_ms_p50"] = round(statistics.median(onset))
+        m["onset_err_ms_p95"] = round(_pct(onset, 0.95))
+        m["speedup_p50"] = round(statistics.median(rates), 3)
+        m["speedup_p95"] = round(_pct(rates, 0.95), 3)
+        m["speedup_max"] = round(max(rates), 3)
+        m["overflow"] = sum(1 for p in placements if "overflow" in p.flags)
+        if trims:
+            lead = [t.lead_ms for t in trims.values()]
+            tail = [t.tail_ms for t in trims.values()]
+            m["tts_silence_ms_p50"] = {
+                "lead": round(statistics.median(lead)),
+                "tail": round(statistics.median(tail)),
+            }
+    if backcheck_cer:
+        vals = list(backcheck_cer.values())
+        m["backcheck_cer_p50"] = round(statistics.median(vals), 3)
+        m["backcheck_cer_p95"] = round(_pct(vals, 0.95), 3)
+    if tiles:
+        m["drift_ms"] = abs(tiles[-1].end_ms - media_ms)
+    m["subs_cues"] = len(tgt_track.cues)
+    m["subs_cps_violations"] = subs_ops.cps_violations(tgt_track.cues, tgt_lp.subs.cps, tgt_lang)
+    return m
+
+
 def _write_outputs(
     job_dir,
     cx: Ctx,
@@ -508,6 +652,8 @@ def _write_outputs(
     tiles,
     tgt_track,
     tgt_lp,
+    metrics,
+    backcheck_cer,
 ) -> None:
     tracer.save(job_dir / "trace.json")
     with open(job_dir / "routes.jsonl", "w", encoding="utf-8") as f:
@@ -520,7 +666,7 @@ def _write_outputs(
         tr = translations.get(u.id)
         p = by_id.get(u.id)
         edited = u.id in ue.text or u.id in ue.seed or u.id in ue.speaker or u.id in ue.nudge
-        risk, why = risk_ops.score(u, p, tr, edited=edited)
+        risk, why = risk_ops.score(u, p, tr, edited=edited, cer=backcheck_cer.get(u.id))
         rows.append(
             {
                 "unit": u.model_dump(),
@@ -531,6 +677,7 @@ def _write_outputs(
                 "edited": edited,
                 "locked": ue.is_protected(u.id),
                 "seed": ue.seed.get(u.id, 0),
+                "backcheck_cer": backcheck_cer.get(u.id),
             }
         )
     (job_dir / "tiles.json").write_text(
@@ -539,8 +686,10 @@ def _write_outputs(
     (job_dir / "units.json").write_text(
         json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8"
     )
+    (job_dir / "segmentation.json").write_text(seg.model_dump_json(indent=1), encoding="utf-8")
+    (job_dir / "metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
     (job_dir / "report.md").write_text(
-        render_report(cx, seg, sheet, placements, tgt_track, tgt_lp), encoding="utf-8"
+        render_report(cx, seg, sheet, placements, tgt_track, tgt_lp, metrics), encoding="utf-8"
     )
 
 
@@ -551,7 +700,7 @@ def _pct(values: list[float], q: float) -> float:
     return values[min(len(values) - 1, int(round(q * (len(values) - 1))))]
 
 
-def render_report(cx: Ctx, seg, sheet, placements, tgt_track, tgt_lp) -> str:
+def render_report(cx: Ctx, seg, sheet, placements, tgt_track, tgt_lp, metrics=None) -> str:
     lines = [f"# Job report: {cx.job_id}", ""]
     hits = sum(1 for s in cx.stats if s.hit)
     lines += [
@@ -605,6 +754,10 @@ def render_report(cx: Ctx, seg, sheet, placements, tgt_track, tgt_lp) -> str:
         lines += ["", "Units to review first (highest speed-up):", ""]
         lines += [f"- `{p.unit_id}` x{p.rate:.2f} {p.flags}: {p.text}" for p in worst]
 
+    if metrics:
+        lines += ["", "## Sync and quality", "", "| metric | value |", "|---|---|"]
+        lines += [f"| {k} | {v} |" for k, v in metrics.items()]
+
     lines += ["", "## Cast sheet", ""]
     for s in sheet.cast.speakers:
         lines.append(
@@ -617,6 +770,6 @@ def render_report(cx: Ctx, seg, sheet, placements, tgt_track, tgt_lp) -> str:
     if sheet.flags:
         lines += ["", "Needs confirmation:", ""] + [f"- {f}" for f in sheet.flags]
 
-    bad = subs_ops.cps_violations(tgt_track.cues, tgt_lp.subs.cps)
+    bad = subs_ops.cps_violations(tgt_track.cues, tgt_lp.subs.cps, tgt_lp.lang)
     lines += ["", "## Subtitles", "", f"- {len(tgt_track.cues)} cues, {bad} read too fast", ""]
     return "\n".join(lines)

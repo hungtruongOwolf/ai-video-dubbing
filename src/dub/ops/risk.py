@@ -1,8 +1,9 @@
 """Risk score per unit: which lines a human should listen to first.
 
-M2 uses hand-set weights over the signals the pipeline already has. M4 adds the QA gate
-(ASR back-check, speaker similarity, truncation) and later learns the weights from your own
-review decisions.
+Hand-set weights over the signals the pipeline already has. Since M3 that includes the
+back-check CER: the dubbed clip is transcribed again and compared with the line. M4 adds
+speaker similarity and truncation checks, and later learns the weights from your own review
+decisions.
 """
 
 from __future__ import annotations
@@ -11,8 +12,11 @@ from dub.contracts.v1 import Placement, Translation, Unit
 
 
 def score(unit: Unit, placement: Placement | None, tr: Translation | None,
-          edited: bool = False) -> tuple[float, list[str]]:  # fmt: skip
+          edited: bool = False, cer: float | None = None) -> tuple[float, list[str]]:  # fmt: skip
     s, why = 0.0, []
+    if cer is not None and cer > 0.15:
+        s += min(cer, 1.0) * 8
+        why.append(f"the dub does not sound like the text (CER {cer:.0%})")
     if placement:
         r = placement.rate
         if r > 1.08:

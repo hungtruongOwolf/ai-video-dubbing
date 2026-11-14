@@ -12,8 +12,19 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from dub.contracts.v1 import AudioRes, DecodeReq, EncodeReq, MediaInfo, StretchReq
-from dub.ops.audio_io import duration_ms
+import numpy as np
+
+from dub.contracts.v1 import (
+    AudioReq,
+    AudioRes,
+    DecodeReq,
+    EncodeReq,
+    MediaInfo,
+    StretchReq,
+    TrimReq,
+    TrimRes,
+)
+from dub.ops.audio_io import duration_ms, read_wav, write_wav
 from dub.store.cas import CAS
 
 
@@ -130,6 +141,69 @@ def stretch(req: StretchReq, cas: CAS) -> AudioRes:
     run_ffmpeg(args)
     dur = duration_ms(out)
     return AudioRes(audio_key=cas.put_file(out, move=True), dur_ms=dur)
+
+
+def to_mono16k(req: AudioReq, cas: CAS) -> AudioRes:
+    """Any WAV -> 16 kHz mono 16-bit WAV (what ASR and the VAD read)."""
+    out = cas.tmp_path(".wav")
+    run_ffmpeg(
+        [
+            "-i",
+            str(cas.path(req.audio_key)),
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-c:a",
+            "pcm_s16le",
+            str(out),
+        ]
+    )
+    dur = duration_ms(out)
+    return AudioRes(audio_key=cas.put_file(out, move=True), dur_ms=dur)
+
+
+TRIM_FRAME_MS = 10
+TRIM_REL_DB = 40.0  # a frame is "voice" if within 40 dB of the loudest frame...
+TRIM_FLOOR_DB = -55.0  # ...and louder than this
+
+
+def voice_edges(mono: np.ndarray, sr: int) -> tuple[int, int] | None:
+    """(first, last) sample of the voice in a clean clip, or None if it is silent."""
+    hop = max(1, sr * TRIM_FRAME_MS // 1000)
+    n = len(mono) // hop
+    if n == 0:
+        return None
+    frames = mono[: n * hop].reshape(n, hop)
+    db = 20 * np.log10(np.sqrt((frames.astype(np.float64) ** 2).mean(axis=1)) + 1e-9)
+    thr = max(TRIM_FLOOR_DB, db.max() - TRIM_REL_DB)
+    on = np.flatnonzero(db > thr)
+    if on.size == 0:
+        return None
+    return int(on[0] * hop), int(min(len(mono), (on[-1] + 1) * hop))
+
+
+def trim(req: TrimReq, cas: CAS) -> TrimRes:
+    """Cut leading and trailing silence from a TTS clip, so the voice starts exactly where
+    the clip is placed (onset sync) and the fit works with the length of the voice itself."""
+    audio, sr = read_wav(cas.path(req.audio_key))
+    mono = audio.mean(axis=1)
+    edges = voice_edges(mono, sr)
+    total = round(len(mono) * 1000 / sr)
+    if edges is None:
+        return TrimRes(audio_key=req.audio_key, dur_ms=total, lead_ms=0, tail_ms=0)
+    pad = sr * req.pad_ms // 1000
+    a, b = max(0, edges[0] - pad), min(len(mono), edges[1] + pad)
+    if a == 0 and b == len(mono):
+        return TrimRes(audio_key=req.audio_key, dur_ms=total, lead_ms=0, tail_ms=0)
+    out = cas.tmp_path(".wav")
+    write_wav(out, audio[a:b], sr)
+    return TrimRes(
+        audio_key=cas.put_file(out, move=True),
+        dur_ms=round((b - a) * 1000 / sr),
+        lead_ms=round(a * 1000 / sr),
+        tail_ms=round((len(mono) - b) * 1000 / sr),
+    )
 
 
 def encode(req: EncodeReq, cas: CAS) -> AudioRes:

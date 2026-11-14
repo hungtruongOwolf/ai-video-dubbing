@@ -80,6 +80,7 @@ class SegmentCfg(Cfg):
     target_unit_s: float = 7.0
     min_unit_s: float = 1.0
     hard_pause_s: float = 1.5
+    threshold: float = 0.5  # calibrated boundary probability at which a sentence ends
 
 
 class SubsCfg(Cfg):
@@ -107,6 +108,7 @@ class Langpack(Cfg):
             min_unit_ms=int(s.min_unit_s * 1000),
             hard_pause_ms=int(s.hard_pause_s * 1000),
             joiner=self.joiner,
+            threshold=s.threshold,
         )
 
 
@@ -117,6 +119,7 @@ class Profile(Cfg):
     tts_chain: Literal["incumbent_only", "langpack"] = "langpack"
     llm_rewrite: bool = False
     max_rewrites: int = 2
+    backcheck: bool = True  # transcribe every dubbed line again: subtitle timing + CER
 
 
 class TimingCfg(Cfg):
@@ -162,7 +165,15 @@ class DubConfig(Cfg):
 # ---------------------------------------------------------------- loader
 
 # Ops whose chain comes from the SOURCE language; every other op uses the TARGET language.
-SOURCE_SIDE_OPS = {"audio.separate", "asr.transcribe", "asr.align", "audio.diarize"}
+SOURCE_SIDE_OPS = {
+    "audio.separate",
+    "asr.transcribe",
+    "asr.align",
+    "audio.diarize",
+    "text.boundaries",
+}
+# An op without its own chain in a langpack or in `defaults:` uses the chain of this op.
+CHAIN_FALLBACK = {"asr.backcheck": "asr.transcribe"}
 
 
 class Config:
