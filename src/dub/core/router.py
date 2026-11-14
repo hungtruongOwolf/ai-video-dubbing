@@ -18,6 +18,7 @@ from typing import Any
 
 from dub.contracts.v1 import Rejection, RouteTrace
 from dub.core.config import SOURCE_SIDE_OPS, Config, ProviderManifest, RouteRule
+from dub.worker.protocol import worker_urls
 
 
 class RoutingError(RuntimeError):
@@ -71,7 +72,10 @@ def unavailable_reason(m: ProviderManifest) -> str | None:
         if not found:
             return f"module '{module}' is not installed"
     elif m.runtime == "http":
-        return "http runtime (GPU pod worker) is not available yet, see roadmap M1"
+        if not m.env:
+            return "http provider without 'env'"
+        if m.env not in worker_urls():
+            return f"worker '{m.env}' is not running here (GPU pod only: dub run --remote)"
     return None
 
 

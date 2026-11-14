@@ -298,7 +298,8 @@ class SynthReq(Model):
     text: str
     lang: str
     speaker: str
-    voice_key: str | None = None  # 3-10 s reference clip (from M4)
+    voice_key: str | None = None  # 3-10 s reference clip of this speaker (CAS key)
+    voice_text: str | None = None  # transcript of the reference clip
     seed: int = 0
     target_ms: int | None = None  # only used when caps.duration_control == "exact"
 
@@ -310,6 +311,30 @@ class SynthRes(Model):
     dur_ms: int
     provider: str = ""
     exact: bool = False  # True if the engine honoured target_ms
+
+
+# ---------------------------------------------------------------- voice references
+
+
+class RefsReq(Model):
+    vocals_key: str  # separated speech, 48 kHz
+    units: list[Unit]
+    min_ms: int = 3000
+    max_ms: int = 10000
+
+
+class VoiceRef(Model):
+    speaker: str
+    audio_key: str  # mono WAV clip cut on word boundaries
+    text: str  # what is said in the clip (some TTS engines need it)
+    seconds: float
+
+
+class RefBank(Model):
+    refs: list[VoiceRef]
+
+    def for_speaker(self, speaker: str) -> VoiceRef | None:
+        return next((r for r in self.refs if r.speaker == speaker), None)
 
 
 # ---------------------------------------------------------------- timing, mix, subs
@@ -336,11 +361,18 @@ class StretchReq(Model):
     audio_key: str
     rate: float
     sample_rate: int = 48000
+    engine: str = "atempo"  # atempo | rubberband
 
 
 class AudioRes(Model):
     audio_key: str
     dur_ms: int
+
+
+class EncodeReq(Model):
+    audio_key: str
+    codec: str = "aac"
+    bitrate: str = "192k"
 
 
 class MixReq(Model):
@@ -431,4 +463,20 @@ ALL_MODELS: list[type[BaseModel]] = [
     SubtitleTrack,
     Rejection,
     RouteTrace,
+    RefsReq,
+    VoiceRef,
+    RefBank,
+    EncodeReq,
 ]
+
+
+# Every model-backed op: (request type, result type). Workers and the core share this table.
+OPS: dict[str, tuple[type[BaseModel], type[BaseModel]]] = {
+    "audio.separate": (SeparateReq, Stems),
+    "asr.transcribe": (TranscribeReq, WordTimeline),
+    "audio.diarize": (DiarizeReq, Diarization),
+    "mt.context": (ContextReq, ContextSheet),
+    "mt.translate": (TranslateReq, TranslationBatch),
+    "mt.rewrite": (RewriteReq, RewriteRes),
+    "tts.synthesize": (SynthReq, SynthRes),
+}

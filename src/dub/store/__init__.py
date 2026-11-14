@@ -21,14 +21,14 @@ class Workspace:
     db: JobDB
 
     @classmethod
-    def open(cls, root: Path) -> Workspace:
+    def open(cls, root: Path, db_path: Path | None = None) -> Workspace:
         root = Path(root)
         root.mkdir(parents=True, exist_ok=True)
         return cls(
             root=root,
             cas=CAS(root / "cas"),
             memo=Memo(root / "memo"),
-            db=JobDB(root / "dub.sqlite"),
+            db=JobDB(db_path or root / "dub.sqlite"),
         )
 
     def job_dir(self, job_id: str) -> Path:

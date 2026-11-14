@@ -1,0 +1,6 @@
+# Diarization stand-in until M4: the whole file is speaker S1 (one cloned voice).
+id: single_speaker
+op: [audio.diarize]
+impl: dub.providers.simple:SingleSpeaker
+impl_version: "1"
+description: One speaker for the whole file. Right for monologues; multi-speaker arrives in M4.

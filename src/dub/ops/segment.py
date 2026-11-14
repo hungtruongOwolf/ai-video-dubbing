@@ -29,9 +29,30 @@ CLOSERS = "\"'”’»)]}」』"
 INF = float("inf")
 # A period after these does not end a sentence ("Mr. Tu", "Dr. Lee", "e.g. this").
 ABBREVIATIONS = {
-    "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "mt", "vs", "etc", "e.g", "i.e",
-    "no", "fig", "approx", "sra", "srta", "m", "mme", "mlle", "hr", "fr",
-}  # fmt: skip
+    "mr",
+    "mrs",
+    "ms",
+    "dr",
+    "prof",
+    "sr",
+    "jr",
+    "st",
+    "mt",
+    "vs",
+    "etc",
+    "e.g",
+    "i.e",
+    "no",
+    "fig",
+    "approx",
+    "sra",
+    "srta",
+    "m",
+    "mme",
+    "mlle",
+    "hr",
+    "fr",
+}
 
 
 def _last_char(w: str) -> str:

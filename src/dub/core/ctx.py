@@ -40,16 +40,7 @@ from dub.store import Workspace
 
 T = TypeVar("T", bound=BaseModel)
 
-OP_RESULT: dict[str, type[BaseModel]] = {
-    "audio.separate": v1.Stems,
-    "asr.transcribe": v1.WordTimeline,
-    "audio.diarize": v1.Diarization,
-    "mt.context": v1.ContextSheet,
-    "mt.translate": v1.TranslationBatch,
-    "mt.rewrite": v1.RewriteRes,
-    "tts.synthesize": v1.SynthRes,
-}
-
+OP_RESULT: dict[str, type[BaseModel]] = {op: res for op, (_req, res) in v1.OPS.items()}
 LANES = {
     "audio.separate": "gpu · separate",
     "asr.transcribe": "gpu · asr",

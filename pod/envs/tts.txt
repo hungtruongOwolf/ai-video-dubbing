@@ -1,0 +1,5 @@
+# OmniVoice: zero-shot voice cloning with exact duration. torch 2.8 is what OmniVoice pins.
+omnivoice==0.2.1
+torch==2.8.0
+torchaudio==2.8.0
+soundfile

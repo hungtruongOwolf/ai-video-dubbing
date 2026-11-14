@@ -6,12 +6,13 @@ characters work.
 
 from __future__ import annotations
 
+import functools
 import json
 import shutil
 import subprocess
 from pathlib import Path
 
-from dub.contracts.v1 import AudioRes, DecodeReq, MediaInfo, StretchReq
+from dub.contracts.v1 import AudioRes, DecodeReq, EncodeReq, MediaInfo, StretchReq
 from dub.ops.audio_io import duration_ms
 from dub.store.cas import CAS
 
@@ -95,19 +96,61 @@ def decode(req: DecodeReq, cas: CAS) -> MediaInfo:
     )
 
 
-def stretch(req: StretchReq, cas: CAS) -> AudioRes:
-    """Change speed without changing pitch (ffmpeg atempo) and convert to 48 kHz mono.
+@functools.cache
+def stretch_engine() -> str:
+    """'rubberband' when this ffmpeg has the librubberband filter (better quality), else
+    'atempo'. The pipeline puts the engine into the request, so it is part of the cache key."""
+    try:
+        p = subprocess.run(
+            [_bin("ffmpeg"), "-hide_banner", "-filters"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except FFmpegError:
+        return "atempo"
+    return "rubberband" if " rubberband " in p.stdout else "atempo"
 
-    rate > 1 means faster (shorter). The pod version will use rubberband R3 for better quality.
+
+def stretch(req: StretchReq, cas: CAS) -> AudioRes:
+    """Change speed without changing pitch, and convert to 48 kHz mono.
+
+    rate > 1 means faster (shorter).
     """
     src = cas.path(req.audio_key)
     out = cas.tmp_path(".wav")
     args = ["-i", str(src)]
     if abs(req.rate - 1.0) > 1e-3:
-        args += ["-af", f"atempo={req.rate:.5f}"]
+        if req.engine == "rubberband":
+            args += ["-af", f"rubberband=tempo={req.rate:.5f}:pitchq=quality:transients=smooth"]
+        else:
+            args += ["-af", f"atempo={req.rate:.5f}"]
     args += ["-ac", "1", "-ar", str(req.sample_rate), "-c:a", "pcm_s16le", str(out)]
     run_ffmpeg(args)
     dur = duration_ms(out)
+    return AudioRes(audio_key=cas.put_file(out, move=True), dur_ms=dur)
+
+
+def encode(req: EncodeReq, cas: CAS) -> AudioRes:
+    """WAV -> AAC in an .m4a container: ~85 MB per hour instead of ~660 MB, so the result
+    downloads quickly; the laptop then muxes it with stream copy."""
+    out = cas.tmp_path(".m4a")
+    run_ffmpeg(
+        [
+            "-i",
+            str(cas.path(req.audio_key)),
+            "-c:a",
+            req.codec,
+            "-b:a",
+            req.bitrate,
+            "-movflags",
+            "+faststart",
+            str(out),
+        ]
+    )
+    info = probe(out)
+    dur = round(float(info.get("format", {}).get("duration", 0)) * 1000)
     return AudioRes(audio_key=cas.put_file(out, move=True), dur_ms=dur)
 
 

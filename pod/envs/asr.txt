@@ -1,0 +1,5 @@
+# Whisper large-v3 / PhoWhisper through CTranslate2. cuBLAS and cuDNN come as pip packages;
+# the pod server puts their lib/ folders on LD_LIBRARY_PATH when it starts the worker.
+faster-whisper==1.2.1
+nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.*

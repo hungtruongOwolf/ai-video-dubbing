@@ -31,9 +31,12 @@ from dub.contracts.v1 import (
     DecodeReq,
     Diarization,
     DiarizeReq,
+    EncodeReq,
     MediaInfo,
     MixReq,
     Placement,
+    RefBank,
+    RefsReq,
     RewriteReq,
     Segmentation,
     SegmentReq,
@@ -58,6 +61,7 @@ from dub.core.router import Router
 from dub.core.trace import Tracer
 from dub.ops import media as media_ops
 from dub.ops import mix as mix_ops
+from dub.ops import refs as refs_ops
 from dub.ops import segment as segment_ops
 from dub.ops import subs as subs_ops
 from dub.ops.timing import (
@@ -92,6 +96,7 @@ class JobResult:
     src_lang: str
     tgt_lang: str
     dub_audio_key: str | None
+    dub_m4a_key: str | None  # same audio as AAC, small enough to download
     subs: dict[str, str]  # lang -> CAS key of the .srt
     placements: list[Placement] = field(default_factory=list)
     calls: int = 0
@@ -181,6 +186,12 @@ async def run_job(
         with_cas=False,
     )
     units = seg.units
+    refs: RefBank = await cx.local(
+        "voice.extract_refs",
+        refs_ops.extract_refs,
+        RefsReq(vocals_key=stems.vocals_key, units=units),
+        RefBank,
+    )
     log(f"      {len(words.words)} words -> {len(seg.sentences)} sentences -> {len(units)} units")
 
     # ---------------------------------------------------------------- Barrier: context pass
@@ -226,6 +237,7 @@ async def run_job(
     }
 
     placements: list[Placement] = []
+    engine = media_ops.stretch_engine()
     if not spec.subs_only:
         log(f"[6/7] voicing and fitting {len(units)} units")
         sem = asyncio.Semaphore(UNIT_CONCURRENCY)
@@ -253,6 +265,7 @@ async def run_job(
                 "unit.asr_conf": u.asr_conf,
             }
             rewrites = 0
+            ref = refs.for_speaker(u.speaker)
             async with sem:
                 while True:
 
@@ -264,6 +277,8 @@ async def run_job(
                             lang=spec.tgt_lang,
                             speaker=u.speaker,
                             seed=0,
+                            voice_key=ref.audio_key if ref else None,
+                            voice_text=ref.text if ref else None,
                             target_ms=exact_target_ms(u.slot_ms, pred, t.safe_ratio)
                             if exact
                             else None,
@@ -308,7 +323,7 @@ async def run_job(
                 stretched: AudioRes = await cx.local(
                     "audio.stretch",
                     media_ops.stretch,
-                    StretchReq(audio_key=synth.audio_key, rate=fit.stretch),
+                    StretchReq(audio_key=synth.audio_key, rate=fit.stretch, engine=engine),
                     AudioRes,
                     subject=u.id,
                 )
@@ -335,6 +350,7 @@ async def run_job(
     # ---------------------------------------------------------------- mix + subtitles
     log("[7/7] mixing and writing subtitles")
     dub_audio_key = None
+    dub_m4a_key = None
     if placements:
         mixed: AudioRes = await cx.local(
             "audio.mix",
@@ -349,6 +365,10 @@ async def run_job(
             AudioRes,
         )
         dub_audio_key = mixed.audio_key
+        m4a: AudioRes = await cx.local(
+            "audio.encode", media_ops.encode, EncodeReq(audio_key=dub_audio_key), AudioRes
+        )
+        dub_m4a_key = m4a.audio_key
         tgt_items = [Cue(start_ms=p.start_ms, end_ms=p.end_ms, text=p.text) for p in placements]
     else:
         tgt_items = [
@@ -379,6 +399,7 @@ async def run_job(
         src_lang=src_lang,
         tgt_lang=spec.tgt_lang,
         dub_audio_key=dub_audio_key,
+        dub_m4a_key=dub_m4a_key,
         subs={spec.tgt_lang: tgt_track.srt_key, f"{src_lang}.src": src_track.srt_key},
         placements=placements,
         calls=len(cx.stats),

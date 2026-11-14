@@ -50,6 +50,7 @@ class ProviderManifest(Cfg):
     op: list[str]
     runtime: Literal["inproc", "cli", "http"] = "inproc"
     impl: str | None = None  # "module.path:ClassName" for the inproc runtime
+    env: str | None = None  # http runtime: name of the worker env (one process per env)
     requires_bin: list[str] = Field(default_factory=list)  # programs that must be on PATH
     impl_version: str = "1"  # bump when an adapter change alters its output
     weights: dict[str, Any] | None = None

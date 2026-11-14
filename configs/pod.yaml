@@ -1,0 +1,12 @@
+# How `dub up` rents the GPU pod. Account-specific values (volume id, data center) belong in
+# pod.local.yaml at the repository root (git-ignored); it overrides this file.
+image: runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404   # only its CUDA userland is used
+gpus: ["NVIDIA A40", "NVIDIA RTX A6000"]                  # tried in order
+min_cuda: "12.8"
+container_disk_gb: 30
+port: 8000
+idle_minutes: 10        # the pod terminates itself after this long without work
+volume_id: null         # network volume holding envs, weights and the cache
+data_center: null       # must be the volume's data center
+repo: https://github.com/hungtruongOwolf/ai-video-dubbing.git
+claude_secret: claude_code_oauth_token   # Runpod secret with a `claude setup-token` token

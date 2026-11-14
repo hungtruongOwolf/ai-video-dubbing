@@ -1,0 +1,16 @@
+# Speech-to-text for most source languages: Whisper large-v3 on CTranslate2 (faster-whisper).
+id: whisper_large_v3
+op: [asr.transcribe]
+runtime: http
+env: asr
+impl: dub.providers.asr_whisper:FasterWhisperASR
+impl_version: "1"
+weights: {hf: Systran/faster-whisper-large-v3, revision: edaa852ec7e145841d8ffdb056a99866b5f0a478}
+params:
+  model: Systran/faster-whisper-large-v3
+  revision: edaa852ec7e145841d8ffdb056a99866b5f0a478
+  compute_type: float16
+  beam_size: 5
+limits: {max_concurrency: 1}
+license: MIT
+description: Multilingual ASR with word timestamps.

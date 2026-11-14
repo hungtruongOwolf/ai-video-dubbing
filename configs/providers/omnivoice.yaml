@@ -1,0 +1,21 @@
+# The incumbent TTS for every language: zero-shot voice cloning, 600+ languages, and an exact
+# output duration, which the timing ladder uses instead of stretching audio.
+id: omnivoice
+op: [tts.synthesize]
+runtime: http
+env: tts
+impl: dub.providers.tts_omnivoice:OmniVoiceTTS
+impl_version: "1"
+weights: {hf: k2-fsa/OmniVoice, revision: c5fdb5ccb189668d56333f77ba2629f4cd7535f4}
+params:
+  model: k2-fsa/OmniVoice
+  revision: c5fdb5ccb189668d56333f77ba2629f4cd7535f4
+  num_step: 32
+caps:
+  langs: "*"
+  duration_control: exact
+  max_out_s: 30
+  needs_ref_text: false
+  sample_rate: 24000
+limits: {max_concurrency: 2}
+description: Zero-shot voice cloning TTS with exact duration control.

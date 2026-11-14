@@ -88,7 +88,9 @@ def mux(
     args += ["-map", "1:a:0", "-map", "0:a:0?"]
     for i in range(len(subs)):
         args += ["-map", str(i + 2)]
-    args += ["-c:v", "copy", "-c:a", "aac", "-b:a", "192k"]
+    # The dub track is already AAC when it comes from the pipeline (.m4a): copy it as is.
+    dub_codec = "copy" if dub_audio.suffix.lower() in (".m4a", ".aac") else "aac"
+    args += ["-c:v", "copy", "-c:a:0", dub_codec, "-c:a:1", "aac", "-b:a", "192k"]
     if subs:
         args += ["-c:s", "mov_text" if mp4 else "srt"]
     args += [

@@ -11,3 +11,4 @@ dub-workspace/
 demo/
 *.dub/
 schemas/
+pod.local.yaml

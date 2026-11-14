@@ -80,10 +80,12 @@ def test_first_matching_rule_wins(cfg):
 
 def test_unknown_runtime_is_unavailable(cfg):
     c = _cfg_with_tts(cfg)
-    c.providers["remote"] = ProviderManifest(id="remote", op=["tts.synthesize"], runtime="http")
+    c.providers["remote"] = ProviderManifest(
+        id="remote", op=["tts.synthesize"], runtime="http", env="gpu"
+    )
     c.langpacks["vi"] = c.langpacks["vi"].model_copy(
         update={"chains": {"tts.synthesize": ["remote", "fake_tts"]}}
     )
     tr = Router(c, profile="final").route("tts.synthesize", {"tgt_lang": "vi"})
     assert tr.chain == ["fake_tts"]
-    assert tr.rejected[0].provider == "remote" and "M1" in tr.rejected[0].reason
+    assert tr.rejected[0].provider == "remote" and "not running here" in tr.rejected[0].reason

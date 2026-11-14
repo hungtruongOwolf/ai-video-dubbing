@@ -3,8 +3,8 @@
 M0 supports the `inproc` runtime: the provider class is imported from the `impl` string in
 its manifest and runs in a worker thread. Each provider gets a semaphore sized by
 `limits.max_concurrency`, so for example at most 4 LLM calls run at the same time.
-M1 adds the `http` runtime: the same request body is sent to a worker process on the GPU
-pod, which reads and writes the shared CAS.
+The `http` runtime sends the same request as JSON to a worker process (`dub.worker`) that
+hosts the provider in its own Python environment and reads/writes the shared CAS.
 """
 
 from __future__ import annotations
@@ -16,9 +16,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from dub.contracts.v1 import OPS
 from dub.core.config import Config, ProviderManifest
 from dub.core.provider_api import ProviderError, RunCtx
 from dub.store.cas import CAS
+from dub.worker.protocol import post_json, worker_urls
 
 
 def _load_class(impl: str) -> type:
@@ -48,6 +50,8 @@ class Executor:
     async def run(
         self, m: ProviderManifest, op: str, req: BaseModel, params: dict[str, Any]
     ) -> BaseModel:
+        if m.runtime == "http":
+            return await self._run_http(m, op, req, params)
         inst = self._instance(m)
         sem = self._sems.setdefault(m.id, asyncio.Semaphore(m.limits.max_concurrency))
         ctx = RunCtx(
@@ -55,3 +59,20 @@ class Executor:
         )
         async with sem:
             return await asyncio.to_thread(inst.run, op, req, ctx)
+
+    async def _run_http(
+        self, m: ProviderManifest, op: str, req: BaseModel, params: dict[str, Any]
+    ) -> BaseModel:
+        url = worker_urls().get(m.env or "")
+        if not url:
+            raise ProviderError(f"worker '{m.env}' is not running", kind="unsupported")
+        body = {
+            "provider": m.id,
+            "op": op,
+            "params": params,
+            "request": req.model_dump(mode="json"),
+        }
+        sem = self._sems.setdefault(m.id, asyncio.Semaphore(m.limits.max_concurrency))
+        async with sem:
+            reply = await asyncio.to_thread(post_json, f"{url}/v1/run", body)
+        return OPS[op][1].model_validate(reply["result"])

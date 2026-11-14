@@ -1,0 +1,19 @@
+# Vietnamese speech-to-text: PhoWhisper-large (VinAI) converted to CTranslate2.
+# Whisper large-v3 alone has a WER of ~40% on Vietnamese Common Voice; PhoWhisper is far better.
+id: phowhisper_large_ct2
+op: [asr.transcribe]
+runtime: http
+env: asr
+impl: dub.providers.asr_whisper:FasterWhisperASR
+impl_version: "1"
+weights: {hf: kiendt/PhoWhisper-large-ct2, revision: abceb098c94235c16414dda9e1aada82ebcf6288}
+params:
+  model: kiendt/PhoWhisper-large-ct2
+  revision: abceb098c94235c16414dda9e1aada82ebcf6288
+  language: vi
+  compute_type: float16
+  beam_size: 5
+caps: {langs: [vi]}
+limits: {max_concurrency: 1}
+license: MIT (conversion); PhoWhisper is BSD-3-Clause
+description: Vietnamese ASR with word timestamps.
