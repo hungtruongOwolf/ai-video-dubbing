@@ -38,6 +38,8 @@ from dub.contracts.v1 import (
     Edit,
     Embeddings,
     EmbedReq,
+    LevelReq,
+    LevelRes,
     MasterReq,
     MediaInfo,
     Placement,
@@ -80,6 +82,7 @@ from dub.core.trace import Tracer
 from dub.ops import address as address_ops
 from dub.ops import diarize as diar_ops
 from dub.ops import edits as edits_ops
+from dub.ops import level as level_ops
 from dub.ops import media as media_ops
 from dub.ops import mix as mix_ops
 from dub.ops import qa as qa_ops
@@ -759,6 +762,23 @@ async def run_job(
     dub_audio_key = None
     dub_m4a_key = None
     tiles: list[Tile] = []
+    level_stats: dict[str, Any] = {}
+    if placements and cfg.dub.mix.match_level:
+        lv: LevelRes = await cx.local(
+            "audio.match_level",
+            level_ops.match_levels,
+            LevelReq(
+                vocals_key=stems.vocals_key,
+                placements=placements,
+                max_dev_db=cfg.dub.mix.level_max_dev_db,
+                max_gain_db=cfg.dub.mix.level_max_gain_db,
+            ),
+            LevelRes,
+        )
+        placements = [
+            p.model_copy(update={"gain_db": lv.gains_db.get(p.unit_id, 0.0)}) for p in placements
+        ]
+        level_stats = level_ops.level_metrics(lv)
     if placements:
         tile_reqs = [
             TileReq(
@@ -857,6 +877,7 @@ async def run_job(
         tiles,
     )
     metrics.update(speaker_metrics(diar, purity, qas, refs))
+    metrics.update(level_stats)
     metrics["address_flagged"] = len(addr)
     result = JobResult(
         job_id=job_id,

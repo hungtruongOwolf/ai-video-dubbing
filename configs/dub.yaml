@@ -32,6 +32,9 @@ qa:
 mix:
   bed_gain_db: 0.0
   loudness_lufs: -16.0
+  match_level: true             # each line at the level of the original line (ops/level.py)
+  level_max_dev_db: 10.0        # original level, at most this far from the speaker's median
+  level_max_gain_db: 24.0       # the overall voice offset; per-line changes are bounded above
 
 translate:
   window_units: 12             # units per LLM call

@@ -70,6 +70,8 @@ def mix_tile(req: TileReq, cas: CAS) -> Tile:
         if csr != SR:
             raise ValueError(f"Clip {p.unit_id} must be 48 kHz, got {csr}")
         mono = _fade(clip.mean(axis=1))
+        if p.gain_db:
+            mono = mono * np.float32(10 ** (p.gain_db / 20))
         c0 = int(p.start_ms * SR / 1000)  # clip start on the timeline
         a, b = max(c0, t0), min(c0 + len(mono), t1)  # overlap with the tile
         if b > a:

@@ -420,6 +420,22 @@ class Placement(Model):
     rewrites: int = 0
     flags: list[str] = Field(default_factory=list)
     audio_key: str | None = None  # time-stretched clip, ready to mix
+    gain_db: float = 0.0  # applied in the mix: the line follows the original's level
+
+
+class LevelReq(Model):
+    """Per-line gains so each dubbed line sits at the level of the original line."""
+
+    vocals_key: str  # separated vocals, 48 kHz
+    placements: list[Placement]
+    max_dev_db: float = 10.0  # original level, at most this far from the speaker's median
+    max_gain_db: float = 24.0  # a quiet original recording may need a large cut
+
+
+class LevelRes(Model):
+    gains_db: dict[str, float]  # unit id -> gain
+    src_db: dict[str, float | None]  # active level of the original line (None: silent slot)
+    dub_db: dict[str, float | None]  # active level of the TTS clip, before the gain
 
 
 class StretchReq(Model):

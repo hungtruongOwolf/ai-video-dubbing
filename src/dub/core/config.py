@@ -154,6 +154,10 @@ class QaCfg(Cfg):
 class MixCfg(Cfg):
     bed_gain_db: float = 0.0
     loudness_lufs: float = -16.0
+    # each line at the level of the original line (separated vocals), see ops/level.py
+    match_level: bool = True
+    level_max_dev_db: float = 10.0
+    level_max_gain_db: float = 24.0
 
 
 class ThroughputCfg(Cfg):
