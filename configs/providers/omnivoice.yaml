@@ -5,7 +5,7 @@ op: [tts.synthesize]
 runtime: http
 env: tts
 impl: dub.providers.tts_omnivoice:OmniVoiceTTS
-impl_version: "1"
+impl_version: "2"     # 2: per-line sampling generators (batches)
 weights: {hf: k2-fsa/OmniVoice, revision: c5fdb5ccb189668d56333f77ba2629f4cd7535f4}
 params:
   model: k2-fsa/OmniVoice
@@ -17,5 +17,5 @@ caps:
   max_out_s: 30
   needs_ref_text: false
   sample_rate: 24000
-limits: {max_concurrency: 2}
+limits: {max_concurrency: 32, max_batch: 16}   # M5: lines queued at the worker run as one batch
 description: Zero-shot voice cloning TTS with exact duration control.

@@ -37,7 +37,8 @@ class Caps(Cfg):
 
 
 class Limits(Cfg):
-    max_concurrency: int = 4
+    max_concurrency: int = 4  # calls in flight from one job (the executor's semaphore)
+    max_batch: int = 1  # worker: queued calls run together when the provider has run_batch
 
 
 class OnError(Cfg):
@@ -152,6 +153,12 @@ class MixCfg(Cfg):
     loudness_lufs: float = -16.0
 
 
+class ThroughputCfg(Cfg):
+    # Units voiced at the same time. Workers batch what is queued, so this is also the
+    # largest batch the TTS can see (with its manifest's limits.max_batch).
+    units_in_flight: int = 8
+
+
 class TranslateCfg(Cfg):
     window_units: int = 12  # units per LLM call
     context_units: int = 3  # neighbouring units sent along as context
@@ -172,6 +179,7 @@ class DubConfig(Cfg):
     qa: QaCfg = Field(default_factory=QaCfg)
     mix: MixCfg = Field(default_factory=MixCfg)
     translate: TranslateCfg = Field(default_factory=TranslateCfg)
+    throughput: ThroughputCfg = Field(default_factory=ThroughputCfg)
     defaults: dict[str, list[str]] = Field(default_factory=dict)
     routes: dict[str, list[RouteRule]] = Field(default_factory=dict)
 

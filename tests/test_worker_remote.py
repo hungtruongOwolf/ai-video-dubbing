@@ -176,3 +176,46 @@ def test_pod_config_merges_local_overrides(tmp_path):
 def test_repo_pod_config_is_valid():
     cfg = remote.PodConfig.load(Path(__file__).resolve().parents[1] / "configs")
     assert cfg.gpus and cfg.image
+
+
+def test_worker_batches_queued_calls_and_keeps_each_result(cfg, ws, monkeypatch):
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from dub.providers.fake import FakeTTS
+
+    providers = dict(cfg.providers)
+    m = providers["fake_tts"]
+    providers["fake_tts"] = m.model_copy(
+        update={"limits": m.limits.model_copy(update={"max_batch": 4})}
+    )
+    bcfg = Config(cfg.root, cfg.dub, cfg.langpacks, providers)
+    calls = []
+    original = FakeTTS.run_batch
+
+    def slow_batch(self, op, reqs, ctx):
+        calls.append(len(reqs))
+        time.sleep(0.05)
+        return original(self, op, reqs, ctx)
+
+    monkeypatch.setattr(FakeTTS, "run_batch", slow_batch)
+    single = FakeTTS.op_tts_synthesize
+
+    def slow_single(self, req, ctx):
+        time.sleep(0.05)  # the first call keeps the runner busy while the others queue
+        return single(self, req, ctx)
+
+    monkeypatch.setattr(FakeTTS, "op_tts_synthesize", slow_single)
+    state = WorkerState("fx", ["fake_tts"], bcfg, ws.cas)
+    reqs = [SynthReq(unit_id=f"u{i}", text="xin chào", lang="vi", speaker="S1", target_ms=500 + i)
+            for i in range(9)]  # fmt: skip
+    with ThreadPoolExecutor(9) as pool:
+        out = list(pool.map(lambda r: state.submit("fake_tts", "tts.synthesize", {}, r), reqs))
+    assert [r.unit_id for r in out] == [f"u{i}" for i in range(9)]
+    assert [r.dur_ms for r in out] == [500 + i for i in range(9)]
+    assert sum(state.batches) == 9 and max(state.batches) > 1 and max(state.batches) <= 4
+    assert calls and all(n > 1 for n in calls)
+    # different params never share a batch
+    with ThreadPoolExecutor(4) as pool:
+        list(pool.map(lambda i: state.submit("fake_tts", "tts.synthesize", {"x": i % 2}, reqs[i]),
+                      range(4)))  # fmt: skip

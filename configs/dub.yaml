@@ -37,6 +37,11 @@ translate:
   window_units: 12             # units per LLM call
   context_units: 3             # neighbouring units sent as context
 
+# M5: units voiced at the same time. The GPU workers batch whatever is queued (continuous
+# batching, up to each manifest's limits.max_batch), so this also bounds the TTS batch.
+throughput:
+  units_in_flight: 8
+
 # Used when no rule matches and the langpack has no chain for the op.
 # Real speech models arrive in M1; until then use --fake for those ops.
 defaults:

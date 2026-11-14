@@ -238,6 +238,10 @@ class FakeMT(_Base):
 
 
 class FakeTTS(_Base):
+    def run_batch(self, op, reqs, ctx: RunCtx) -> list:
+        """Batched calls (worker continuous batching): same results as one by one."""
+        return [self.run(op, r, ctx) for r in reqs]
+
     def op_tts_synthesize(self, req: SynthReq, ctx: RunCtx) -> SynthRes:
         sr = 48000
         if req.target_ms:

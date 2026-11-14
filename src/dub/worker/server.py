@@ -7,9 +7,12 @@ network volume, and the pod server starts one worker per env:
     <venv>/bin/python -m dub.worker --env tts --port 7103 --providers omnivoice \
         --workspace /workspace/dub/ws --config-dir /workspace/dub/repo/configs
 
-Models load once, on first use (or with --preload), and stay resident in VRAM. Calls to the
-same worker are serialised with a lock: one GPU, one model run at a time. Batching across
-calls is milestone M5.
+Models load once, on first use (or with --preload), and stay resident in VRAM. One thread
+runs the models (one GPU, one model run at a time); HTTP handler threads queue calls for it.
+Continuous batching (M5): when the runner frees up, it takes the first queued call and every
+other queued call with the same provider, op and params, up to the manifest's
+`limits.max_batch`, and runs them in one `run_batch` call if the provider has one. Nothing
+waits for a batch to fill: an idle worker runs a lone call at once.
 """
 
 from __future__ import annotations
@@ -33,6 +36,17 @@ from dub.core.provider_api import ProviderError, RunCtx
 from dub.store.cas import CAS
 
 
+class _Task:
+    __slots__ = ("pid", "op", "params", "pkey", "req", "done", "result", "error")
+
+    def __init__(self, pid: str, op: str, params: dict[str, Any], req: Any):
+        self.pid, self.op, self.params, self.req = pid, op, params, req
+        self.pkey = json.dumps(params, sort_keys=True, default=str)
+        self.done = threading.Event()
+        self.result: Any = None
+        self.error: BaseException | None = None
+
+
 class WorkerState:
     def __init__(self, env: str, providers: list[str], cfg: Config, cas: CAS):
         unknown = [p for p in providers if p not in cfg.providers]
@@ -44,6 +58,73 @@ class WorkerState:
         self.cas = cas
         self.instances: dict[str, Any] = {}
         self.lock = threading.Lock()
+        self.queue: list[_Task] = []
+        self.cv = threading.Condition()
+        self.batches: list[int] = []  # sizes of the batches run (health, tests)
+        self._runner: threading.Thread | None = None
+
+    # ------------------------------------------------------------ the model runner
+    def submit(self, pid: str, op: str, params: dict[str, Any], req: Any) -> Any:
+        """Queue one call for the runner thread and wait for its result."""
+        task = _Task(pid, op, params, req)
+        with self.cv:
+            if self._runner is None:
+                self._runner = threading.Thread(target=self._loop, daemon=True)
+                self._runner.start()
+            self.queue.append(task)
+            self.cv.notify()
+        task.done.wait()
+        if task.error is not None:
+            raise task.error
+        return task.result
+
+    def _take(self) -> list[_Task]:
+        with self.cv:
+            while not self.queue:
+                self.cv.wait()
+            first = self.queue.pop(0)
+            limit = self.cfg.providers[first.pid].limits.max_batch
+            batch, rest = [first], []
+            for t in self.queue:
+                same = (t.pid, t.op, t.pkey) == (first.pid, first.op, first.pkey)
+                (batch if same and len(batch) < limit else rest).append(t)
+            self.queue[:] = rest
+            return batch
+
+    def _loop(self) -> None:
+        while True:
+            batch = self._take()
+            try:
+                self._execute(batch)
+            finally:
+                for t in batch:
+                    t.done.set()
+
+    def _execute(self, batch: list[_Task]) -> None:
+        first = batch[0]
+        try:
+            with self.lock:
+                inst = self.instance(first.pid)
+        except BaseException as e:  # noqa: BLE001 - a failed load fails every queued call
+            for t in batch:
+                t.error = e
+            return
+        self.batches.append(len(batch))
+        if len(batch) > 1 and hasattr(inst, "run_batch"):
+            try:
+                results = inst.run_batch(
+                    first.op, [t.req for t in batch], self.ctx(first.pid, first.params)
+                )
+                for t, r in zip(batch, results, strict=True):
+                    t.result = r
+                return
+            except Exception:  # noqa: BLE001 - retry one by one: one bad call fails alone
+                traceback.print_exc()
+        for t in batch:
+            try:
+                t.result = inst.run(t.op, t.req, self.ctx(t.pid, t.params))
+            except BaseException as e:  # noqa: BLE001 - reported to that caller
+                t.error = e
 
     def ctx(self, pid: str, params: dict[str, Any]) -> RunCtx:
         return RunCtx(
@@ -132,8 +213,7 @@ def make_handler(state: WorkerState):
                 return self._error(400, "bad_input", f"invalid request: {e}")
             params = body.get("params") or {}
             try:
-                with state.lock:
-                    res = state.instance(pid).run(op, req, state.ctx(pid, params))
+                res = state.submit(pid, op, params, req)
             except ProviderError as e:
                 return self._error(500, e.kind, str(e), e.retryable)
             except Exception as e:  # noqa: BLE001

@@ -160,12 +160,29 @@ class EcapaSpeaker:
         ]  # fmt: skip
         return diar_ops.resegment(pieces, piece_labels, coarse_named)
 
-    def _op_embed(self, req: EmbedReq, ctx: RunCtx) -> Embeddings:
+    @staticmethod
+    def _chunks(req: EmbedReq, ctx: RunCtx) -> list:
         mono = _mono16(ctx.cas.path(req.audio_key))
         spans = req.spans or [(0, round(len(mono) * 1000 / SR))]
-        chunks = [mono[s * SR // 1000 : max(e * SR // 1000, s * SR // 1000 + 1)] for s, e in spans]
-        vecs = self.embed(chunks)
-        return Embeddings(vectors=[[round(float(v), 4) for v in row] for row in vecs])
+        return [mono[s * SR // 1000 : max(e * SR // 1000, s * SR // 1000 + 1)] for s, e in spans]
+
+    def _op_embed(self, req: EmbedReq, ctx: RunCtx) -> Embeddings:
+        return self.run_batch("audio.embed", [req], ctx)[0]
+
+    def run_batch(self, op: str, reqs: list, ctx: RunCtx) -> list:
+        """Queued embedding calls (QA takes) share the GPU batches of `embed`."""
+        if op != "audio.embed":
+            return [self.run(op, r, ctx) for r in reqs]
+        if self.enc is None:
+            self.load(ctx)
+        per = [self._chunks(r, ctx) for r in reqs]
+        vecs = self.embed([c for chunks in per for c in chunks])
+        out, i = [], 0
+        for chunks in per:
+            rows = vecs[i : i + len(chunks)]
+            i += len(chunks)
+            out.append(Embeddings(vectors=[[round(float(v), 4) for v in row] for row in rows]))
+        return out
 
     def _op_diarize(self, req: DiarizeReq, ctx: RunCtx) -> Diarization:
         from scipy.cluster.hierarchy import fcluster, linkage

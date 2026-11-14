@@ -95,8 +95,6 @@ from dub.ops.timing import (
 )
 from dub.store import Workspace
 
-UNIT_CONCURRENCY = 8
-
 
 @dataclass
 class JobSpec:
@@ -442,7 +440,7 @@ async def run_job(
     engine = media_ops.stretch_engine()
     if not spec.subs_only:
         stage(f"[6/7] voicing and fitting {len(units)} units")
-        sem = asyncio.Semaphore(UNIT_CONCURRENCY)
+        sem = asyncio.Semaphore(cfg.dub.throughput.units_in_flight)
 
         def neighbor(u: Unit, other: Unit, gap: int) -> Neighbor:
             return Neighbor(

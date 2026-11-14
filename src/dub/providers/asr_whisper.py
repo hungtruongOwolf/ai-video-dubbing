@@ -8,6 +8,10 @@ Two ops share the model:
 - asr.backcheck: one dubbed clip (target language). Its words time the subtitles of the
   dub and give the line's CER. It never sees the expected text.
 
+Batches (M5): queued back-checks are concatenated with short silences and decoded together
+by faster-whisper's BatchedInferencePipeline, one clip per `clip_timestamps` entry; the words
+are then split back by time.
+
 Manifest params:
     model:        Hugging Face repo id of a CTranslate2 model
     revision:     commit to pin (weights_rev in the cache key)
@@ -27,11 +31,15 @@ from dub.core.config import ProviderManifest
 from dub.core.provider_api import ProviderError, RunCtx
 from dub.ops.audio_io import read_wav
 
+GAP_S = 0.5  # silence between the clips of a batched back-check
+MAX_BATCH_S = 28.0  # a clip longer than this is checked on its own (Whisper's window is 30 s)
+
 
 class FasterWhisperASR:
     def __init__(self, manifest: ProviderManifest):
         self.manifest = manifest
         self.model: Any = None
+        self.batched: Any = None
 
     def load(self, ctx: RunCtx) -> None:
         from faster_whisper import WhisperModel
@@ -86,3 +94,63 @@ class FasterWhisperASR:
                         )
                     )
         return WordTimeline(lang=lang or info.language, words=words)
+
+    def run_batch(self, op: str, reqs: list[TranscribeReq], ctx: RunCtx) -> list[WordTimeline]:
+        if op != "asr.backcheck" or len(reqs) < 2:
+            return [self.run(op, r, ctx) for r in reqs]
+        if self.model is None:
+            self.load(ctx)
+        import numpy as np
+        from faster_whisper import BatchedInferencePipeline
+
+        if self.batched is None:
+            self.batched = BatchedInferencePipeline(self.model)
+        p = ctx.params
+        out: list[WordTimeline | None] = [None] * len(reqs)
+        groups: dict[str | None, list[int]] = {}
+        clips: dict[int, np.ndarray] = {}
+        for i, r in enumerate(reqs):
+            audio, sr = read_wav(ctx.cas.path(r.audio_key))
+            mono = audio.mean(axis=1).astype(np.float32)
+            if sr != 16000 or len(mono) / 16000 > MAX_BATCH_S or r.clips:
+                out[i] = self.run(op, r, ctx)
+                continue
+            clips[i] = mono
+            lang = p.get("language") or (None if r.lang in ("", "auto") else r.lang)
+            groups.setdefault(lang, []).append(i)
+        gap = np.zeros(int(GAP_S * 16000), dtype=np.float32)
+        for lang, idx in groups.items():
+            parts, spans, t = [], [], 0.0
+            for i in idx:
+                d = len(clips[i]) / 16000
+                parts += [clips[i], gap]
+                spans.append((t, t + d))
+                t += d + GAP_S
+            segments, info = self.batched.transcribe(
+                np.concatenate(parts),
+                language=lang,
+                word_timestamps=True,
+                clip_timestamps=[{"start": s0, "end": s1} for s0, s1 in spans],
+                batch_size=min(16, len(idx)),
+                beam_size=int(p.get("beam_size", 5)),
+            )
+            per: list[list[Word]] = [[] for _ in idx]
+            for seg in segments:
+                for w in seg.words or []:
+                    text = w.word.strip()
+                    if not text:
+                        continue
+                    k = next((j for j, (s0, s1) in enumerate(spans)
+                              if w.start < s1 + GAP_S / 2), len(spans) - 1)  # fmt: skip
+                    s0 = spans[k][0]
+                    words = per[k]
+                    words.append(Word(
+                        w=text,
+                        start_ms=max(0, round((w.start - s0) * 1000)),
+                        end_ms=max(0, round((w.end - s0) * 1000)),
+                        conf=round(float(w.probability), 3),
+                        space_before=bool(words) and w.word[:1].isspace(),
+                    ))  # fmt: skip
+            for j, i in enumerate(idx):
+                out[i] = WordTimeline(lang=lang or info.language, words=per[j])
+        return [o for o in out if o is not None]

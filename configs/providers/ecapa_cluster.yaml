@@ -13,6 +13,6 @@ params:
   min_share: 0.05              # E8: a cluster under 5% of the speech joins its nearest speaker
   win_ms: 1500
   hop_ms: 750
-limits: {max_concurrency: 1}
+limits: {max_concurrency: 32, max_batch: 32}
 license: Apache-2.0
 description: Who speaks when (VAD windows + ECAPA embeddings + agglomerative clustering), and speaker similarity for QA.
