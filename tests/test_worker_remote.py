@@ -254,7 +254,12 @@ def test_worker_offloads_models_that_can_and_restores_them_on_the_next_call(cfg,
 def test_remote_gc_runs_in_the_background_and_reports(dubd, tmp_path, monkeypatch):
     url, srv = dubd
     monkeypatch.setattr(remote.time, "sleep", lambda s: None)
+    import os
+    import time as _time
+
     orphan = srv.ws.cas.put_bytes(b"nobody points to me", ".bin")
+    old = _time.time() - 60  # a fresh file's mtime can be a few ms ahead of time.time()
+    os.utime(srv.ws.cas.path(orphan), (old, old))
     rep = remote.Dubd(url, "t" * 24).gc(min_age_s=0)
     assert rep["deleted"] >= 1 and not srv.ws.cas.exists(orphan)
     assert srv.gc_state["status"] == "done"
