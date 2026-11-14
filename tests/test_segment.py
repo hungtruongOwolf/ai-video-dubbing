@@ -175,3 +175,19 @@ def test_a_stray_word_of_another_speaker_is_given_back():
     assert [w.speaker for w in smooth_speakers(ws)] == ["S1"] * 6
     long = [w.model_copy(update={"speaker": "S2"}) if 1 <= i <= 4 else w for i, w in enumerate(ws)]
     assert [w.speaker for w in smooth_speakers(long)][1:5] == ["S2"] * 4  # a real turn stays
+
+
+def test_an_early_first_word_goes_with_its_phrase_not_the_previous_speaker():
+    from dub.ops.segment import assign_speakers
+
+    turns = [
+        Turn(speaker="S1", start_ms=0, end_ms=2000),
+        Turn(speaker="S2", start_ms=2450, end_ms=4500),
+    ]
+    ws = [
+        Word(w="promises.", start_ms=1500, end_ms=1990),
+        Word(w="Dad,", start_ms=2050, end_ms=2400),  # timed early: all of it in the pause
+        Word(w="you", start_ms=2420, end_ms=2600),
+        Word(w="spoil", start_ms=2600, end_ms=3000),
+    ]
+    assert [w.speaker for w in assign_speakers(ws, turns)] == ["S1", "S2", "S2", "S2"]

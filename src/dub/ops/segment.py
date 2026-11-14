@@ -117,23 +117,42 @@ def rule_probs(words: list[str]) -> list[float]:
     return out
 
 
-def assign_speakers(words: list[Word], turns: list[Turn]) -> list[Word]:
-    """Give each word the speaker of the turn it overlaps most (or the nearest turn)."""
+def assign_speakers(words: list[Word], turns: list[Turn], anchor: float = 0.3) -> list[Word]:
+    """Give each word the speaker of the turn it overlaps most.
+
+    A word that does not sit in a turn (overlap under `anchor` of its length) takes the speaker
+    of the closer of its two anchored neighbour words, measured end to start. Whisper times
+    the first word of a phrase early, into the pause before it: "Dad, you spoil her" put "Dad"
+    in the silence right after the previous speaker, and the nearest TURN was the wrong one.
+    The nearest WORD ("you") is not.
+    """
     if not turns:
         return [w.model_copy(update={"speaker": w.speaker or "S1"}) for w in words]
-    out = []
+    spk: list[str | None] = []
     for w in words:
-        best, best_ov, best_dist = None, 0, INF
+        best, best_ov = None, 0
         for t in turns:
             ov = min(w.end_ms, t.end_ms) - max(w.start_ms, t.start_ms)
             if ov > best_ov:
                 best, best_ov = t.speaker, ov
-            elif best_ov == 0:
-                dist = max(t.start_ms - w.end_ms, w.start_ms - t.end_ms)
-                if dist < best_dist:
-                    best, best_dist = t.speaker, dist
-        out.append(w.model_copy(update={"speaker": best}))
-    return out
+        dur = max(w.end_ms - w.start_ms, 1)
+        spk.append(best if best_ov >= anchor * dur else None)
+    for i, w in enumerate(words):
+        if spk[i] is not None:
+            continue
+        prev = next((j for j in range(i - 1, -1, -1) if spk[j] is not None), None)
+        nxt = next((j for j in range(i + 1, len(words)) if spk[j] is not None), None)
+        gap_prev = w.start_ms - words[prev].end_ms if prev is not None else None
+        gap_next = words[nxt].start_ms - w.end_ms if nxt is not None else None
+        if gap_next is not None and (gap_prev is None or gap_next < gap_prev):
+            spk[i] = spk[nxt]
+        elif gap_prev is not None:
+            spk[i] = spk[prev]
+        else:  # no anchored word at all: the nearest turn
+            spk[i] = min(
+                turns, key=lambda t: max(t.start_ms - w.end_ms, w.start_ms - t.end_ms)
+            ).speaker
+    return [w.model_copy(update={"speaker": s_}) for w, s_ in zip(words, spk, strict=True)]
 
 
 def smooth_speakers(words: list[Word], max_ms: int = 600, max_words: int = 2) -> list[Word]:
