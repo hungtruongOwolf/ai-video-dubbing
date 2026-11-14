@@ -33,9 +33,10 @@ CJK = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")
 
 
 def main() -> None:
-    from dub.contracts.v1 import AudioReq, TrimReq
+    from dub.contracts.v1 import AudioReq, TrimReq, Word
     from dub.ops import media
     from dub.ops.align import cer
+    from dub.ops.qa import plausible
     from dub.ops.refs import cos_sim
     from dub.store import Workspace
 
@@ -68,9 +69,11 @@ def main() -> None:
         vi = run_worker(
             "asr", "phowhisper_large_ct2", "asr.backcheck", {"audio_key": k16, "lang": "vi"}
         )
+        kept = plausible([Word.model_validate(w) for w in vi["words"]], tr.dur_ms, text,
+                         "syllable", " ")  # fmt: skip
         return {
             "foreign": lid.get("lang") == a.src or bool(CJK.search(heard)),
-            "cer": cer(text, " ".join(w["w"] for w in vi["words"])),
+            "cer": min(1.0, cer(text, " ".join(w.w for w in kept))),
             "sim": cos_sim(embed(tr.audio_key), ref_vec[spk]),
         }
 
