@@ -60,6 +60,7 @@ LANES = {
     "mt.context": "llm",
     "mt.translate": "llm",
     "mt.rewrite": "llm",
+    "text.speakers": "llm",
     "tts.synthesize": "gpu · tts",
 }
 

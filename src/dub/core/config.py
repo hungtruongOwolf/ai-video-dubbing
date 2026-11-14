@@ -215,6 +215,7 @@ SOURCE_SIDE_OPS = {
     "asr.align",
     "audio.diarize",
     "text.boundaries",
+    "text.speakers",
 }
 # An op without its own chain in a langpack or in `defaults:` uses the chain of this op.
 CHAIN_FALLBACK = {"asr.backcheck": "asr.transcribe"}

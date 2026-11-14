@@ -724,6 +724,10 @@ ALL_MODELS: list[type[BaseModel]] = [
     VoiceRef,
     RefBank,
     EncodeReq,
+    SpeakerLine,
+    SpeakersReq,
+    Character,
+    Attribution,
 ]
 
 
@@ -733,6 +737,7 @@ OPS: dict[str, tuple[type[BaseModel], type[BaseModel]]] = {
     "asr.transcribe": (TranscribeReq, WordTimeline),
     "asr.backcheck": (TranscribeReq, WordTimeline),
     "text.boundaries": (BoundaryReq, Boundaries),
+    "text.speakers": (SpeakersReq, Attribution),
     "audio.diarize": (DiarizeReq, Diarization),
     "audio.embed": (EmbedReq, Embeddings),
     "audio.voice_profile": (VoiceProfileReq, VoiceProfiles),

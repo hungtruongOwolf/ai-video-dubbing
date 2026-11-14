@@ -61,3 +61,21 @@ def test_langpacks_are_complete(cfg):
 def test_contracts_export_json_schema():
     for model in ALL_MODELS:
         assert model.model_json_schema()["type"] == "object"
+
+
+def test_every_model_op_the_pipeline_calls_is_registered():
+    """cx.call looks the result type up in contracts OPS: an op missing there fails at run
+    time only (text.speakers did, on the pod)."""
+    import re
+    from pathlib import Path
+
+    from dub.contracts.v1 import OPS
+    from dub.core.config import load_config
+
+    src = (Path(__file__).parents[1] / "src/dub/core/pipeline.py").read_text(encoding="utf-8")
+    called = set(re.findall(r'cx\.call\(\s*"([a-z_]+\.[a-z_]+)"', src))
+    assert "text.speakers" in called
+    assert called <= set(OPS), called - set(OPS)
+    cfg = load_config()
+    for m in cfg.providers.values():  # every op a manifest declares has a contract
+        assert set(m.op) <= set(OPS) | {"asr.align"}, (m.id, set(m.op) - set(OPS))
