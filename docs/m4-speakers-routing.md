@@ -193,7 +193,7 @@ seed 0, OmniVoice at the pipeline's length (4.7 syllables/s), VieNeu free-runnin
 | GPU memory | ~5 GB (with SaT and ECAPA) | ~1.1 GB |
 
 By voice (E2, accent and timbre across languages): OmniVoice's similarity ranges from 0.40
-(English female) to 0.71 (English male "town"); VieNeu is flatter (0.47–0.60). The Chinese
+(`en_f`, F5-TTS `basic_ref_en`) to 0.71 (`town_m`); VieNeu is flatter (0.47–0.60). The Chinese
 reference gives both engines their lowest UTMOS (2.75 / 2.93).
 
 How each fails: OmniVoice mispronounces foreign names ("Sturridge" → "Stewart",
@@ -227,6 +227,23 @@ Switching engines is one line in `configs/langpacks/vi.yaml`
 (`tts.synthesize: [vieneu_v3_turbo, omnivoice]`) plus `status: active` in its manifest, or
 `--use tts.synthesize=vieneu_v3_turbo` for one run. Not done: blind A/B listening tests.
 
+## Voice hints for the cast sheet (added after M4)
+
+The cast-sheet pass always had a slot for what the voice says ("voice hints, weak
+evidence"); nothing filled it. `audio.voice_profile` (`voice_agender`: audeering's
+wav2vec2-large-robust-24-ft-age-gender, CC BY-NC-SA 4.0, non-commercial) now reads up to five
+clean lines per speaker (one voice, 2-15 s) and gives an age and female/male/child
+probabilities; the hint is "unknown" below 0.7 confidence. `cast.md` shows it next to the
+LLM's verdict.
+
+Drama (cloned voices, en): S1 female (1.00), S2 male (1.00), S4 male (1.00): the three
+voices whose gender is known. All four came out "adult", which is what the cloned voices
+are; the cast sheet still made Amy a child and Grandpa a senior from the dialogue, the order
+of evidence the prompt asks for. On the reference clips themselves the model also heard
+`country_m`, `town_m` male and `main_f` female, but `en_f` (F5-TTS `basic_ref_en`) male (0.997,
+~69 years) and the Chinese clip male (0.78): those two labels were assumptions in the E1 and
+drama scripts and were never checked by listening.
+
 ## The 50 GB volume, again
 
 Installing the second TTS engine (its own env: VieNeu pins transformers 4.57, OmniVoice needs
@@ -241,8 +258,7 @@ install time (first imports otherwise wrote thousands of `.pyc` files to the net
 
 ## Not done in M4
 
-- **Voice age/gender model** as cast-sheet evidence (the plan named an audeering model): not
-  built. Gender and age still come from the dialogue (the LLM) and from the user.
+- **Voice age/gender model** as cast-sheet evidence: built after M6 (see "Voice hints" above).
 - **Blind A/B listening tests**: not run. E1 compares engines with automatic measures only.
 - **Local reference clips** (a reference per line instead of per speaker): not built; one
   typical clip per speaker passed QA on 97.8% of the drama's lines.

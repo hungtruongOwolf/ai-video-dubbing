@@ -140,7 +140,7 @@ First boot on an empty volume, from pod creation to all workers ready: about 5 m
 - SaT runs in the `tts` env: the 50 GB volume could not hold a third copy of torch.
 - Rates are per language (for OmniVoice), not per voice: a cloning TTS gives no natural
   target-language speech of the voice to learn from.
-- E6 (ASR per source language) moved to M4; an LLM arm for E4 was not run.
+- E6 (ASR per source language) moved to M4. The LLM arm of E4 ran after M6: SaT stays (0.805 against 0.72-0.74 for the LLM on the 11 videos).
 - Edit → render p50 went from 2.3 s to 3.3 s: the back-check and subtitle timing of the edited
   line (`backcheck: false` to skip).
 - The volume quota counts hardlinks: the uv cache moved to the container disk; `dub gc` added.
@@ -159,7 +159,7 @@ Details: [m3-segmentation-timing.md](m3-segmentation-timing.md).
 - [x] QA gate: ASR back-check, speaker similarity (relative to the speaker's own lines), truncation; deterministic k-best takes (`final`: 3)
 - [x] Second TTS engine: VieNeu-TTS v3 Turbo (`tts2` env); E1 against OmniVoice
 - [x] E6: ASR per source language, mix vs vocals
-- [ ] Voice age/gender model as cast-sheet evidence: **not done** (the cast sheet still relies on the LLM and the user)
+- [x] Voice age/gender model as cast-sheet evidence: added after M6 (`audio.voice_profile`, audeering wav2vec2, shown in `cast.md`)
 - [ ] Blind A/B experiments: **not done** (E1 uses automatic measures: CER, speaker similarity, UTMOS)
 
 **Exit criteria:**

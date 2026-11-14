@@ -119,6 +119,30 @@ Two fixes came out of this, and are in the numbers above:
 - punctuation an ASR glued to the start of the next word moves back ("toan .đặc" →
   "toan. đặc"): the Phổ Lại documentary went 0.531 → 0.627, the 1945 recording 0.717 → 0.766.
 
+### LLM arm (added after M6)
+
+**Question:** does an LLM place sentence ends better than SaT on real ASR output? `claude_cli`
+now serves `text.boundaries`: the ASR words with their indices (optionally with the pauses
+above 0.5 s marked), in windows with context; Claude returns the indices of the words that
+end a sentence (prompt `configs/prompts/text_boundaries.v1.md`). Same 11 videos, same code,
+F1 at ±1 word (`real_videos.py run --use text.boundaries=claude_cli`):
+
+| Language | SaT | LLM, 400-word windows, pauses | LLM, no pauses | LLM, 120-word windows |
+|---|---|---|---|---|
+| en (3) | 0.843 | **0.864** | 0.859 | 0.850 |
+| es (2) | **0.833** | 0.787 | 0.798 | 0.783 |
+| vi (2) | **0.697** | 0.431 | 0.462 | 0.482 |
+| zh (2) | **0.800** | 0.785 | 0.633 | 0.727 |
+| ja (2) | **0.833** | 0.784 | 0.777 | 0.733 |
+| all 11 | **0.805** | 0.742 | 0.720 | 0.727 |
+
+**Decision: SaT stays.** The LLM gains ~0.02 in English only and loses elsewhere, most of all
+on Vietnamese, where PhoWhisper's text has no punctuation and many recognition errors: its
+sentences read plausibly but end in other places than the subtitles' (0.52 even on a split
+that looked right when read). Its answers also change from call to call (the same window gave
+different ends in two calls), and it costs a Claude call per window. Pause marks did not help:
+the 1945 orator pauses inside sentences. The provider stays available for experiments.
+
 ## Slot onsets (timing)
 
 A test clip with known line onsets (two Windows SAPI voices with a music bed, 10 lines; the

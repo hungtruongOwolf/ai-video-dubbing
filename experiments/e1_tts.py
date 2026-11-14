@@ -2,7 +2,7 @@
 
 OmniVoice (incumbent; exact length at the vi natural rate) against VieNeu-TTS v3 Turbo
 (free-running), on the same lines and voices:
-- 5 reference voices, none Vietnamese (the drama's four F5-TTS voices and an English female
+- 5 reference voices, none Vietnamese (the drama's four F5-TTS voices and F5-TTS's English
   voice): the dubbing situation, where the reference is the original speaker (E2: accent
   and timbre carry-over across languages);
 - 12 mid-length Vietnamese NTREX sentences.
