@@ -60,7 +60,7 @@ subtitle layout. It also failed 18 back-checks: CUDA out of memory, four workers
 | draft, before M5 | 801 s (13.4 min) | 4.5× real time | 51% |
 | draft, batching (voicing ahead redone by mistake: 836 syntheses) | 637 s | 5.7× | 77% |
 | draft, M5 (LLM 4 in flight) | 470 s (7.8 min) | 7.7× | 73% |
-| draft, M5 final settings (LLM 8, separation batch 8, faster subtitles) | **473 s (7.9 min)** | 7.6× | 73% |
+| draft, M5 final settings (LLM 8, faster subtitles) | **473 s (7.9 min)** | 7.6× | 73% |
 | final, M5 | **844 s (14.1 min)** | 4.3× | **81%** |
 
 Draft, M5 final settings, by stage: separate ∥ transcribe 179 s · who speaks 10 s · cast
@@ -131,6 +131,11 @@ Kept sequential (`batch_size: 0`); batching stays for back-checks, which never f
 segmentation. In the pipeline the ASR runs next to the separation anyway, and the separation
 (155 s alone) sets the stage's length.
 
-**Separation batch size (kept).** The Mel-Band RoFormer runs its chunks one per forward pass
-by default. With `batch_size: 8` the hour separates in 117.5 s instead of 155.4 s (4: 140.1 s),
-with bit-identical vocals (maximum difference 0.0 over a 60 s excerpt).
+**Separation batch size: a wrong conclusion, corrected.** A first measurement gave 155.4 s
+(default), 140.1 s (`batch_size` 4) and 117.5 s (8) for the hour, with bit-identical vocals,
+and `batch_size: 8` was kept. The code review after M6 found why the vocals were identical:
+audio-separator 0.48 ignores `batch_size` for RoFormer models (`mdxc_separator.py`: "not
+utilized due to negligible performance improvements"). The differences were run-to-run
+variation (each setting reloaded the model; the first run after a worker restart was the
+slowest). The setting is removed; separation precision and sample rate are measured in the
+post-M6 notes instead.
