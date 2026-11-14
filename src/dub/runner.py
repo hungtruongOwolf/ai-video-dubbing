@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from dub import laptop
-from dub.contracts.v1 import Word
+from dub.contracts.v1 import HardsubCue, Word
 from dub.core.config import default_config_dir, load_config
 from dub.core.pipeline import JobSpec, parse_params, run_job
 from dub.edits import EditStore
@@ -38,6 +38,7 @@ class RunOptions:
     confirm_cast: bool = False  # stop after the cast sheet (dub run --confirm-cast)
     fresh: bool = False  # ignore the cache (benchmarks)
     keep_original_audio: bool = False  # the original language as a second audio track
+    hardsubs: bool = True  # read subtitles burned into the picture (Chinese sources)
     config_dir: Path | None = None
 
 
@@ -98,6 +99,27 @@ def transcript_key_for(ws: Workspace, opts: RunOptions, log: Callable[[str], Non
     return ws.cas.put_text(json.dumps(data, ensure_ascii=False, sort_keys=True), ".json")
 
 
+HARDSUB_LANGS = {"auto", "zh", "yue", "cmn"}  # the OCR model reads Chinese (and Latin letters)
+HARDSUB_VERSION = 1
+
+
+def hardsubs_for(ws: Workspace, opts: RunOptions, audio_key: str, log) -> list[HardsubCue]:
+    """Burned-in subtitles of the video, read once and cached in the workspace."""
+    if not opts.hardsubs or opts.fake or opts.src.split("-")[0] not in HARDSUB_LANGS:
+        return []
+    cache = ws.root / "hardsubs" / f"{Path(audio_key).stem}.v{HARDSUB_VERSION}.json"
+    if cache.exists():
+        return [HardsubCue.model_validate(c) for c in json.loads(cache.read_text("utf-8"))]
+    from dub import hardsubs_ocr
+
+    if not hardsubs_ocr.available():
+        return []
+    cues = hardsubs_ocr.burned_subtitles(opts.video.resolve(), log=log)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps([c.model_dump() for c in cues], ensure_ascii=False), "utf-8")
+    return cues
+
+
 def run_video(opts: RunOptions, ws: Workspace, log: Callable[[str], None] = print) -> RunOutput:
     video = opts.video.resolve()
     audio_key = audio_key_for(ws, video, log)
@@ -108,6 +130,7 @@ def run_video(opts: RunOptions, ws: Workspace, log: Callable[[str], None] = prin
         speakers_hint=opts.speakers, subs_only=opts.subs_only, edits=edits, export=opts.export,
         analysis_only=opts.analysis_only, confirm_cast=opts.confirm_cast, fresh=opts.fresh,
         params=parse_params(opts.params),
+        hardsubs=hardsubs_for(ws, opts, audio_key, log),
     )  # fmt: skip
     if opts.remote:
         return _run_remote(opts, ws, spec, log)
@@ -152,6 +175,7 @@ def _run_remote(opts: RunOptions, ws: Workspace, spec: JobSpec, log) -> RunOutpu
         "analysis_only": spec.analysis_only, "confirm_cast": spec.confirm_cast,
         "fresh": spec.fresh, "params": spec.params,
         "edits": [e.model_dump(mode="json") for e in spec.edits],
+        "hardsubs": [c.model_dump() for c in spec.hardsubs],
     }  # fmt: skip
     if spec.transcript_key:
         body["transcript_key"] = ensure(spec.transcript_key)

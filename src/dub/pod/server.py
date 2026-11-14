@@ -41,7 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from dub.contracts.v1 import Edit
+from dub.contracts.v1 import Edit, HardsubCue
 from dub.core.config import Config, load_config
 from dub.core.ctx import OP_RESULT
 from dub.core.pipeline import JobSpec, run_job
@@ -105,6 +105,7 @@ class Jobs:
             confirm_cast=bool(body.get("confirm_cast", False)),
             fresh=bool(body.get("fresh", False)),
             params=dict(body.get("params") or {}),
+            hardsubs=[HardsubCue.model_validate(c) for c in body.get("hardsubs") or []],
         )
         overrides = overrides_for(self.cfg, list(body.get("use", [])), bool(body.get("fake")))
         job_id = uuid.uuid4().hex[:12]

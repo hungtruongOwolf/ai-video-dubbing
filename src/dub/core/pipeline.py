@@ -40,6 +40,9 @@ from dub.contracts.v1 import (
     Edit,
     Embeddings,
     EmbedReq,
+    HardsubCue,
+    HardsubFix,
+    HardsubReq,
     LineLevel,
     LineLevelReq,
     MasterReq,
@@ -85,6 +88,7 @@ from dub.core.trace import Tracer
 from dub.ops import address as address_ops
 from dub.ops import diarize as diar_ops
 from dub.ops import edits as edits_ops
+from dub.ops import hardsubs as hardsub_ops
 from dub.ops import level as level_ops
 from dub.ops import media as media_ops
 from dub.ops import mix as mix_ops
@@ -95,6 +99,7 @@ from dub.ops import segment as segment_ops
 from dub.ops import subs as subs_ops
 from dub.ops import vad as vad_ops
 from dub.ops.align import cer
+from dub.ops.script import base_lang
 from dub.ops.timing import (
     Fit,
     Neighbor,
@@ -123,6 +128,7 @@ class JobSpec:
     confirm_cast: bool = False  # stop after the cast sheet, for the user to correct it
     fresh: bool = False  # recompute every step, ignoring the cache (dub bench speed --fresh)
     params: dict[str, dict[str, Any]] = field(default_factory=dict)  # provider -> overrides
+    hardsubs: list[HardsubCue] = field(default_factory=list)  # burned-in subtitles (laptop OCR)
 
 
 @dataclass
@@ -278,6 +284,18 @@ async def run_job(
     asr_words = segment_ops.normalize_words(
         sorted((w for w in words.words if w.w.strip()), key=lambda w: (w.start_ms, w.end_ms))
     )
+    hardsub_stats: dict[str, Any] = {}
+    if spec.hardsubs and base_lang(src_lang) == "zh":  # the subtitles in the picture win
+        fix: HardsubFix = await cx.local(
+            "text.hardsubs", hardsub_ops.correct,
+            HardsubReq(lang=src_lang, words=asr_words, cues=spec.hardsubs), HardsubFix,
+            with_cas=False,
+        )  # fmt: skip
+        asr_words = fix.words
+        hardsub_stats = {"hardsub_cues": len(spec.hardsubs), "hardsub_corrected": fix.corrected,
+                         "hardsub_coverage": fix.coverage}  # fmt: skip
+        log(f"      burned-in subtitles: {fix.corrected} characters of the transcript corrected "
+            f"(the subtitles cover {fix.coverage:.0%} of the speech)")  # fmt: skip
     speech: SpeechRegions = await cx.local(
         "audio.vad",
         vad_ops.speech_regions,
@@ -320,6 +338,13 @@ async def run_job(
     for w in warnings:
         log(f"      edit skipped: {w}")
     voiced = ue.apply_to_units(units)  # speaker and slot edits
+    if hardsub_stats:  # no subtitle over a line that the subtitles would carry: not dialogue
+        auto = [uid for uid in hardsub_ops.uncaptioned(voiced, spec.hardsubs,
+                hardsub_stats["hardsub_coverage"]) if uid not in ue.dub_forced]  # fmt: skip
+        ue.original.update(auto)
+        hardsub_stats["auto_original"] = len(auto)
+        if auto:
+            log(f"      {len(auto)} lines without subtitles kept original (songs, background)")
     # Speaker embedding of every line: picks the most typical reference clip per speaker and
     # gives the QA gate each speaker's centroid. Purity: share of a line spoken by its speaker.
     emb: Embeddings = await cx.call(
@@ -338,13 +363,16 @@ async def run_job(
         refs_ops.extract_refs,
         RefsReq(
             vocals_key=stems.vocals_key,
-            units=voiced,
+            # lines kept original (a song) never give a speaker their voice
+            units=[u for u in voiced if u.id not in ue.original] or voiced,
             unit_vectors=unit_vectors,
             purity=purity,
             candidates=1 if spec.subs_only else max(1, cfg.dub.voice.audition),
         ),  # fmt: skip
         RefBank,
     )
+    if not spec.subs_only:
+        refs = await _retranscribe_refs(cx, refs, src_lang, src_lp.joiner, log)
     if edits:
         log(f"      {len(edits)} human edits applied")
     # Voice hints for the cast sheet (age, gender): weak evidence, the dialogue outranks it.
@@ -572,8 +600,18 @@ async def run_job(
     # translates the windows with problems again, telling the translator what was wrong.
     generic = {g.lower() for g in tgt_lp.address_generic}
 
+    foreign = _foreign_script(spec.tgt_lang)
+
     def address_issues() -> dict[str, str]:
         found: dict[str, str] = {}
+        for u in units:  # a TTS reads leftover source characters aloud (M8)
+            tr = translations.get(u.id)
+            if tr and u.id not in ue.text and foreign:
+                text = " ".join(v or "" for v in (tr.target, tr.short, tr.long))
+                bad = sorted(set(foreign.findall(text)))
+                if bad:
+                    found[u.id] = (f"untranslated characters {''.join(bad[:8])}: write every word "
+                                   f"in {spec.tgt_lang}, names transliterated")  # fmt: skip
         for u in units:
             tr = translations.get(u.id)
             if tr and u.id not in ue.text:
@@ -586,7 +624,8 @@ async def run_job(
                         if why not in probs:
                             probs.append(why)
                 if probs:
-                    found[u.id] = "; ".join(probs)
+                    why = "; ".join(probs)
+                    found[u.id] = f"{found[u.id]}; {why}" if u.id in found else why
         for uid, why in address_ops.listener_issues(units, translations).items():
             if uid not in ue.text:
                 found[uid] = f"{found[uid]}; {why}" if uid in found else why
@@ -942,6 +981,7 @@ async def run_job(
     )
     metrics.update(speaker_metrics(diar, purity, qas, refs))
     metrics.update(level_stats)
+    metrics.update(hardsub_stats)
     if auditions:  # how much the audition changed the voices (see _audition_voices)
         metrics["audition_switched"] = sum(1 for a in auditions if a.chosen)
         gains = [
@@ -1099,6 +1139,49 @@ def _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, units, src_lang, 
 
 
 CALIB_MAX_PAD_MS = 800
+_CJK = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯豈-﫿]")
+
+
+def _foreign_script(tgt_lang: str) -> re.Pattern | None:
+    """Characters that never belong in a line of this target language (CJK in vi, en...)."""
+    return None if base_lang(tgt_lang) in ("zh", "ja", "ko") else _CJK
+
+
+async def _retranscribe_refs(
+    cx: Ctx, refs: RefBank, lang: str, joiner: str, log: Callable[[str], None]
+) -> RefBank:
+    """Each reference's transcript, from the cut clip itself (M8).
+
+    OmniVoice is primed with the reference audio *and* its text; when they disagree (a unit's
+    text for a clip whose edges moved, or several lines joined) the clone can speak part of
+    the reference text, in the source language, inside the dub. The source ASR hears the
+    clip again; an empty result keeps the old text."""
+
+    async def one(ref: VoiceRef) -> VoiceRef:
+        clip16: AudioRes = await cx.local(
+            "audio.to_mono16k", media_ops.to_mono16k, AudioReq(audio_key=ref.audio_key),
+            AudioRes, subject=f"ref-{ref.speaker}",
+        )  # fmt: skip
+        try:
+            heard: WordTimeline = await cx.call(
+                "asr.transcribe",
+                TranscribeReq(audio_key=clip16.audio_key, lang=lang),
+                subject=f"ref-{ref.speaker}",
+            )
+        except (RoutingError, ProviderError) as e:
+            log(f"      reference of {ref.speaker}: transcript kept ({str(e)[:120]})")
+            return ref
+        text = join_words(heard.words, joiner).strip()
+        return ref.model_copy(update={"text": text}) if text else ref
+
+    new_refs = list(await asyncio.gather(*(one(r) for r in refs.refs)))
+    new_alt = list(await asyncio.gather(*(one(r) for r in refs.alternates)))
+    for old, new in zip(refs.refs, new_refs, strict=True):
+        if old.text != new.text:
+            err = cer(old.text, new.text)
+            log(f"      reference of {new.speaker}: transcript redone from the clip "
+                f"(differed from the line text by CER {err:.2f})")  # fmt: skip
+    return RefBank(refs=new_refs, alternates=new_alt)
 
 
 @dataclass

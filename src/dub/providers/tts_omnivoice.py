@@ -121,6 +121,10 @@ class OmniVoiceTTS:
             "num_step": int(p.get("num_step", 32)),
             "postprocess_output": False,  # keep the exact length we asked for
             "pad_duration": 0.0,
+            # OmniVoice fades 100 ms in and out of every take even without post-processing:
+            # on a 0.4-1.3 s line that eats the first and last phonemes (M8). The mix fades
+            # each clip by 8 ms anyway.
+            "fade_duration": float(p.get("fade_duration", 0.01)),
         }
         if any(pr is not None for pr in prompts):
             if any(pr is None for pr in prompts):  # mixed: run the two groups separately

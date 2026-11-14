@@ -205,3 +205,12 @@ def test_dub_settings_can_be_overridden_for_one_run(cfg):
         with_settings(cfg, {"voice.auditon": 1})
     with pytest.raises(ValueError, match="no section"):
         with_settings(cfg, {"vocie.audition": 1})
+
+
+def test_leftover_source_characters_are_foreign_in_a_latin_target():
+    from dub.core.pipeline import _foreign_script
+
+    vi = _foreign_script("vi")
+    assert vi.findall("Phủ 钱府 ở thành Đông") == ["钱", "府"]
+    assert not vi.findall("Phủ Tiền ở thành Đông, 3 lạng")
+    assert _foreign_script("zh") is None and _foreign_script("ja") is None

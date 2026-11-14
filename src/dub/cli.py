@@ -99,6 +99,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     r.add_argument("--out-dir", type=Path, default=None, help="default: <video folder>/<name>.dub")
     r.add_argument(
+        "--no-hardsubs",
+        action="store_true",
+        help="do not read subtitles burned into the picture (Chinese sources)",
+    )
+    r.add_argument(
         "--keep-original-audio",
         action="store_true",
         help="also keep the original language as a second audio track (default: the dub only; "
@@ -211,7 +216,8 @@ def _opts(a, **over) -> RunOptions:
         use=a.use, params=getattr(a, "param", []), transcript=getattr(a, "transcript", None),
         speakers=getattr(a, "speakers", None), subs_only=getattr(a, "subs_only", False),
         confirm_cast=getattr(a, "confirm_cast", False), config_dir=a.config_dir,
-        keep_original_audio=getattr(a, "keep_original_audio", False), **over,
+        keep_original_audio=getattr(a, "keep_original_audio", False),
+        hardsubs=not getattr(a, "no_hardsubs", False), **over,
     )  # fmt: skip
 
 

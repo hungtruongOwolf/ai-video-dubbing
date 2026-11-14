@@ -69,6 +69,30 @@ def join_words(words: list[Word], joiner: str) -> str:
     return "".join((" " if w.space_before else "") + w.w.strip() for w in words).strip()
 
 
+class HardsubCue(Model):
+    """One subtitle burned into the picture, read by OCR on the laptop (M8)."""
+
+    start_ms: int
+    end_ms: int
+    text: str
+    conf: float = 1.0
+
+
+class HardsubReq(Model):
+    lang: str
+    words: list[Word]
+    cues: list[HardsubCue]
+    min_conf: float = 0.8  # cues read less surely than this correct nothing
+
+
+class HardsubFix(Model):
+    words: list[Word]  # the ASR words, their text corrected from the cues (times unchanged)
+    corrected: int  # characters replaced or added
+    coverage: (
+        float  # share of the ASR words' time inside a cue: do the subtitles carry the dialogue?
+    )
+
+
 class TranscribeReq(Model):
     audio_key: str
     lang: str = "auto"

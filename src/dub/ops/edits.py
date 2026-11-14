@@ -117,6 +117,7 @@ class UnitEdits:
     nudge: dict[str, tuple[int, int]] = field(default_factory=dict)
     locked: set[str] = field(default_factory=set)
     original: set[str] = field(default_factory=set)  # keep the original vocals, no voice
+    dub_forced: set[str] = field(default_factory=set)  # `dub UNIT`: never kept original
 
     @classmethod
     def from_edits(cls, edits: list[Edit]) -> UnitEdits:
@@ -135,6 +136,7 @@ class UnitEdits:
                 (ue.locked.add if e.value else ue.locked.discard)(e.unit_id)
             elif e.field == "original":
                 (ue.original.add if e.value else ue.original.discard)(e.unit_id)
+                (ue.dub_forced.discard if e.value else ue.dub_forced.add)(e.unit_id)
         return ue
 
     def is_protected(self, unit_id: str) -> bool:

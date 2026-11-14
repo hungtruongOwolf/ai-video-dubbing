@@ -5,7 +5,7 @@ op: [tts.synthesize]
 runtime: http
 env: tts
 impl: dub.providers.tts_omnivoice:OmniVoiceTTS
-impl_version: "2"     # 2: per-line sampling generators (batches)
+impl_version: "3"     # 2: per-line sampling generators (batches); 3: 10 ms fades instead of 100 ms
 libs: [omnivoice, torch]
 weights: {hf: k2-fsa/OmniVoice, revision: c5fdb5ccb189668d56333f77ba2629f4cd7535f4}
 params:
