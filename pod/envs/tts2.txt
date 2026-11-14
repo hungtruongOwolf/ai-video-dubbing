@@ -4,3 +4,7 @@ vieneu[cuda]==3.8.4
 torch==2.8.0
 torchaudio==2.8.0
 transformers==4.57.6
+# The pod image sets HF_HUB_ENABLE_HF_TRANSFER=1; the huggingface_hub 0.x that transformers 4.57
+# pulls in honours it and refuses to download without this package (the 1.x of the other envs
+# ignores it).
+hf_transfer==0.1.9
