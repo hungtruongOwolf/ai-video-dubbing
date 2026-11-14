@@ -109,6 +109,11 @@ class ReviewApp:
         for row in units:
             row["nudge"] = nudges.get(row["unit"]["id"], {"start_ms": 0, "end_ms": 0})
         pending = [e for e in self.store.all() if e.id not in self.rendered_edits]
+        cast, metrics = None, {}
+        if self.out and (self.out.job_dir / "cast.json").exists():
+            cast = json.loads((self.out.job_dir / "cast.json").read_text(encoding="utf-8"))["cast"]
+        if self.out and (self.out.job_dir / "metrics.json").exists():
+            metrics = json.loads((self.out.job_dir / "metrics.json").read_text(encoding="utf-8"))
         return {
             "video": self.opts.video.name, "tgt": self.opts.tgt, "remote": self.opts.remote,
             "job": self.out.job_id if self.out else None,
@@ -116,7 +121,7 @@ class ReviewApp:
             "cache_hits": self.out.cache_hits if self.out else 0,
             "warnings": self.out.warnings if self.out else [],
             "units": units, "edits": edits, "pending": len(pending),
-            "render": self.render,
+            "render": self.render, "cast": cast, "metrics": metrics,
         }  # fmt: skip
 
     # ------------------------------------------------------------ audio

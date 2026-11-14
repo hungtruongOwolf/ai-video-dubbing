@@ -80,6 +80,7 @@
   <button id="exportBtn">Export video</button>
 </header>
 <main>
+  <details id="castbox"><summary class="tags">Cast sheet: who is who, and how they address each other (edit to correct; the lines involved are translated again)</summary><div id="cast"></div></details>
   <div id="list"><div class="empty">Rendering…</div></div>
   <details id="logbox"><summary class="tags">Render log</summary><pre class="log" id="log"></pre></details>
 </main>
@@ -98,7 +99,7 @@ const post = (url, body) => fetch(url, {method: "POST", headers: {"Content-Type"
 async function load() {
   S = await (await fetch("/api/state")).json();
   drawHeader();
-  if (!S.render.running) drawList();
+  if (!S.render.running) { drawList(); drawCast(); }
   if (S.render.running) setTimeout(load, 1000);
 }
 
@@ -178,6 +179,32 @@ function detailHtml(row) {
   </div>`;
 }
 
+function drawCast() {
+  const c = S.cast;
+  if (!c) { $("cast").innerHTML = ""; return; }
+  const sel = (id, k, opts, v) => `<select data-cast="${esc(id)}" data-k="${k}">${opts.map((o) =>
+    `<option${o === v ? " selected" : ""}>${o}</option>`).join("")}</select>`;
+  const spk = c.speakers.map((s) => `<div class="line">
+      <b>${esc(s.id)}</b>
+      <input data-cast="${esc(s.id)}" data-k="name" value="${esc(s.name || "")}" placeholder="name" size="10">
+      ${sel(s.id, "gender", ["unknown", "female", "male"], s.gender)}
+      ${sel(s.id, "age_band", ["unknown", "child", "young", "adult", "senior"], s.age_band)}
+      <input data-cast="${esc(s.id)}" data-k="role" value="${esc(s.role || "")}" placeholder="role" size="28">
+      ${s.locked ? '<span class="tags">confirmed</span>' : ""}</div>`).join("");
+  const rel = c.relations.map((r) => {
+    const a = (r.address || {})[S.tgt] || {};
+    const id = `${r.speaker}>${r.listener}`;
+    return `<div class="line"><b>${esc(r.speaker)} → ${esc(r.listener)}</b>
+      <span class="tags">${esc(r.relation || "")}</span>
+      self <input data-rel="${esc(id)}" data-k="self_term" value="${esc(a.self_term || "")}" size="6">
+      other <input data-rel="${esc(id)}" data-k="other_term" value="${esc(a.other_term || "")}" size="6"></div>`;
+  }).join("");
+  const m = S.metrics || {};
+  $("cast").innerHTML = spk + rel +
+    `<div class="tags">speakers found: ${m.speakers ?? "–"} · lines with another voice: ${m.units_impure ?? "–"} · ` +
+    `address problems left: ${m.address_flagged ?? "–"} · QA passed: ${m.qa_passed != null ? Math.round(m.qa_passed * 100) + "%" : "–"}</div>`;
+}
+
 function drawList() {
   const rows = [...S.units];
   if ($("sort").value === "risk") rows.sort((a, b) => b.risk - a.risk || a.unit.start_ms - b.unit.start_ms);
@@ -225,6 +252,15 @@ $("list").addEventListener("click", async (ev) => {
 
 $("list").addEventListener("change", (ev) => {
   if (ev.target.dataset.act === "speaker") edit(rowOf(ev.target).unit.id, "speaker", ev.target.value);
+});
+
+$("cast").addEventListener("change", (ev) => {
+  const el = ev.target, k = el.dataset.k, v = el.value.trim();
+  if (el.dataset.cast) return edit("cast", "cast", {speaker: el.dataset.cast, [k]: v});
+  if (el.dataset.rel) {
+    const [speaker, listener] = el.dataset.rel.split(">");
+    return edit("cast", "cast", {speaker, listener, lang: S.tgt, [k]: v});
+  }
 });
 
 $("sort").addEventListener("change", drawList);
