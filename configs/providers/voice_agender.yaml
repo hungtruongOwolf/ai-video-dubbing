@@ -1,0 +1,16 @@
+# Age and gender hints from the voice, for the cast sheet (weak evidence; dialogue wins).
+id: voice_agender
+op: [audio.voice_profile]
+runtime: http
+env: tts                       # torch + transformers already there
+impl: dub.providers.voice_agender:AgeGenderVoice
+impl_version: "1"
+weights: {hf: audeering/wav2vec2-large-robust-24-ft-age-gender, revision: bad2737f529168bc3d3fcd97edfaba9583c7d36d}
+preload: false                 # one call per job
+params:
+  model: audeering/wav2vec2-large-robust-24-ft-age-gender
+  revision: bad2737f529168bc3d3fcd97edfaba9583c7d36d
+  min_conf: 0.7                # below this the gender hint stays "unknown"
+limits: {max_concurrency: 1}
+license: CC-BY-NC-SA-4.0 (non-commercial)
+description: Age (years) and female/male/child probabilities per speaker (audeering, wav2vec2).

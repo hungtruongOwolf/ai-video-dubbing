@@ -144,6 +144,19 @@ class Embeddings(Model):
     vectors: list[list[float]]  # one unit vector per span
 
 
+class VoiceProfileReq(Model):
+    """Age and gender from the voice: clean spans of each speaker (one speaker per span)."""
+
+    audio_key: str  # 16 kHz vocals
+    spans: list[tuple[int, int]]  # (start_ms, end_ms)
+    speakers: list[str]  # speaker of each span
+
+
+class VoiceProfiles(Model):
+    voices: list[SpeakerVoice]  # one per speaker that had spans
+    detail: dict[str, dict[str, float]] = Field(default_factory=dict)  # speaker -> raw scores
+
+
 # ---------------------------------------------------------------- segmentation
 
 
@@ -632,6 +645,7 @@ OPS: dict[str, tuple[type[BaseModel], type[BaseModel]]] = {
     "text.boundaries": (BoundaryReq, Boundaries),
     "audio.diarize": (DiarizeReq, Diarization),
     "audio.embed": (EmbedReq, Embeddings),
+    "audio.voice_profile": (VoiceProfileReq, VoiceProfiles),
     "mt.context": (ContextReq, ContextSheet),
     "mt.translate": (TranslateReq, TranslationBatch),
     "mt.rewrite": (RewriteReq, RewriteRes),

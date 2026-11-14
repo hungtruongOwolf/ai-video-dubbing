@@ -1,0 +1,6 @@
+id: fake_voice_profile
+op: [audio.voice_profile]
+impl: dub.providers.fake:FakeVoiceProfile
+impl_version: auto
+fake: true
+description: Every speaker "unknown" (no model on the laptop).

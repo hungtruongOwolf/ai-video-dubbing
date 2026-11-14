@@ -68,6 +68,7 @@ def test_job_folder_has_review_files(demo, tmp_path):
     trace = json.loads((job / "trace.json").read_text(encoding="utf-8"))
     names = {e["name"] for e in trace["traceEvents"]}
     assert "tts.synthesize" in names and "text.segment" in names
+    assert "audio.voice_profile" in names  # voice hints for the cast sheet
     units = json.loads((job / "units.json").read_text(encoding="utf-8"))
     assert all(u["placement"]["audio_key"] for u in units)
     assert all(u["unit"]["end_ms"] - u["unit"]["start_ms"] <= 15000 for u in units)

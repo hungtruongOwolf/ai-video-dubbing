@@ -265,3 +265,10 @@ class FakeTTS(_Base):
             provider=self.manifest.id,
             exact=req.target_ms is not None,
         )
+
+
+class FakeVoiceProfile(_Base):
+    def op_audio_voice_profile(self, req, ctx: RunCtx):
+        from dub.contracts.v1 import SpeakerVoice, VoiceProfiles
+
+        return VoiceProfiles(voices=[SpeakerVoice(speaker=s) for s in sorted(set(req.speakers))])

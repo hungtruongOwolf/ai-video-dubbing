@@ -65,6 +65,8 @@ from dub.contracts.v1 import (
     TrimRes,
     Unit,
     VadReq,
+    VoiceProfileReq,
+    VoiceProfiles,
     Word,
     WordTimeline,
     join_words,
@@ -72,7 +74,8 @@ from dub.contracts.v1 import (
 from dub.core.config import Config, ProviderManifest
 from dub.core.ctx import Ctx
 from dub.core.executor import Executor
-from dub.core.router import Router
+from dub.core.provider_api import ProviderError
+from dub.core.router import Router, RoutingError
 from dub.core.trace import Tracer
 from dub.ops import address as address_ops
 from dub.ops import diarize as diar_ops
@@ -312,9 +315,20 @@ async def run_job(
     )
     if edits:
         log(f"      {len(edits)} human edits applied")
+    # Voice hints for the cast sheet (age, gender): weak evidence, the dialogue outranks it.
+    spans, span_speakers = _voice_spans(voiced, purity)
+    if spans:
+        try:
+            prof: VoiceProfiles = await cx.call(
+                "audio.voice_profile",
+                VoiceProfileReq(audio_key=vocals16.audio_key, spans=spans, speakers=span_speakers),
+            )
+            diar = diar.model_copy(update={"voices": prof.voices})
+        except (RoutingError, ProviderError) as e:
+            log(f"      voice hints skipped: {str(e)[:200]}")
     if _free_phase_a(cfg):  # 24 GB GPUs: room for the TTS batches of phase B
         freed = await cx.free_models(
-            ["audio.separate", "asr.transcribe", "text.boundaries"],
+            ["audio.separate", "asr.transcribe", "text.boundaries", "audio.voice_profile"],
             keep_ops=["asr.backcheck", "tts.synthesize", "audio.embed"],
         )
         if freed:
@@ -330,7 +344,7 @@ async def run_job(
     sheet = edits_ops.apply_cast(sheet, edits)  # the user's corrections win
     if spec.confirm_cast:
         return _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, voiced, src_lang, media,
-                            profile_name)  # fmt: skip
+                            diar.voices, profile_name)  # fmt: skip
 
     # ---------------------------------------------------------------- Phase B: translate
     stage("[5/7] translating")
@@ -911,15 +925,18 @@ def _analysis_result(cx, tracer, ws, job_id, job_dir, spec, seg, src_lang, media
     )  # fmt: skip
 
 
-def cast_markdown(sheet: ContextSheet, units: list[Unit], tgt_lang: str) -> str:
+def cast_markdown(
+    sheet: ContextSheet, units: list[Unit], tgt_lang: str, voices: list | None = None
+) -> str:
     """The cast sheet for a human to check: who is who (with talk time and first lines, to
     recognise them) and how each pair addresses each other in the target language."""
     talk: dict[str, list[Unit]] = {}
     for u in units:
         talk.setdefault(u.speaker, []).append(u)
-    out = ["# Cast sheet", "", "| id | name | gender | age | role | talk | first lines |",
-           "|---|---|---|---|---|---|---|"]  # fmt: skip
+    head = "| id | name | gender | age | role | voice says | talk | first lines |"
+    out = ["# Cast sheet", "", head, "|---|---|---|---|---|---|---|---|"]
     rows = {s.id: s for s in sheet.cast.speakers}
+    hint = {v.speaker: v for v in voices or []}
     for spk in sorted(set(rows) | set(talk)):
         s = rows.get(spk)
         us = talk.get(spk, [])
@@ -928,7 +945,10 @@ def cast_markdown(sheet: ContextSheet, units: list[Unit], tgt_lang: str) -> str:
         cells = [spk, s.name or "" if s else "", s.gender if s else "", s.age_band if s else "",
                  (s.role or "").replace("|", "/") if s else ""]  # fmt: skip
         mark = " (confirmed)" if s and s.locked else ""
-        out.append(f"| {' | '.join(cells)}{mark} | {secs:.0f} s, {len(us)} lines | {first[:120]} |")
+        v = hint.get(spk)
+        said = f"{v.gender} ({v.gender_conf:.2f}), {v.age_band}" if v else ""
+        talked = f"{secs:.0f} s, {len(us)} lines"
+        out.append(f"| {' | '.join(cells)}{mark} | {said} | {talked} | {first[:120]} |")
     out += [
         "",
         f"## How they address each other ({tgt_lang})",
@@ -947,12 +967,14 @@ def cast_markdown(sheet: ContextSheet, units: list[Unit], tgt_lang: str) -> str:
 
 
 def _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, units, src_lang, media,
-                 profile_name) -> JobResult:  # fmt: skip
+                 voices, profile_name) -> JobResult:  # fmt: skip
     """Stop at the cast sheet (`dub run --confirm-cast`): everything so far is cached, so the
     full run after the corrections starts at translation."""
     tracer.save(job_dir / "trace.json")
     (job_dir / "cast.json").write_text(sheet.model_dump_json(indent=2), encoding="utf-8")
-    (job_dir / "cast.md").write_text(cast_markdown(sheet, units, spec.tgt_lang), encoding="utf-8")
+    (job_dir / "cast.md").write_text(
+        cast_markdown(sheet, units, spec.tgt_lang, voices), encoding="utf-8"
+    )
     metrics = {"speakers": len(sheet.cast.speakers), "units": len(units)}
     (job_dir / "metrics.json").write_text(json.dumps(metrics, indent=1), encoding="utf-8")
     cx.flush_stats()
@@ -966,6 +988,22 @@ def _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, units, src_lang, 
         metrics=metrics, redone=dict(Counter(st.op for st in cx.stats if not st.hit)),
         calls=len(cx.stats), cache_hits=sum(1 for s in cx.stats if s.hit),
     )  # fmt: skip
+
+
+def _voice_spans(
+    units: list[Unit], purity: dict[str, float], per_speaker: int = 5
+) -> tuple[list[tuple[int, int]], list[str]]:
+    """The longest clean lines of each speaker (one voice, 2-15 s), for the voice hints."""
+    by: dict[str, list[Unit]] = {}
+    for u in units:
+        if purity.get(u.id, 1.0) >= 0.9 and 2000 <= u.slot_ms <= 15000:
+            by.setdefault(u.speaker, []).append(u)
+    spans, speakers = [], []
+    for spk, us in sorted(by.items()):
+        for u in sorted(us, key=lambda x: -x.slot_ms)[:per_speaker]:
+            spans.append((u.start_ms, u.end_ms))
+            speakers.append(spk)
+    return spans, speakers
 
 
 def _pauses(words: list[Word]) -> list[int]:
