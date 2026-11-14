@@ -189,6 +189,7 @@ class Ctx:
                 else []
             )
             res = None
+            retries = [2.0, 8.0]  # transient failures (GPU memory shared by workers, network)
             while True:
                 started, t0 = time.time(), time.perf_counter()
                 try:
@@ -199,6 +200,11 @@ class Ctx:
                     if e.kind == "usage_limit" and waits:
                         wait = waits.pop(0)
                         self.log(f"[{pid}] usage limit reached, pausing {wait:.0f}s then retrying")
+                        await asyncio.sleep(wait)
+                        continue
+                    if e.retryable and e.kind != "usage_limit" and retries:
+                        wait = retries.pop(0)
+                        self.log(f"[{pid}] {op} failed ({e.kind}), retrying in {wait:.0f}s")
                         await asyncio.sleep(wait)
                         continue
                     errors.append(f"{pid}: [{e.kind}] {e}")
@@ -225,6 +231,23 @@ class Ctx:
             f"All providers failed for {op} ({subject or 'job'}): " + " | ".join(errors),
             kind="crash",
         )
+
+    async def free_models(self, ops: list[str], keep_ops: list[str]) -> list[str]:
+        """Unload the providers that served `ops` in this job, unless one of `keep_ops` would
+        route to them (e.g. Whisper is both the source ASR and the back-check of an en dub)."""
+        keep: set[str] = set()
+        for op in keep_ops:
+            try:
+                keep.update(self.router.route(op, dict(self.facts)).chain)
+            except Exception:  # noqa: BLE001 - an op without providers keeps nothing
+                pass
+        used = {st.provider for st in self.stats if st.op in ops} - keep
+        freed = []
+        for pid in sorted(used):
+            m = self.cfg.providers.get(pid)
+            if m is not None and await self.executor.unload(m):
+                freed.append(pid)
+        return freed
 
     # ------------------------------------------------------------ local CPU steps
     async def local(

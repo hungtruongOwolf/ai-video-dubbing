@@ -94,13 +94,42 @@ def concat(req: ConcatReq, cas: CAS) -> AudioRes:
     return AudioRes(audio_key=cas.put_file(out, move=True), dur_ms=dur)
 
 
+def integrated_lufs(path) -> float | None:
+    """EBU R128 integrated loudness of a file (ffmpeg's ebur128 filter, ~3 s per hour)."""
+    import re
+    import subprocess
+
+    from dub.ops.media import _bin
+
+    p = subprocess.run(
+        [_bin("ffmpeg"), "-hide_banner", "-nostdin", "-i", str(path),
+         "-af", "ebur128=framelog=quiet", "-f", "null", "-"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )  # fmt: skip
+    m = re.findall(r"I:\s+(-?[\d.]+|-inf) LUFS", p.stderr)
+    if not m or m[-1] == "-inf":
+        return None
+    return float(m[-1])
+
+
 def master(req: MasterReq, cas: CAS) -> AudioRes:
-    """Loudness-normalise the whole track (EBU R128) and encode AAC in an .m4a."""
+    """Loudness-normalise the whole track (EBU R128) and encode AAC in an .m4a.
+
+    One static gain to the target integrated loudness, then a true-peak limiter at -1.5 dBTP:
+    the mix keeps its dynamics (ffmpeg's dynamic loudnorm rode the gain and, at 192 kHz
+    internally, took ~50 s per hour of audio). The AAC "fast" coder halves the encode time
+    (81 -> 44 s per hour on the pod) at a bitrate where the difference is not audible.
+    """
+    src = cas.path(req.audio_key)
+    lufs = integrated_lufs(src)
+    gain = 0.0 if lufs is None else max(-30.0, min(30.0, req.loudness_lufs - lufs))
+    limit = 10 ** (-1.5 / 20)
     out = cas.tmp_path(".m4a")
     run_ffmpeg([
-        "-i", str(cas.path(req.audio_key)),
-        "-af", f"loudnorm=I={req.loudness_lufs}:TP=-1.5:LRA=11", "-ar", "48000",
-        "-c:a", "aac", "-b:a", req.bitrate, "-movflags", "+faststart", str(out),
+        "-i", str(src),
+        "-af", f"volume={gain:.2f}dB,alimiter=limit={limit:.4f}:level=disabled:latency=1",
+        "-ar", "48000", "-c:a", "aac", "-aac_coder", "fast", "-b:a", req.bitrate,
+        "-movflags", "+faststart", str(out),
     ])  # fmt: skip
     dur = round(float(probe(out).get("format", {}).get("duration", 0)) * 1000)
     return AudioRes(audio_key=cas.put_file(out, move=True), dur_ms=dur)

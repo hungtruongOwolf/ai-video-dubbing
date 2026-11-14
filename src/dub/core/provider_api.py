@@ -25,7 +25,8 @@ from dub.store.cas import CAS
 class ProviderError(RuntimeError):
     """A classified error so the core can decide to retry, fall back, or stop.
 
-    kind: usage_limit | bad_input | unsupported | timeout | crash
+    kind: usage_limit | bad_input | unsupported | timeout | oom | crash
+    retryable: the same provider may succeed if asked again (the core retries twice)
     """
 
     def __init__(self, message: str, *, kind: str = "crash", retryable: bool = False):

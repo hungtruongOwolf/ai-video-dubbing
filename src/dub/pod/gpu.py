@@ -16,6 +16,21 @@ import time
 from pathlib import Path
 
 
+def total_memory_mib() -> int | None:
+    """Memory of the first GPU, or None without nvidia-smi."""
+    exe = shutil.which("nvidia-smi")
+    if not exe:
+        return None
+    try:
+        out = subprocess.run(
+            [exe, "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=20, check=True,
+        ).stdout  # fmt: skip
+        return int(float(out.splitlines()[0]))
+    except (subprocess.SubprocessError, ValueError, IndexError, OSError):
+        return None
+
+
 class GpuSampler:
     def __init__(self, interval_ms: int = 500):
         self.interval_ms = interval_ms

@@ -101,6 +101,12 @@ class WorkerState:
                     t.done.set()
 
     def _execute(self, batch: list[_Task]) -> None:
+        try:
+            self._execute_batch(batch)
+        finally:
+            _release_gpu_cache()
+
+    def _execute_batch(self, batch: list[_Task]) -> None:
         first = batch[0]
         try:
             with self.lock:
@@ -120,11 +126,25 @@ class WorkerState:
                 return
             except Exception:  # noqa: BLE001 - retry one by one: one bad call fails alone
                 traceback.print_exc()
+                _release_gpu_cache()  # a batch that ran out of memory may fit one by one
         for t in batch:
             try:
                 t.result = inst.run(t.op, t.req, self.ctx(t.pid, t.params))
             except BaseException as e:  # noqa: BLE001 - reported to that caller
-                t.error = e
+                t.error = _classify(e)
+
+    def unload(self, pid: str) -> bool:
+        """Free a model's GPU memory (the 24 GB profile frees phase-A models after phase A)."""
+        with self.lock:
+            inst = self.instances.pop(pid, None)
+        if inst is None:
+            return False
+        del inst
+        import gc
+
+        gc.collect()
+        _release_gpu_cache()
+        return True
 
     def ctx(self, pid: str, params: dict[str, Any]) -> RunCtx:
         return RunCtx(
@@ -146,6 +166,23 @@ class WorkerState:
                 inst.load(self.ctx(pid, dict(m.params)))
             self.instances[pid] = inst
         return self.instances[pid]
+
+
+def _release_gpu_cache() -> None:
+    """Give cached-but-free CUDA memory back, so the other workers on the GPU can use it."""
+    torch = sys.modules.get("torch")
+    if torch is not None and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def _classify(e: BaseException) -> BaseException:
+    """Out of GPU memory is transient here (other workers share the GPU): retryable."""
+    if isinstance(e, ProviderError):
+        return e
+    text = str(e).lower()
+    if "out of memory" in text or "cudaerrorinvaliddevice" in text:
+        return ProviderError(f"{type(e).__name__}: {e}", kind="oom", retryable=True)
+    return e
 
 
 def make_handler(state: WorkerState):
@@ -193,6 +230,8 @@ def make_handler(state: WorkerState):
             if pid not in state.allowed:
                 return self._error(404, "unsupported", f"provider {pid!r} is not hosted here")
             t0 = time.perf_counter()
+            if self.path == "/v1/unload":
+                return self._reply(200, {"ok": True, "freed": state.unload(pid)})
             if self.path == "/v1/load":
                 try:
                     with state.lock:

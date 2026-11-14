@@ -157,6 +157,9 @@ class ThroughputCfg(Cfg):
     # Units voiced at the same time. Workers batch what is queued, so this is also the
     # largest batch the TTS can see (with its manifest's limits.max_batch).
     units_in_flight: int = 8
+    # After phase A, unload the models only phase A uses (separation, source ASR, sentence
+    # boundaries) so the TTS batches have room. "auto": on GPUs under 40 GB.
+    free_phase_a_models: bool | Literal["auto"] = "auto"
 
 
 class TranslateCfg(Cfg):

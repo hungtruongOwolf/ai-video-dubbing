@@ -10,6 +10,7 @@ from dub.ops.audio_io import read_wav, write_wav
 from dub.ops.media import trim
 from dub.providers.boundaries_sat import build_text, calibrate, word_probs
 from dub.store.cas import CAS
+from tests.conftest import requires_ffmpeg
 
 
 def test_trim_cuts_silence_around_the_voice(tmp_path):
@@ -89,3 +90,23 @@ def test_numpy_resampling_keeps_speech_band_and_removes_aliases():
     down = resample_int(tone(1000, 48000) + tone(10000, 48000), 1, 3)  # 48 -> 16 kHz
     assert len(down) == 16000 and abs(amp(down, 1000, 16000) - 1.0) < 0.05
     assert amp(down, 6000, 16000) < 0.01  # 10 kHz would alias to 6 kHz without the filter
+
+
+@requires_ffmpeg
+def test_master_reaches_the_target_loudness_with_one_gain(tmp_path):
+    import numpy as np
+
+    from dub.contracts.v1 import MasterReq
+    from dub.ops.audio_io import write_wav
+    from dub.ops.mix import integrated_lufs, master
+    from dub.store.cas import CAS
+
+    cas = CAS(tmp_path / "cas")
+    t = np.arange(48000 * 6) / 48000
+    quiet = (0.02 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)  # ~ -37 LUFS
+    src = tmp_path / "in.wav"
+    write_wav(src, np.stack([quiet, quiet], axis=1), 48000)
+    assert integrated_lufs(src) < -30
+    res = master(MasterReq(audio_key=cas.put_file(src), loudness_lufs=-16.0), cas)
+    assert abs(integrated_lufs(cas.path(res.audio_key)) + 16.0) < 1.0
+    assert abs(res.dur_ms - 6000) < 100

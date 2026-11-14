@@ -40,7 +40,7 @@ translate:
 # M5: units voiced at the same time. The GPU workers batch whatever is queued (continuous
 # batching, up to each manifest's limits.max_batch), so this also bounds the TTS batch.
 throughput:
-  units_in_flight: 8
+  units_in_flight: 24
 
 # Used when no rule matches and the langpack has no chain for the op.
 # Real speech models arrive in M1; until then use --fake for those ops.

@@ -45,7 +45,7 @@ from dub.core.pipeline import JobSpec, run_job
 from dub.core.router import parse_overrides
 from dub.ops.preview import cut_mp3
 from dub.pod.envs import EnvManager
-from dub.pod.gpu import GpuSampler
+from dub.pod.gpu import GpuSampler, total_memory_mib
 from dub.store import Workspace
 
 JOB_FILES = {
@@ -438,6 +438,9 @@ def main() -> int:
     # The SQLite index stays on the container disk: SQLite locking is unreliable on a network
     # file system, and the index can be rebuilt from CAS + memo anyway.
     ws = Workspace.open(ws_root, db_path=Path(os.environ.get("DUB_DB", "/tmp/dub.sqlite")))
+    mem = total_memory_mib()
+    if mem:  # the pipeline frees phase-A models on small GPUs (throughput.free_phase_a_models)
+        os.environ["DUB_GPU_MEM_MIB"] = str(mem)
     envs = EnvManager(cfg, root, ws_root, repo)
     srv = DubServer(
         cfg,

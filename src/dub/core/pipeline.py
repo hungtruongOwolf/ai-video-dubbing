@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import statistics
 from collections import Counter
@@ -290,6 +291,13 @@ async def run_job(
     )
     if edits:
         log(f"      {len(edits)} human edits applied")
+    if _free_phase_a(cfg):  # 24 GB GPUs: room for the TTS batches of phase B
+        freed = await cx.free_models(
+            ["audio.separate", "asr.transcribe", "text.boundaries"],
+            keep_ops=["asr.backcheck", "tts.synthesize", "audio.embed"],
+        )
+        if freed:
+            log(f"      GPU memory freed: {', '.join(freed)}")
     log(f"      {len(words.words)} words -> {len(seg.sentences)} sentences -> {len(units)} units")
 
     # ---------------------------------------------------------------- Barrier: context pass
@@ -316,83 +324,6 @@ async def run_job(
     for u in units:
         groups.setdefault(base_index.get((u.parent_ids or [u.id])[0], 0) // size, []).append(u)
 
-    async def translate_window(k: int, win: list[Unit], feedback: dict | None = None) -> None:
-        i = k * size
-        before = base_units[max(0, i - ctx_n) : i]
-        after = base_units[i + size : i + size + ctx_n]
-        req = TranslateReq(
-            src_lang=src_lang,
-            tgt_lang=spec.tgt_lang,
-            units=win,
-            before=before,
-            after=after,
-            context=sheet.subset_for(before + win + after),
-            speech_unit=tgt_lp.speech_unit,
-            units_per_s=tgt_lp.units_per_s,
-            feedback={u.id: feedback[u.id] for u in win if feedback and u.id in feedback},
-        )
-        batch: TranslationBatch = await cx.call("mt.translate", req, subject=f"w{k:04d}")
-        for tr in batch.items:
-            translations[tr.unit_id] = tr
-
-    await asyncio.gather(*(translate_window(k, w) for k, w in sorted(groups.items())))
-
-    # Forms of address: rule check per line + whole-script consistency; the final profile
-    # translates the windows with problems again, telling the translator what was wrong.
-    generic = {g.lower() for g in tgt_lp.address_generic}
-
-    def address_issues() -> dict[str, str]:
-        found: dict[str, str] = {}
-        for u in units:
-            tr = translations.get(u.id)
-            if tr and u.id not in ue.text:
-                # every variant: the timing fit may pick the short or the long one
-                probs = []
-                for variant in dict.fromkeys((tr.target, tr.short, tr.long)):
-                    for why in address_ops.check_line(
-                        u, variant, tr, sheet.cast, spec.tgt_lang, generic
-                    ):
-                        if why not in probs:
-                            probs.append(why)
-                if probs:
-                    found[u.id] = "; ".join(probs)
-        for uid, why in address_ops.listener_issues(units, translations).items():
-            if uid not in ue.text:
-                found[uid] = f"{found[uid]}; {why}" if uid in found else why
-        for uid, why in address_ops.consistency(units, translations, sheet.cast).items():
-            if uid not in ue.text:
-                found[uid] = f"{found[uid]}; {why}" if uid in found else why
-        return found
-
-    addr = address_issues()
-    for _round in range(2 if profile.llm_rewrite else 0):
-        if not addr:
-            break
-        log(f"      forms of address: {len(addr)} lines to fix, translating their windows again")
-        todo = {k: w for k, w in groups.items() if any(u.id in addr for u in w)}
-        await asyncio.gather(*(translate_window(k, w, addr) for k, w in sorted(todo.items())))
-        addr = address_issues()
-    untranslated = {u.id for u in units if u.id not in translations}
-    for u in units:  # never crash on a window the LLM answered partially: flag it instead
-        if u.id in untranslated:
-            translations[u.id] = Translation(unit_id=u.id, short=u.text, target=u.text, long=u.text)
-    translations = {uid: ue.apply_to_translation(tr) for uid, tr in translations.items()}
-
-    def predict(text: str) -> int:
-        return predict_ms(text, tgt_lp.speech_unit, tgt_lp.units_per_s)
-
-    choices = {}
-    for u in voiced:
-        if u.id in ue.text:
-            choices[u.id] = ("edit", ue.text[u.id], predict(ue.text[u.id]))
-        else:
-            choices[u.id] = pick_variant(translations[u.id], u.slot_ms, predict, t.variant_window)
-    units = voiced
-
-    placements: list[Placement] = []
-    checks: dict[str, WordTimeline] = {}  # unit id -> back-check words (relative to the clip)
-    qas: dict[str, qa_ops.QaResult] = {}
-    trims: dict[str, TrimRes] = {}
     q = cfg.dub.qa
     limits = qa_ops.QaLimits(
         cer_max=q.cer_max,
@@ -437,6 +368,147 @@ async def run_job(
         )
         return res, check.words
 
+    # LLM in parallel with TTS (M5): as soon as a window is translated, its lines are voiced
+    # ahead (take 0, trimmed, QA'd when the profile judges takes inline). The real voicing
+    # pass below makes exactly the same calls, so it finds them in the cache; only lines whose
+    # translation changes later (forms of address) are voiced again.
+    def predict(text: str) -> int:
+        return predict_ms(text, tgt_lp.speech_unit, tgt_lp.units_per_s)
+
+    def choose(u: Unit, tr: Translation) -> tuple[str, str, int]:
+        if u.id in ue.text:
+            return ("edit", ue.text[u.id], predict(ue.text[u.id]))
+        return pick_variant(tr, u.slot_ms, predict, t.variant_window)
+
+    def unit_facts(u: Unit) -> dict[str, Any]:
+        return {"unit.slot_ms": u.slot_ms, "unit.words": u.n_words, "unit.asr_conf": u.asr_conf}
+
+    def synth_request(u: Unit, text: str, pred: int, seed: int, m: ProviderManifest) -> SynthReq:
+        ref = refs.for_speaker(u.speaker)
+        exact = m.caps.duration_control == "exact"
+        return SynthReq(
+            unit_id=u.id,
+            text=text,
+            lang=spec.tgt_lang,
+            speaker=u.speaker,
+            seed=seed,
+            voice_key=ref.audio_key if ref else None,
+            voice_text=ref.text if ref else None,
+            target_ms=exact_target_ms(u.slot_ms, pred, t.safe_ratio) if exact else None,
+        )
+
+    voiced_by_id = {u.id: u for u in voiced}
+    prefetched: dict[str, asyncio.Task] = {}
+    prefetch_sem = asyncio.Semaphore(cfg.dub.throughput.units_in_flight)
+    inline_qa = profile.takes > 1 and profile.backcheck
+
+    async def prefetch(u: Unit, tr: Translation) -> None:
+        async with prefetch_sem:
+            try:
+                _variant, text, pred = choose(u, ue.apply_to_translation(tr))
+                seed = ue.seed.get(u.id, 0)
+                take: SynthRes = await cx.call(
+                    "tts.synthesize",
+                    lambda m: synth_request(u, text, pred, seed, m),
+                    facts=unit_facts(u),
+                    subject=u.id,
+                )
+                trimmed: TrimRes = await cx.local(
+                    "audio.trim", media_ops.trim, TrimReq(audio_key=take.audio_key), TrimRes,
+                    subject=u.id,
+                )  # fmt: skip
+                if inline_qa:
+                    await qa_take(u, trimmed.audio_key, text)
+            except Exception as e:  # noqa: BLE001 - the voicing pass redoes it and reports
+                log(f"      voicing ahead of {u.id} failed: {e}")
+
+    async def translate_window(k: int, win: list[Unit], feedback: dict | None = None) -> None:
+        i = k * size
+        before = base_units[max(0, i - ctx_n) : i]
+        after = base_units[i + size : i + size + ctx_n]
+        req = TranslateReq(
+            src_lang=src_lang,
+            tgt_lang=spec.tgt_lang,
+            units=win,
+            before=before,
+            after=after,
+            context=sheet.subset_for(before + win + after),
+            speech_unit=tgt_lp.speech_unit,
+            units_per_s=tgt_lp.units_per_s,
+            feedback={u.id: feedback[u.id] for u in win if feedback and u.id in feedback},
+        )
+        batch: TranslationBatch = await cx.call("mt.translate", req, subject=f"w{k:04d}")
+        for tr in batch.items:
+            translations[tr.unit_id] = tr
+            u_v = voiced_by_id.get(tr.unit_id)
+            if u_v is not None and not spec.subs_only:
+                prefetched[tr.unit_id] = asyncio.create_task(prefetch(u_v, tr))
+
+    await asyncio.gather(*(translate_window(k, w) for k, w in sorted(groups.items())))
+
+    # Forms of address: rule check per line + whole-script consistency; the final profile
+    # translates the windows with problems again, telling the translator what was wrong.
+    generic = {g.lower() for g in tgt_lp.address_generic}
+
+    def address_issues() -> dict[str, str]:
+        found: dict[str, str] = {}
+        for u in units:
+            tr = translations.get(u.id)
+            if tr and u.id not in ue.text:
+                # every variant: the timing fit may pick the short or the long one
+                probs = []
+                for variant in dict.fromkeys((tr.target, tr.short, tr.long)):
+                    for why in address_ops.check_line(
+                        u, variant, tr, sheet.cast, spec.tgt_lang, generic
+                    ):
+                        if why not in probs:
+                            probs.append(why)
+                if probs:
+                    found[u.id] = "; ".join(probs)
+        for uid, why in address_ops.listener_issues(units, translations).items():
+            if uid not in ue.text:
+                found[uid] = f"{found[uid]}; {why}" if uid in found else why
+        for uid, why in address_ops.consistency(units, translations, sheet.cast).items():
+            if uid not in ue.text:
+                found[uid] = f"{found[uid]}; {why}" if uid in found else why
+        return found
+
+    addr = address_issues()
+    for _round in range(2 if profile.llm_rewrite else 0):
+        if not addr:
+            break
+        log(f"      forms of address: {len(addr)} lines to fix, translating their windows again")
+        todo = {k: w for k, w in groups.items() if any(u.id in addr for u in w)}
+        await asyncio.gather(*(translate_window(k, w, addr) for k, w in sorted(todo.items())))
+        addr = address_issues()
+    untranslated = {u.id for u in units if u.id not in translations}
+    for u in units:  # never crash on a window the LLM answered partially: flag it instead
+        if u.id in untranslated:
+            translations[u.id] = Translation(unit_id=u.id, short=u.text, target=u.text, long=u.text)
+    translations = {uid: ue.apply_to_translation(tr) for uid, tr in translations.items()}
+
+    choices = {u.id: choose(u, translations[u.id]) for u in voiced}
+    units = voiced
+
+    placements: list[Placement] = []
+    checks: dict[str, WordTimeline] = {}  # unit id -> back-check words (relative to the clip)
+    qas: dict[str, qa_ops.QaResult] = {}
+    trims: dict[str, TrimRes] = {}
+    by_id = {u.id: u for u in units}
+    backchecks: list[asyncio.Task] = []
+
+    async def backcheck(p: Placement) -> None:
+        """QA of the final clip when it was not checked take by take (one-take profiles)."""
+        res, words_p = await qa_take(by_id[p.unit_id], p.audio_key, p.text)
+        qas[p.unit_id] = res
+        checks[p.unit_id] = WordTimeline(lang=spec.tgt_lang, words=words_p)
+
+    async def dub_and_check(i: int) -> Placement:
+        p = await dub_unit(i)
+        if profile.backcheck and p.unit_id not in qas:
+            backchecks.append(asyncio.create_task(backcheck(p)))
+        return p
+
     engine = media_ops.stretch_engine()
     if not spec.subs_only:
         stage(f"[6/7] voicing and fitting {len(units)} units")
@@ -459,16 +531,12 @@ async def run_job(
                 else None
             )
             variant, text, pred = choices[u.id]
-            facts: dict[str, Any] = {
-                "unit.slot_ms": u.slot_ms,
-                "unit.words": u.n_words,
-                "unit.asr_conf": u.asr_conf,
-            }
+            facts = unit_facts(u)
             rewrites = 0
             tr_u = translations.get(u.id)
-            ref = refs.for_speaker(u.speaker)
             base_seed = ue.seed.get(u.id, 0)
-            inline_qa = profile.takes > 1 and profile.backcheck
+            if u.id in prefetched:  # its first take may still be in flight: do not redo it
+                await prefetched[u.id]
             qa: qa_ops.QaResult | None = None
             check_words: list[Word] = []
             async with sem:
@@ -481,19 +549,7 @@ async def run_job(
                         def make_req(
                             m: ProviderManifest, text=text, pred=pred, seed=base_seed + 1000 * k
                         ) -> SynthReq:
-                            exact = m.caps.duration_control == "exact"
-                            return SynthReq(
-                                unit_id=u.id,
-                                text=text,
-                                lang=spec.tgt_lang,
-                                speaker=u.speaker,
-                                seed=seed,
-                                voice_key=ref.audio_key if ref else None,
-                                voice_text=ref.text if ref else None,
-                                target_ms=exact_target_ms(u.slot_ms, pred, t.safe_ratio)
-                                if exact
-                                else None,
-                            )
+                            return synth_request(u, text, pred, seed, m)
 
                         take: SynthRes = await cx.call(
                             "tts.synthesize", make_req, facts=facts, subject=u.id
@@ -593,20 +649,13 @@ async def run_job(
                 audio_key=stretched.audio_key,
             )
 
-        placements = list(await asyncio.gather(*(dub_unit(i) for i in range(len(units)))))
+        placements = list(await asyncio.gather(*(dub_and_check(i) for i in range(len(units)))))
+        # voicing ahead of translations that were replaced later: let them finish quietly
+        await asyncio.gather(*prefetched.values(), return_exceptions=True)
 
-    by_id = {u.id: u for u in units}
-
-    async def backcheck(p: Placement) -> None:
-        """QA of the final clip when it was not checked take by take (one-take profiles)."""
-        res, words_p = await qa_take(by_id[p.unit_id], p.audio_key, p.text)
-        qas[p.unit_id] = res
-        checks[p.unit_id] = WordTimeline(lang=spec.tgt_lang, words=words_p)
-
-    # Post-hoc checks run while the tiles are mixed: they feed subtitles, risk and the report.
-    checking = asyncio.gather(
-        *(backcheck(p) for p in placements if profile.backcheck and p.unit_id not in qas)
-    )
+    # Post-hoc checks (one-take profiles) started as each line was placed; they finish while
+    # the tiles are mixed, and feed subtitles, risk and the report.
+    checking = asyncio.gather(*backchecks)
 
     # ---------------------------------------------------------------- mix + subtitles
     stage("[7/7] mixing and writing subtitles")
@@ -848,6 +897,14 @@ def _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, units, src_lang, 
         metrics=metrics, redone=dict(Counter(st.op for st in cx.stats if not st.hit)),
         calls=len(cx.stats), cache_hits=sum(1 for s in cx.stats if s.hit),
     )  # fmt: skip
+
+
+def _free_phase_a(cfg: Config) -> bool:
+    v = cfg.dub.throughput.free_phase_a_models
+    if v == "auto":
+        mem = os.environ.get("DUB_GPU_MEM_MIB")  # set by dubd from nvidia-smi
+        return bool(mem) and int(mem) < 40000
+    return bool(v)
 
 
 def _scale(words: list[Word], factor: float) -> list[Word]:

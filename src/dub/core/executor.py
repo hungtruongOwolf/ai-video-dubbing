@@ -60,6 +60,17 @@ class Executor:
         async with sem:
             return await asyncio.to_thread(inst.run, op, req, ctx)
 
+    async def unload(self, m: ProviderManifest) -> bool:
+        """Ask the provider's worker to free its model (no-op for in-process providers)."""
+        url = worker_urls().get(m.env or "") if m.runtime == "http" else None
+        if not url:
+            return False
+        try:
+            reply = await asyncio.to_thread(post_json, f"{url}/v1/unload", {"provider": m.id}, 60)
+        except ProviderError:
+            return False
+        return bool(reply.get("freed"))
+
     async def _run_http(
         self, m: ProviderManifest, op: str, req: BaseModel, params: dict[str, Any]
     ) -> BaseModel:

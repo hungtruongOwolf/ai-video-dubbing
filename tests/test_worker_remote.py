@@ -219,3 +219,17 @@ def test_worker_batches_queued_calls_and_keeps_each_result(cfg, ws, monkeypatch)
     with ThreadPoolExecutor(4) as pool:
         list(pool.map(lambda i: state.submit("fake_tts", "tts.synthesize", {"x": i % 2}, reqs[i]),
                       range(4)))  # fmt: skip
+
+
+def test_worker_unloads_models_and_marks_gpu_memory_errors_retryable(cfg, ws):
+    from dub.worker.server import _classify
+
+    state = WorkerState("fx", ["fake_tts"], cfg, ws.cas)
+    assert state.unload("fake_tts") is False  # not loaded yet
+    state.submit("fake_tts", "tts.synthesize", {},
+                 SynthReq(unit_id="u", text="xin chào", lang="vi", speaker="S1"))  # fmt: skip
+    assert state.unload("fake_tts") is True and "fake_tts" not in state.instances
+    e = _classify(RuntimeError("CUDA failed with error out of memory"))
+    assert isinstance(e, ProviderError) and e.kind == "oom" and e.retryable
+    other = RuntimeError("boom")
+    assert _classify(other) is other
