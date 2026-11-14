@@ -5,7 +5,7 @@ gpus: ["NVIDIA A40", "NVIDIA RTX A6000"]                  # tried in order
 min_cuda: "12.8"
 container_disk_gb: 30
 port: 8000
-idle_minutes: 10        # the pod terminates itself after this long without work
+idle_minutes: 5         # the pod terminates itself after this long without work (idle time was most of the bill)
 volume_id: null         # network volume holding envs, weights and the cache
 data_center: null       # must be the volume's data center
 repo: https://github.com/hungtruongOwolf/ai-video-dubbing.git
