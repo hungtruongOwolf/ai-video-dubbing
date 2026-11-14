@@ -6,7 +6,8 @@ Priority (first match wins):
   3. the chain in the langpack of the language (source or target, depending on the op)
   4. `defaults:` in dub.yaml
 Every candidate then goes through the capability filter. Rejected candidates are recorded
-with a reason. The result is a RouteTrace that explains "why this line used this model".
+with a reason. Providers with status "candidate" only run when named by an override (--use).
+The result is a RouteTrace that explains "why this line used this model".
 """
 
 from __future__ import annotations
@@ -131,6 +132,9 @@ class Router:
         if override is not None:
             source, candidates = "override", list(override)
             rule_id = "cli"
+            # naming a provider on the command line is a deliberate choice: candidates
+            # (status "candidate", experiments only) may run when named this way
+            facts = {**facts, "experiment": True}
         else:
             rule = next(
                 (r for r in self.cfg.dub.routes.get(op, []) if rule_matches(r, facts)), None

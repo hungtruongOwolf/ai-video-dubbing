@@ -25,12 +25,17 @@ units_per_s: 7.0         # natural TTS speaking rate (see experiments/tts_rate.p
 joiner: " "              # "" for languages written without spaces
 segment: {max_unit_s: 15, target_unit_s: 7, min_unit_s: 1.0, hard_pause_s: 1.5, threshold: 0.5}
 subs: {cpl: 18, cps: 12, max_lines: 2}  # cpl in display width (CJK half-width counts half)
+address_generic: []     # pronouns that are wrong where a pair uses kinship terms (vi: tôi, bạn...)
 chains:
   asr.transcribe: [whisper_large_v3]
   tts.synthesize: [omnivoice]
 ```
 
 Languages without a langpack use `langpacks/default.yaml`.
+
+- `address_generic` feeds the forms-of-address checker: a line with one of these words is
+  flagged when the cast sheet gives that pair kinship or title terms. Leave it empty for
+  languages without such a system.
 
 - `segment.threshold` applies to *calibrated* boundary probabilities: every boundary provider
   maps its own decision threshold to 0.5 (SaT: `threshold` in its manifest, chosen by E4).
@@ -92,7 +97,7 @@ Conditions:
 ```yaml
 profiles:
   draft: {tts_chain: incumbent_only, llm_rewrite: false, max_rewrites: 0}
-  final: {tts_chain: langpack,       llm_rewrite: true,  max_rewrites: 2}
+  final: {tts_chain: langpack,       llm_rewrite: true,  max_rewrites: 2, takes: 3}
 ```
 
 A profile only changes what happens after the text layer. Lines you fix in a draft survive the switch to final.
@@ -107,6 +112,52 @@ OmniVoice's diffusion steps (experiment E9):
 `backcheck: true` (the default in both) transcribes every dubbed line again with the target
 language's ASR: subtitle cues then follow the new voice, and the line's CER feeds the risk
 score. Set it to `false` to save one ASR call per line.
+
+`takes` (final: 3) is how many seeds a line may try until a take passes the QA gate; the
+best-scoring take is kept when none passes. With `takes: 1` the gate still runs and its
+verdict goes to the report and the review page. The final profile also re-translates
+windows flagged by the forms-of-address checker (up to two rounds).
+
+## QA gate
+
+```yaml
+qa:
+  cer_max: 0.15        # back-check character error rate
+  sim_ratio_min: 0.5   # voice similarity, relative to the speaker's own lines
+  other_margin: 0.05   # fail when the take sounds more like another speaker
+  voice_min_ms: 1200   # shorter takes are not judged on voice
+  tail_min: 0.6        # share of the line's last quarter the ASR heard (truncation)
+```
+
+Why these values: [m4-speakers-routing.md](m4-speakers-routing.md#voices-and-the-qa-gate).
+
+## Cast corrections
+
+The cast sheet the LLM writes can be corrected; corrected rows are locked and only the
+translation windows of those speakers are translated again:
+
+```bash
+dub run VIDEO --to vi --confirm-cast                 # stop after the cast sheet, print it
+dub edit VIDEO --to vi cast S2 gender=female name=Linda
+dub edit VIDEO --to vi cast S1>S2 self_term=mẹ other_term=con
+dub run VIDEO --to vi                                 # the analysis is reused
+```
+
+The review page has the same fields in its cast panel.
+
+## Switch the TTS engine of a language
+
+Engines are chosen per language by the langpack chain (profile `final`) or by `defaults`.
+To voice Vietnamese with VieNeu-TTS instead of OmniVoice, in `configs/langpacks/vi.yaml`:
+
+```yaml
+chains:
+  tts.synthesize: [vieneu_v3_turbo, omnivoice]   # first runnable wins, OmniVoice as fallback
+```
+
+and in `configs/providers/vieneu_v3_turbo.yaml` set `status: active` (a `candidate` is
+only used when named explicitly: `--use tts.synthesize=vieneu_v3_turbo`). Its env (`tts2`) is
+installed by dubd on the next `dub up`.
 
 ## Timing
 

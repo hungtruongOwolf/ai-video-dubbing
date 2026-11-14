@@ -30,9 +30,9 @@ ffmpeg -c:v copy: mux into the original video
 
 | Phase | Steps | Notes |
 |---|---|---|
-| A: analysis | decode → separate ∥ ASR → diarize → VAD on the vocals → boundary probabilities (SaT) → segment | whole file; GPU-bound |
-| Barrier | `mt.context`: one LLM pass over the whole transcript | summary, glossary, **cast sheet** |
-| B: per unit | translate windows → TTS → trim to the voice → timing fit → stretch → back-check ASR | units run concurrently |
+| A: analysis | decode → separate ∥ ASR → diarize (ECAPA) → (several speakers: ASR again, turn by turn) → VAD on the vocals → boundary probabilities (SaT) → segment → speaker embedding + purity per unit → reference voice per speaker | whole file; GPU-bound |
+| Barrier | `mt.context`: one LLM pass over the whole transcript, then the user's cast corrections | summary, glossary, **cast sheet**; `--confirm-cast` stops here |
+| B: per unit | translate windows → forms-of-address check (re-translate flagged windows) → TTS takes → trim → QA gate (back-check ASR + voice) → timing fit → stretch | units run concurrently |
 | Tail | 30 s mix tiles → subtitles timed on the dub; on export: concat → loudness → AAC → (laptop) mux | tiles are cached one by one |
 
 Granularity: sentence ⊇ dub unit ⊇ subtitle cue.
@@ -212,7 +212,16 @@ Evidence ranks, strongest first:
 
 Gender is never inferred from a name alone.
 
-Each translation window receives only the cast rows of the speakers present (`CastSheet.rows_for`). Its cache key therefore changes only when those rows change. The rule-based address checker and the whole-script consistency pass arrive in M4.
+Each translation window receives only the cast rows of the speakers present (`CastSheet.rows_for`). Its cache key therefore changes only when those rows change.
+
+After translation, `src/dub/ops/address.py` checks every line: the listener (a vocative in the line first, then turn-taking), the expected self/other terms of the pair, generic pronouns where the pair uses kinship terms (`address_generic` in the langpack), and consistency over the whole script. Flagged windows are translated again with the problem stated (profile `final`, up to two rounds); length rewrites receive the terms and are dropped if they break them. User corrections (`dub edit … cast`, the review page, `dub run --confirm-cast`) lock the corrected rows. Results: [m4-speakers-routing.md](m4-speakers-routing.md).
+
+## Speakers and the QA gate
+
+- **Diarization** (`ecapa_cluster`): ECAPA embeddings of 1.5 s VAD windows, average-linkage clustering (cosine threshold 0.85; clusters under 5% of the speech are absorbed), then turns re-cut at the VAD pauses. With more than one speaker the ASR runs again turn by turn, so no word crosses a speaker change.
+- **Purity** of a unit: the share of its time spoken by its speaker (risk score, `metrics.json`).
+- **Reference voice**: per speaker, the pure 3–10 s line closest to the speaker's centroid.
+- **QA gate** (`src/dub/ops/qa.py`) for every take: back-check CER, truncation (the end of the line is heard), and voice: the take must be closer to its own speaker than to any other and keep at least half the speaker's own similarity. The `final` profile tries up to `takes` seeds and keeps the best.
 
 ## Human edits
 

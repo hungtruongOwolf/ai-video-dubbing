@@ -111,3 +111,12 @@ def test_profile_overrides_provider_params(cfg, tmp_path):
             facts={},
         )
         assert cx.params_for(m, "tts.synthesize")["num_step"] == steps
+
+
+def test_a_candidate_runs_only_when_named_on_the_command_line(cfg):
+    c = _cfg_with_tts(cfg)
+    c.providers["fake_tts"] = c.providers["fake_tts"].model_copy(update={"status": "candidate"})
+    tr = Router(c, profile="final").route("tts.synthesize", {"tgt_lang": "vi"})
+    assert "fake_tts" not in tr.chain
+    r = Router(c, profile="final", overrides=[("tts.synthesize", ["fake_tts"])])
+    assert r.route("tts.synthesize", {"tgt_lang": "vi"}).chain[0] == "fake_tts"
