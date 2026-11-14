@@ -249,3 +249,12 @@ def test_worker_offloads_models_that_can_and_restores_them_on_the_next_call(cfg,
     assert state.unload("fake_tts") is False  # already parked
     state.submit("fake_tts", "tts.synthesize", {}, req)
     assert moves == ["cpu", "gpu"] and not state.offloaded
+
+
+def test_remote_gc_runs_in_the_background_and_reports(dubd, tmp_path, monkeypatch):
+    url, srv = dubd
+    monkeypatch.setattr(remote.time, "sleep", lambda s: None)
+    orphan = srv.ws.cas.put_bytes(b"nobody points to me", ".bin")
+    rep = remote.Dubd(url, "t" * 24).gc(min_age_s=0)
+    assert rep["deleted"] >= 1 and not srv.ws.cas.exists(orphan)
+    assert srv.gc_state["status"] == "done"

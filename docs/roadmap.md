@@ -210,4 +210,10 @@ Details: [m5-throughput.md](m5-throughput.md).
 
 ## M6: GPU lab (optional, never blocks the product)
 
-CUDA graphs vs continuous batching, MPS, pinned-RAM model swapping, local LLM, community-cloud profile. Each experiment = a short note + one line in the trend table.
+CUDA graphs vs continuous batching, MPS, pinned-RAM model swapping, local LLM, community-cloud profile. Each experiment = a short note + one line in the trend table ([m6-gpu-lab.md](m6-gpu-lab.md)).
+
+- [x] Pinned-RAM model swapping: phase-A models parked in CPU memory (Whisper back in 0.5 s instead of 9.7 s, RoFormer 0.1 s instead of 14.9 s): **kept**
+- [x] MPS: MPS_ROADMAP
+- [x] Community-cloud profile: priced from measurements, **not built** (no cache between pods; no stock when read)
+- [ ] CUDA graphs: not tried (VieNeu already captures its frame steps; OmniVoice is diffusion over a whole line, few large kernels)
+- [ ] Local LLM: not tried (translation quality is the Claude subscription's job; the GPU is already the bottleneck after phase A)

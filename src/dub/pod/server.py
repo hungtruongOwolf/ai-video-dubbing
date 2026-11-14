@@ -198,6 +198,7 @@ class DubServer:
         self.last_activity = time.time()
         self.started = time.time()
         self.jobs = Jobs(cfg, ws, envs, self.touch)
+        self.gc_state: dict[str, Any] = {"status": "idle"}  # GC runs in the background
         self.uploads = ws.root / "uploads"
 
     def job_files(self, r: dict[str, Any]) -> dict[str, str]:
@@ -321,6 +322,8 @@ def make_handler(srv: DubServer):
                 return self._json(200, srv.health())
             if not self._authed():
                 return
+            if parts == ["gc"]:
+                return self._json(200, srv.gc_state)
             if len(parts) == 2 and parts[0] == "jobs" and _ID.match(parts[1]):
                 query = self.path.partition("?")[2]
                 q = {k: v[0] for k, v in urllib.parse.parse_qs(query).items()}
@@ -410,11 +413,24 @@ def make_handler(srv: DubServer):
                 if parts == ["gc"]:
                     if srv.jobs.running():
                         return self._json(409, {"error": "a job is running; try again later"})
-                    from dub.store.gc import collect
+                    if srv.gc_state["status"] == "running":
+                        return self._json(202, srv.gc_state)
+                    # A big CAS takes minutes to sweep, longer than the proxy keeps a request
+                    # open: run it in the background and let the laptop poll GET /gc.
+                    min_age, dry = float(body.get("min_age_s", 600)), bool(body.get("dry_run"))
+                    srv.gc_state = {"status": "running"}
 
-                    rep = collect(srv.ws, min_age_s=float(body.get("min_age_s", 600)),
-                                  dry_run=bool(body.get("dry_run")))  # fmt: skip
-                    return self._json(200, rep.as_dict())
+                    def sweep() -> None:
+                        from dub.store.gc import collect
+
+                        try:
+                            rep = collect(srv.ws, min_age_s=min_age, dry_run=dry)
+                            srv.gc_state = {"status": "done", "report": rep.as_dict()}
+                        except Exception as e:  # noqa: BLE001 - reported to the poller
+                            srv.gc_state = {"status": "error", "error": str(e)}
+
+                    threading.Thread(target=sweep, daemon=True).start()
+                    return self._json(202, srv.gc_state)
             except (KeyError, ValueError) as e:
                 return self._json(400, {"error": str(e)})
             self._json(404, {"error": f"no route {self.path}"})
