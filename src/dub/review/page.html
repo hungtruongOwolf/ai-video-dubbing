@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dub review</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e4e3df;
+    --accent: #2f6fde; --accent-ink: #ffffff; --warn: #b4560a; --bad: #c0392b; --ok: #2e7d4f;
+    --chip: #eef1f6; --edit: #f3ecff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --panel: #1d1d1b; --ink: #ecebe6; --muted: #9c9b95; --line: #2f2f2c;
+      --accent: #6f9bff; --accent-ink: #0b1020; --warn: #f0a050; --bad: #ff7a6b; --ok: #6fcf97;
+      --chip: #262a33; --edit: #2b2438;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--panel);
+           border-bottom: 1px solid var(--line); padding: 10px 16px;
+           display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .status { color: var(--muted); font-size: 13px; flex: 1; min-width: 200px; }
+  .status b { color: var(--ink); font-weight: 600; }
+  button, select { font: inherit; border: 1px solid var(--line); background: var(--panel);
+                   color: var(--ink); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  .badge { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: 9px;
+           background: var(--bad); color: #fff; font-size: 12px; margin-left: 6px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 12px 16px 80px; }
+  .row { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+         margin: 8px 0; overflow: hidden; }
+  .row.edited { background: var(--edit); }
+  .head { display: grid; grid-template-columns: 92px 44px 54px 1fr 1fr 64px; gap: 10px;
+          padding: 9px 12px; align-items: start; cursor: pointer; }
+  .cols { display: grid; grid-template-columns: 92px 44px 54px 1fr 1fr 64px; gap: 10px;
+          padding: 4px 13px; color: var(--muted); font-size: 11.5px; text-transform: uppercase;
+          letter-spacing: .04em; }
+  .time, .rate { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; }
+  .chip { display: inline-block; padding: 1px 7px; border-radius: 8px; background: var(--chip);
+          font-size: 12px; }
+  .risk { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .risk.hi { color: var(--bad); } .risk.mid { color: var(--warn); } .risk.lo { color: var(--ok); }
+  .src { color: var(--muted); }
+  .tags { font-size: 11.5px; color: var(--muted); }
+  .detail { border-top: 1px solid var(--line); padding: 12px; display: grid; gap: 10px; }
+  .detail .line { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .detail label { color: var(--muted); font-size: 12.5px; min-width: 70px; }
+  textarea { width: 100%; min-height: 56px; font: inherit; color: var(--ink); background: var(--bg);
+             border: 1px solid var(--line); border-radius: 7px; padding: 7px; resize: vertical; }
+  ul.why { margin: 0; padding-left: 18px; color: var(--warn); font-size: 13px; }
+  .hist { font-size: 12.5px; color: var(--muted); }
+  .hist span { margin-right: 10px; }
+  pre.log { white-space: pre-wrap; font-size: 12px; color: var(--muted); max-height: 180px;
+            overflow: auto; background: var(--panel); border: 1px solid var(--line);
+            border-radius: 8px; padding: 8px; }
+  .empty { color: var(--muted); padding: 40px; text-align: center; }
+  @media (max-width: 760px) {
+    .head { grid-template-columns: 1fr 1fr; }
+    .head .src, .head .dub { grid-column: 1 / -1; }
+    .cols { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Dub review</h1>
+  <div class="status" id="status">loading…</div>
+  <select id="sort" title="Order of the lines">
+    <option value="risk">Riskiest first</option>
+    <option value="time">In time order</option>
+  </select>
+  <button id="renderBtn" class="primary">Render changes<span id="pending"></span></button>
+  <button id="exportBtn">Export video</button>
+</header>
+<main>
+  <div id="list"><div class="empty">Rendering…</div></div>
+  <details id="logbox"><summary class="tags">Render log</summary><pre class="log" id="log"></pre></details>
+</main>
+<script>
+"use strict";
+let S = null;
+const open = new Set();
+const player = new Audio();
+let bust = Date.now();
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const clock = (ms) => { const s = ms / 1000; return `${String(Math.floor(s / 60)).padStart(2, "0")}:${(s % 60).toFixed(1).padStart(4, "0")}`; };
+const post = (url, body) => fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+
+async function load() {
+  S = await (await fetch("/api/state")).json();
+  drawHeader();
+  if (!S.render.running) drawList();
+  if (S.render.running) setTimeout(load, 1000);
+}
+
+function drawHeader() {
+  $("title").textContent = `${S.video} → ${S.tgt}`;
+  const r = S.render;
+  let msg;
+  if (r.running) msg = `<b>${r.export ? "Exporting" : "Rendering"}…</b> ${esc(r.log.at(-1) || "")}`;
+  else if (r.error) msg = `<b style="color:var(--bad)">Failed:</b> ${esc(r.error)}`;
+  else msg = `<b>${S.units.length}</b> lines · ${S.remote ? "GPU pod" : "local"} · last render ${r.seconds ?? "–"} s, ` +
+             `${S.calls - S.cache_hits} of ${S.calls} steps redone` + (r.video ? ` · exported: ${esc(r.video)}` : "");
+  if (S.warnings.length) msg += ` · <span style="color:var(--warn)">${esc(S.warnings.join("; "))}</span>`;
+  $("status").innerHTML = msg;
+  $("pending").innerHTML = S.pending ? `<span class="badge">${S.pending}</span>` : "";
+  $("renderBtn").disabled = r.running || !S.pending;
+  $("exportBtn").disabled = r.running;
+  $("log").textContent = r.log.join("\n");
+}
+
+function editsFor(id) { return S.edits.filter((e) => e.unit_id === id); }
+
+function rowHtml(row) {
+  const u = row.unit, p = row.placement, t = row.translation;
+  const dub = p ? p.text : (t ? t.target : "");
+  const lvl = row.risk >= 1.5 ? "hi" : row.risk >= 0.5 ? "mid" : "lo";
+  const tags = [];
+  if (row.edited) tags.push("edited");
+  if (row.locked) tags.push("locked");
+  if (p && p.flags.length) tags.push(...p.flags);
+  if (p && p.variant !== "edit") tags.push(p.variant);
+  const isOpen = open.has(u.id);
+  return `<div class="row${row.edited ? " edited" : ""}" data-id="${esc(u.id)}">
+    <div class="head" data-toggle="${esc(u.id)}">
+      <div class="time">${clock(u.start_ms)}<br>${((u.end_ms - u.start_ms) / 1000).toFixed(1)} s</div>
+      <div><span class="chip">${esc(u.speaker)}</span></div>
+      <div class="risk ${lvl}" title="${esc(row.risk_reasons.join("; "))}">${row.risk.toFixed(1)}</div>
+      <div class="src">${esc(u.text)}</div>
+      <div class="dub">${esc(dub)}<div class="tags">${esc(tags.join(" · "))}</div></div>
+      <div class="rate">${p ? "×" + p.rate.toFixed(2) : ""}</div>
+    </div>
+    ${isOpen ? detailHtml(row) : ""}
+  </div>`;
+}
+
+function detailHtml(row) {
+  const u = row.unit, p = row.placement;
+  const speakers = [...new Set(S.units.map((r) => r.unit.speaker))].sort();
+  const next = `S${speakers.length + 1}`;
+  const hist = editsFor(u.id).map((e) =>
+    `<span>${esc(e.field)}: ${esc(JSON.stringify(e.value))} <button data-undo="${esc(e.id)}">undo</button></span>`).join("");
+  return `<div class="detail">
+    <div class="line">
+      <button data-play="orig">▶ Original</button>
+      <button data-play="dub" ${p ? "" : "disabled"}>▶ Dub</button>
+      <span class="tags">${p ? `slot ${clock(p.slot_start_ms)}–${clock(p.slot_end_ms)}, placed ${clock(p.start_ms)}–${clock(p.end_ms)}` : ""}</span>
+    </div>
+    ${row.risk_reasons.length ? `<ul class="why">${row.risk_reasons.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+    <div><label>Dubbed line</label>
+      <textarea id="txt-${esc(u.id)}">${esc(p ? p.text : (row.translation || {}).target)}</textarea></div>
+    <div class="line">
+      <button data-act="text" class="primary">Save text</button>
+      <button data-act="regen" title="Same text, a new take">New take (seed ${row.seed + 1})</button>
+      <button data-act="lock">${row.locked ? "Unlock" : "Lock"}</button>
+      <label>Speaker</label>
+      <select data-act="speaker">${[...speakers, next].map((s) => `<option ${s === u.speaker ? "selected" : ""}>${s}</option>`).join("")}</select>
+    </div>
+    <div class="line">
+      <label>Slot</label>
+      <button data-nudge="start:-100">start −0.1 s</button><button data-nudge="start:100">start +0.1 s</button>
+      <button data-nudge="end:-100">end −0.1 s</button><button data-nudge="end:100">end +0.1 s</button>
+      <span class="tags">offset ${row.nudge.start_ms} / ${row.nudge.end_ms} ms</span>
+      <button data-act="split">Split in two</button>
+      <button data-act="merge">Merge with next</button>
+    </div>
+    ${hist ? `<div class="hist">Edits: ${hist}</div>` : ""}
+  </div>`;
+}
+
+function drawList() {
+  const rows = [...S.units];
+  if ($("sort").value === "risk") rows.sort((a, b) => b.risk - a.risk || a.unit.start_ms - b.unit.start_ms);
+  const cols = `<div class="cols"><span>Time</span><span>Who</span><span>Risk</span><span>Original</span><span>Dub</span><span>Speed</span></div>`;
+  $("list").innerHTML = rows.length ? cols + rows.map(rowHtml).join("") : `<div class="empty">No lines yet.</div>`;
+}
+
+function rowOf(el) { const r = el.closest(".row"); return r && S.units.find((x) => x.unit.id === r.dataset.id); }
+
+async function edit(unit, field, value) {
+  await post("/api/edit", {unit_id: unit, field, value});
+  await load();
+}
+
+$("list").addEventListener("click", async (ev) => {
+  const el = ev.target;
+  const toggle = el.closest("[data-toggle]");
+  if (toggle && !el.closest("button")) {
+    const id = toggle.dataset.toggle;
+    open.has(id) ? open.delete(id) : open.add(id);
+    return drawList();
+  }
+  const row = rowOf(el);
+  if (!row) return;
+  const u = row.unit, p = row.placement;
+  if (el.dataset.play) {
+    const [a, b] = el.dataset.play === "dub" && p ? [p.start_ms, p.end_ms] : [u.start_ms, u.end_ms];
+    player.src = `/api/audio/${el.dataset.play}?from=${a}&to=${b}&v=${bust}`;
+    return player.play();
+  }
+  if (el.dataset.undo) { await post("/api/undo", {edit_id: el.dataset.undo}); return load(); }
+  if (el.dataset.nudge) {
+    const [side, d] = el.dataset.nudge.split(":");
+    const n = {...row.nudge};
+    n[side + "_ms"] += Number(d);
+    return edit(u.id, "nudge", n);
+  }
+  const act = el.dataset.act;
+  if (act === "text") return edit(u.id, "text", $("txt-" + u.id).value.trim());
+  if (act === "regen") return edit(u.id, "seed", row.seed + 1);
+  if (act === "lock") return edit(u.id, "lock", !row.locked);
+  if (act === "split") return edit(u.id, "split", null);
+  if (act === "merge") return edit(u.id, "merge_next", null);
+});
+
+$("list").addEventListener("change", (ev) => {
+  if (ev.target.dataset.act === "speaker") edit(rowOf(ev.target).unit.id, "speaker", ev.target.value);
+});
+
+$("sort").addEventListener("change", drawList);
+$("renderBtn").addEventListener("click", async () => { await post("/api/render", {export: false}); bust = Date.now(); load(); });
+$("exportBtn").addEventListener("click", async () => { await post("/api/render", {export: true}); bust = Date.now(); load(); });
+load();
+</script>
+</body>
+</html>

@@ -36,3 +36,16 @@ def write_wav(path: Path, audio: np.ndarray, sr: int) -> None:
 def duration_ms(path: Path) -> int:
     with wave.open(str(path), "rb") as w:
         return round(w.getnframes() * 1000 / w.getframerate())
+
+
+def read_wav_range(path: Path, start_frame: int, n_frames: int) -> tuple[np.ndarray, int]:
+    """Read only [start_frame, start_frame + n_frames) of a WAV; short at the end of the file."""
+    with wave.open(str(path), "rb") as w:
+        sr, ch = w.getframerate(), w.getnchannels()
+        if w.getsampwidth() != 2:
+            raise ValueError(f"Only 16-bit WAV is supported: {path}")
+        start = min(max(0, start_frame), w.getnframes())
+        w.setpos(start)
+        raw = w.readframes(max(0, n_frames))
+    data = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+    return data.reshape(-1, ch), sr

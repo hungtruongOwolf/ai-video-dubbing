@@ -37,14 +37,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from dub.contracts.v1 import Edit
 from dub.core.config import Config, load_config
 from dub.core.ctx import OP_RESULT
 from dub.core.pipeline import JobSpec, run_job
 from dub.core.router import parse_overrides
+from dub.ops.preview import cut_mp3
 from dub.pod.envs import EnvManager
 from dub.store import Workspace
 
-JOB_FILES = {"report.md", "trace.json", "units.json", "cast.json", "routes.jsonl"}
+JOB_FILES = {"report.md", "trace.json", "units.json", "cast.json", "routes.jsonl", "tiles.json"}
 _ID = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
 _KEY = re.compile(r"^[0-9a-f]{32}(\.[A-Za-z0-9]{1,8})?$")
 
@@ -80,6 +82,8 @@ class Jobs:
             transcript_key=body.get("transcript_key"),
             speakers_hint=body.get("speakers_hint"),
             subs_only=bool(body.get("subs_only", False)),
+            edits=[Edit.model_validate(e) for e in body.get("edits", [])],
+            export=bool(body.get("export", True)),
         )
         overrides = overrides_for(self.cfg, list(body.get("use", [])), bool(body.get("fake")))
         job_id = uuid.uuid4().hex[:12]
@@ -118,6 +122,10 @@ class Jobs:
                 "dub_m4a_key": res.dub_m4a_key,
                 "dub_audio_key": res.dub_audio_key,
                 "subs": res.subs,
+                "tiles": [t.model_dump() for t in res.tiles],
+                "a48k_key": res.a48k_key,
+                "warnings": res.warnings,
+                "redone": res.redone,
                 "calls": res.calls,
                 "cache_hits": res.cache_hits,
             }
@@ -276,6 +284,26 @@ def make_handler(srv: DubServer):
                 return self._file(path) if path.exists() else self._json(404, {"error": "missing"})
             self._json(404, {"error": f"no route {self.path}"})
 
+        def do_HEAD(self):
+            parts = [p for p in self.path.split("/") if p]
+            ok = (
+                secrets.compare_digest(self.headers.get("Authorization", ""), f"Bearer {srv.token}")
+                and len(parts) == 2
+                and parts[0] == "cas"
+                and _KEY.match(parts[1])
+                and srv.ws.cas.exists(parts[1])
+            )
+            self.send_response(200 if ok else 404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def _mp3(self, data: bytes) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
         def do_PUT(self):
             parts = [p for p in self.path.split("/") if p]
             if not self._authed():
@@ -309,6 +337,12 @@ def make_handler(srv: DubServer):
                     if not re.match(r"^\.[A-Za-z0-9]{1,8}$", ext):
                         return self._json(400, {"error": "bad ext"})
                     return self._json(200, {"key": srv.commit(parts[1], int(body["parts"]), ext)})
+                if parts == ["preview"]:
+                    segs = [(str(k), int(st)) for k, st in body["segments"]]
+                    if not all(_KEY.match(k) for k, _ in segs):
+                        return self._json(400, {"error": "bad key"})
+                    data = cut_mp3(srv.ws.cas, segs, int(body["from_ms"]), int(body["to_ms"]))
+                    return self._mp3(data)
                 if parts == ["jobs"]:
                     return self._json(200, {"job_id": srv.jobs.submit(body)})
             except (KeyError, ValueError) as e:

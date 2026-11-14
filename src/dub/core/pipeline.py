@@ -25,15 +25,16 @@ from typing import Any
 
 from dub.contracts.v1 import (
     AudioRes,
+    ConcatReq,
     ContextReq,
     ContextSheet,
     Cue,
     DecodeReq,
     Diarization,
     DiarizeReq,
-    EncodeReq,
+    Edit,
+    MasterReq,
     MediaInfo,
-    MixReq,
     Placement,
     RefBank,
     RefsReq,
@@ -47,6 +48,8 @@ from dub.contracts.v1 import (
     SubtitleTrack,
     SynthReq,
     SynthRes,
+    Tile,
+    TileReq,
     TranscribeReq,
     TranslateReq,
     Translation,
@@ -59,9 +62,11 @@ from dub.core.ctx import Ctx
 from dub.core.executor import Executor
 from dub.core.router import Router
 from dub.core.trace import Tracer
+from dub.ops import edits as edits_ops
 from dub.ops import media as media_ops
 from dub.ops import mix as mix_ops
 from dub.ops import refs as refs_ops
+from dub.ops import risk as risk_ops
 from dub.ops import segment as segment_ops
 from dub.ops import subs as subs_ops
 from dub.ops.timing import (
@@ -87,6 +92,8 @@ class JobSpec:
     transcript_key: str | None = None  # optional transcript to replay (fake ASR, tests)
     speakers_hint: int | None = None
     subs_only: bool = False  # path P5: subtitles only, no TTS
+    edits: list[Edit] = field(default_factory=list)  # human edits (see dub.ops.edits)
+    export: bool = True  # False: stop after the mixed tiles (fast preview while editing)
 
 
 @dataclass
@@ -99,6 +106,10 @@ class JobResult:
     dub_m4a_key: str | None  # same audio as AAC, small enough to download
     subs: dict[str, str]  # lang -> CAS key of the .srt
     placements: list[Placement] = field(default_factory=list)
+    tiles: list[Tile] = field(default_factory=list)
+    a48k_key: str | None = None  # original audio, 48 kHz (for side-by-side previews)
+    warnings: list[str] = field(default_factory=list)
+    redone: dict[str, int] = field(default_factory=dict)  # op -> calls that actually ran
     calls: int = 0
     cache_hits: int = 0
 
@@ -106,10 +117,6 @@ class JobResult:
 def job_id_for(spec: JobSpec, profile: str) -> str:
     stem = re.sub(r"[^A-Za-z0-9]+", "-", Path(spec.source_name).stem).strip("-").lower() or "job"
     return f"{stem[:40]}-{spec.tgt_lang}-{profile}-{spec.audio_key[:8]}"
-
-
-def _windows(units: list[Unit], size: int) -> list[tuple[int, list[Unit]]]:
-    return [(i, units[i : i + size]) for i in range(0, len(units), size)]
 
 
 async def run_job(
@@ -185,20 +192,32 @@ async def run_job(
         Segmentation,
         with_cas=False,
     )
-    units = seg.units
+    base_units = seg.units
+    edits = edits_ops.effective(spec.edits)
+    ue = edits_ops.UnitEdits.from_edits(edits)
+    worded = segment_ops.assign_speakers(
+        sorted((w for w in words.words if w.w.strip()), key=lambda w: (w.start_ms, w.end_ms)),
+        diar.turns,
+    )
+    units, warnings = edits_ops.apply_structure(base_units, worded, edits, src_lp.joiner)
+    for w in warnings:
+        log(f"      edit skipped: {w}")
+    voiced = ue.apply_to_units(units)  # speaker and slot edits
     refs: RefBank = await cx.local(
         "voice.extract_refs",
         refs_ops.extract_refs,
-        RefsReq(vocals_key=stems.vocals_key, units=units),
+        RefsReq(vocals_key=stems.vocals_key, units=voiced),
         RefBank,
     )
+    if edits:
+        log(f"      {len(edits)} human edits applied")
     log(f"      {len(words.words)} words -> {len(seg.sentences)} sentences -> {len(units)} units")
 
     # ---------------------------------------------------------------- Barrier: context pass
     log("[4/7] reading the whole script: summary, glossary, cast sheet")
     sheet: ContextSheet = await cx.call(
         "mt.context",
-        ContextReq(src_lang=src_lang, tgt_lang=spec.tgt_lang, units=units, voices=diar.voices),
+        ContextReq(src_lang=src_lang, tgt_lang=spec.tgt_lang, units=base_units, voices=diar.voices),
     )
 
     # ---------------------------------------------------------------- Phase B: translate
@@ -206,9 +225,18 @@ async def run_job(
     tcfg = cfg.dub.translate
     translations: dict[str, Translation] = {}
 
-    async def translate_window(i: int, win: list[Unit]) -> None:
-        before = units[max(0, i - tcfg.context_units) : i]
-        after = units[i + len(win) : i + len(win) + tcfg.context_units]
+    # Windows are cut on the base (unedited) units, so a split or merge only changes the
+    # window that holds it; neighbours come from the base units too.
+    size, ctx_n = tcfg.window_units, tcfg.context_units
+    base_index = {u.id: i for i, u in enumerate(base_units)}
+    groups: dict[int, list[Unit]] = {}
+    for u in units:
+        groups.setdefault(base_index.get((u.parent_ids or [u.id])[0], 0) // size, []).append(u)
+
+    async def translate_window(k: int, win: list[Unit]) -> None:
+        i = k * size
+        before = base_units[max(0, i - ctx_n) : i]
+        after = base_units[i + size : i + size + ctx_n]
         req = TranslateReq(
             src_lang=src_lang,
             tgt_lang=spec.tgt_lang,
@@ -219,22 +247,27 @@ async def run_job(
             speech_unit=tgt_lp.speech_unit,
             units_per_s=tgt_lp.units_per_s,
         )
-        batch: TranslationBatch = await cx.call("mt.translate", req, subject=f"w{i:04d}")
+        batch: TranslationBatch = await cx.call("mt.translate", req, subject=f"w{k:04d}")
         for tr in batch.items:
             translations[tr.unit_id] = tr
 
-    await asyncio.gather(*(translate_window(i, w) for i, w in _windows(units, tcfg.window_units)))
+    await asyncio.gather(*(translate_window(k, w) for k, w in sorted(groups.items())))
     untranslated = {u.id for u in units if u.id not in translations}
     for u in units:  # never crash on a window the LLM answered partially: flag it instead
         if u.id in untranslated:
             translations[u.id] = Translation(unit_id=u.id, short=u.text, target=u.text, long=u.text)
+    translations = {uid: ue.apply_to_translation(tr) for uid, tr in translations.items()}
 
     def predict(text: str) -> int:
         return predict_ms(text, tgt_lp.speech_unit, tgt_lp.units_per_s)
 
-    choices = {
-        u.id: pick_variant(translations[u.id], u.slot_ms, predict, t.variant_window) for u in units
-    }
+    choices = {}
+    for u in voiced:
+        if u.id in ue.text:
+            choices[u.id] = ("edit", ue.text[u.id], predict(ue.text[u.id]))
+        else:
+            choices[u.id] = pick_variant(translations[u.id], u.slot_ms, predict, t.variant_window)
+    units = voiced
 
     placements: list[Placement] = []
     engine = media_ops.stretch_engine()
@@ -276,7 +309,7 @@ async def run_job(
                             text=text,
                             lang=spec.tgt_lang,
                             speaker=u.speaker,
-                            seed=0,
+                            seed=ue.seed.get(u.id, 0),
                             voice_key=ref.audio_key if ref else None,
                             voice_text=ref.text if ref else None,
                             target_ms=exact_target_ms(u.slot_ms, pred, t.safe_ratio)
@@ -302,6 +335,7 @@ async def run_job(
                         fit.rate > t.rate_p95
                         and profile.llm_rewrite
                         and rewrites < profile.max_rewrites
+                        and not ue.is_protected(u.id)
                     ):
                         cur = count_units(text, tgt_lp.speech_unit)
                         rw = await cx.call(
@@ -351,24 +385,47 @@ async def run_job(
     log("[7/7] mixing and writing subtitles")
     dub_audio_key = None
     dub_m4a_key = None
+    tiles: list[Tile] = []
     if placements:
-        mixed: AudioRes = await cx.local(
-            "audio.mix",
-            mix_ops.mix,
-            MixReq(
+        tile_reqs = [
+            TileReq(
                 bed_key=stems.instrumental_key,
-                duration_ms=media.duration_ms,
-                placements=placements,
+                start_ms=a,
+                end_ms=b,
+                placements=[p for p in placements if p.start_ms < b and p.end_ms > a],
                 bed_gain_db=cfg.dub.mix.bed_gain_db,
-                loudness_lufs=cfg.dub.mix.loudness_lufs,
-            ),
-            AudioRes,
+            )
+            for a, b in mix_ops.plan_tiles(media.duration_ms)
+        ]
+        tiles = list(
+            await asyncio.gather(
+                *(
+                    cx.local(
+                        "audio.mix_tile",
+                        mix_ops.mix_tile,
+                        r,
+                        Tile,
+                        subject=f"t{r.start_ms // 1000:05d}",
+                    )
+                    for r in tile_reqs
+                )
+            )
         )
-        dub_audio_key = mixed.audio_key
-        m4a: AudioRes = await cx.local(
-            "audio.encode", media_ops.encode, EncodeReq(audio_key=dub_audio_key), AudioRes
-        )
-        dub_m4a_key = m4a.audio_key
+        if spec.export:
+            full: AudioRes = await cx.local(
+                "audio.concat",
+                mix_ops.concat,
+                ConcatReq(keys=[x.audio_key for x in tiles]),
+                AudioRes,
+            )
+            dub_audio_key = full.audio_key
+            m4a: AudioRes = await cx.local(
+                "audio.master",
+                mix_ops.master,
+                MasterReq(audio_key=full.audio_key, loudness_lufs=cfg.dub.mix.loudness_lufs),
+                AudioRes,
+            )
+            dub_m4a_key = m4a.audio_key
         tgt_items = [Cue(start_ms=p.start_ms, end_ms=p.end_ms, text=p.text) for p in placements]
     else:
         tgt_items = [
@@ -402,10 +459,27 @@ async def run_job(
         dub_m4a_key=dub_m4a_key,
         subs={spec.tgt_lang: tgt_track.srt_key, f"{src_lang}.src": src_track.srt_key},
         placements=placements,
+        tiles=tiles,
+        a48k_key=media.a48k_key,
+        warnings=warnings,
+        redone=dict(Counter(st.op for st in cx.stats if not st.hit)),
         calls=len(cx.stats),
         cache_hits=sum(1 for s in cx.stats if s.hit),
     )
-    _write_outputs(job_dir, cx, tracer, seg, sheet, translations, placements, tgt_track, tgt_lp)
+    _write_outputs(
+        job_dir,
+        cx,
+        tracer,
+        seg,
+        units,
+        ue,
+        sheet,
+        translations,
+        placements,
+        tiles,
+        tgt_track,
+        tgt_lp,
+    )
     cx.flush_stats()
     ws.db.upsert_job(
         job_id,
@@ -422,7 +496,18 @@ async def run_job(
 
 
 def _write_outputs(
-    job_dir, cx: Ctx, tracer: Tracer, seg, sheet, translations, placements, tgt_track, tgt_lp
+    job_dir,
+    cx: Ctx,
+    tracer: Tracer,
+    seg,
+    units,
+    ue,
+    sheet,
+    translations,
+    placements,
+    tiles,
+    tgt_track,
+    tgt_lp,
 ) -> None:
     tracer.save(job_dir / "trace.json")
     with open(job_dir / "routes.jsonl", "w", encoding="utf-8") as f:
@@ -431,16 +516,26 @@ def _write_outputs(
     (job_dir / "cast.json").write_text(sheet.model_dump_json(indent=2), encoding="utf-8")
     by_id = {p.unit_id: p for p in placements}
     rows = []
-    for u in seg.units:
+    for u in units:
         tr = translations.get(u.id)
         p = by_id.get(u.id)
+        edited = u.id in ue.text or u.id in ue.seed or u.id in ue.speaker or u.id in ue.nudge
+        risk, why = risk_ops.score(u, p, tr, edited=edited)
         rows.append(
             {
                 "unit": u.model_dump(),
                 "translation": tr.model_dump() if tr else None,
                 "placement": p.model_dump() if p else None,
+                "risk": risk,
+                "risk_reasons": why,
+                "edited": edited,
+                "locked": ue.is_protected(u.id),
+                "seed": ue.seed.get(u.id, 0),
             }
         )
+    (job_dir / "tiles.json").write_text(
+        json.dumps([t.model_dump() for t in tiles], indent=1), encoding="utf-8"
+    )
     (job_dir / "units.json").write_text(
         json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8"
     )

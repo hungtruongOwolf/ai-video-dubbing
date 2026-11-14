@@ -239,6 +239,24 @@ class Dubd:
                 log(f"[laptop] uploaded {min(n * PART_BYTES, size) / 1e6:.1f}/{size / 1e6:.1f} MB")
         return self._json("POST", f"/uploads/{uid}/commit", {"parts": n, "ext": ext})["key"]
 
+    def has(self, key: str) -> bool:
+        code, _ = _request("HEAD", f"{self.url}/cas/{key}", headers=self.headers, timeout=30)
+        return code == 200
+
+    def preview(self, segments: list[tuple[str, int]], from_ms: int, to_ms: int) -> bytes:
+        body = {"segments": [[k, st] for k, st in segments], "from_ms": from_ms, "to_ms": to_ms}
+        headers = {**self.headers, "Content-Type": "application/json"}
+        code, raw = _request(
+            "POST",
+            f"{self.url}/preview",
+            headers=headers,
+            data=json.dumps(body).encode("utf-8"),
+            timeout=60,
+        )
+        if code != 200:
+            raise RemoteError(f"preview failed: HTTP {code} {raw[:200]!r}")
+        return raw
+
     def submit(self, body: dict[str, Any]) -> str:
         return self._json("POST", "/jobs", body)["job_id"]
 

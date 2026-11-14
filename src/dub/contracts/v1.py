@@ -12,7 +12,7 @@ workers running on the GPU pod behind HTTP.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -141,6 +141,7 @@ class Unit(Model):
     text: str
     n_words: int
     asr_conf: float = 1.0
+    parent_ids: list[str] = Field(default_factory=list)  # set when a split/merge made it
 
     @property
     def slot_ms(self) -> int:
@@ -375,12 +376,32 @@ class EncodeReq(Model):
     bitrate: str = "192k"
 
 
-class MixReq(Model):
+class TileReq(Model):
+    """Mix one fixed 30 s slice of the timeline: the bed plus every clip overlapping it."""
+
     bed_key: str
-    duration_ms: int
+    start_ms: int
+    end_ms: int
     placements: list[Placement]
     bed_gain_db: float = 0.0
+
+
+class Tile(Model):
+    start_ms: int
+    end_ms: int
+    audio_key: str  # 48 kHz stereo WAV, not loudness-normalised
+
+
+class ConcatReq(Model):
+    keys: list[str]
+
+
+class MasterReq(Model):
+    """Final loudness normalisation + AAC encode of the whole dub track."""
+
+    audio_key: str
     loudness_lufs: float = -16.0
+    bitrate: str = "192k"
 
 
 class Cue(Model):
@@ -402,6 +423,32 @@ class SubtitleTrack(Model):
     lang: str
     cues: list[Cue]
     srt_key: str
+
+
+# ---------------------------------------------------------------- human edits
+
+EditField = Literal["text", "seed", "speaker", "nudge", "lock", "split", "merge_next", "undo"]
+
+
+class Edit(Model):
+    """One human edit, appended to the job's edits.jsonl. Later edits win.
+
+    text        value: str           the dubbed line, replaces the translation (and is locked)
+    seed        value: int           a new take of the same line (regenerate)
+    speaker     value: str           who says the line (picks the cloned voice)
+    nudge       value: {start_ms, end_ms}  offsets added to the line's time slot
+    lock        value: bool          protect the line from automatic rewrites
+    split       value: {at_ms} | None  split the unit at the word boundary nearest at_ms
+    merge_next  value: None          merge the unit with the next one (same speaker)
+    undo        value: edit id       cancel an earlier edit
+    """
+
+    id: str  # sortable: <time_ns>-<random>
+    unit_id: str
+    field: EditField
+    value: Any = None
+    ts: float = 0.0
+    author: str = "human"
 
 
 # ---------------------------------------------------------------- routing trace
@@ -457,12 +504,16 @@ ALL_MODELS: list[type[BaseModel]] = [
     Placement,
     StretchReq,
     AudioRes,
-    MixReq,
     Cue,
     SubsReq,
     SubtitleTrack,
     Rejection,
     RouteTrace,
+    TileReq,
+    Tile,
+    ConcatReq,
+    MasterReq,
+    Edit,
     RefsReq,
     VoiceRef,
     RefBank,
