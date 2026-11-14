@@ -155,6 +155,20 @@ def break_tokens(text: str, lang: str) -> list[str]:
     return _kinsoku(tokens) if is_no_space(lang) else tokens
 
 
+def split_wide(tokens: list[str], cpl: int, lang: str) -> list[str]:
+    """Split pieces wider than a whole line (a long katakana word, a URL) by character, still
+    following kinsoku. Breaking inside them is the lesser evil versus an over-wide line."""
+    out: list[str] = []
+    for tok in tokens:
+        if display_len(tok.strip(), lang) <= cpl:
+            out.append(tok)
+            continue
+        out.extend(_kinsoku(list(tok.rstrip())))
+        if tok != tok.rstrip():
+            out[-1] += tok[len(tok.rstrip()) :]
+    return out
+
+
 def join_line(tokens: list[str], lang: str) -> str:
     """Join tokens into one display line (adds ZWSP for Thai-like scripts, RLM for RTL)."""
     if base_lang(lang) in ZWSP_LANGS:

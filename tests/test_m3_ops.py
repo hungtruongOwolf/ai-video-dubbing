@@ -58,3 +58,16 @@ def test_backcheck_uses_the_target_language_asr_chain(cfg):
     assert tr is None
     fake = Router(cfg, overrides=parse_overrides(["asr.*=fake_asr"]))
     assert fake.route("asr.backcheck", {"tgt_lang": "vi"}).chain == ["fake_asr"]
+
+
+def test_boundary_f1_aligns_different_texts():
+    from dub.bench.seg import boundary_f1
+
+    gold = ["Hello there.", "How are you today?", "I am fine."]
+    # The ASR lost the punctuation, misheard a word, and our split is late by one word.
+    pred = ["hello there how", "are you to day i am fine"]
+    f = boundary_f1(pred, gold, "en", tol=1)
+    assert f.n_gold == 2 and f.n_pred == 1 and f.hits == 1
+    assert boundary_f1(pred, gold, "en", tol=0).hits == 0
+    zh = boundary_f1(["你好。", "今天天气很好。"], ["你好。", "今天天气很好。"], "zh", tol=0)
+    assert zh.f1 == 1.0

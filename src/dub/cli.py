@@ -11,6 +11,7 @@ dub review VIDEO --to vi         review page: listen to risky lines, fix them, r
 dub doctor                       show which providers can run here and the route matrix
 dub schema                       export the /v1 data contracts as JSON Schema
 dub jobs                         list jobs in the workspace
+dub bench seg JOB --golden FILE  sentence-boundary F1 of a job against your reference
 """
 
 from __future__ import annotations
@@ -119,6 +120,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     j = sub.add_parser("jobs", help="list jobs in the workspace")
     _common(j)
+
+    b = sub.add_parser("bench", help="measure a job against a reference")
+    b.add_argument("what", choices=["seg"], help="seg: sentence segmentation F1")
+    b.add_argument("job", type=Path, help="job folder (printed as 'report:' by dub run)")
+    b.add_argument("--golden", type=Path, required=True, help="reference: one sentence per line")
+    b.add_argument("--tol", type=int, default=1, help="tolerance in words (default 1)")
     return ap
 
 
@@ -295,6 +302,28 @@ def cmd_schema(a) -> int:
     return 0
 
 
+def cmd_bench(a) -> int:
+    from dub.bench.seg import boundary_f1
+
+    job = a.job if a.job.is_dir() else a.job.parent
+    seg = json.loads((job / "segmentation.json").read_text(encoding="utf-8"))
+    gold = [ln.strip() for ln in a.golden.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    pred = [s["text"] for s in seg["sentences"]]
+    lang = seg["lang"]
+    for tol in sorted({0, a.tol}):
+        f = boundary_f1(pred, gold, lang, tol=tol)
+        print(
+            f"sentences (tolerance {tol} word): P {f.precision:.3f}  R {f.recall:.3f}  "
+            f"F1 {f.f1:.3f}   ours {f.n_pred}, reference {f.n_gold}"
+        )
+    lens = [(u["end_ms"] - u["start_ms"]) / 1000 for u in seg["units"]]
+    print(
+        f"units: {len(lens)}, longest {max(lens, default=0):.1f} s, "
+        f"over 15 s: {sum(1 for x in lens if x > 15)}, under 1 s: {sum(1 for x in lens if x < 1)}"
+    )
+    return 0
+
+
 def cmd_jobs(a) -> int:
     ws = Workspace.open(a.workspace)
     for job_id, tgt, profile, status, _ in ws.db.jobs():
@@ -320,6 +349,7 @@ def main(argv: list[str] | None = None) -> int:
         "doctor": cmd_doctor,
         "schema": cmd_schema,
         "jobs": cmd_jobs,
+        "bench": cmd_bench,
     }[a.cmd]
     return handler(a)
 

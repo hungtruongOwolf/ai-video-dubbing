@@ -18,7 +18,15 @@ import unicodedata
 
 from dub.contracts.v1 import Cue, SubItem, SubsReq, SubtitleTrack
 from dub.ops.align import char_times
-from dub.ops.script import CLAUSE_END, SENTENCE_END, break_tokens, display_len, ends_with, join_line
+from dub.ops.script import (
+    CLAUSE_END,
+    SENTENCE_END,
+    break_tokens,
+    display_len,
+    ends_with,
+    join_line,
+    split_wide,
+)
 from dub.store.cas import CAS
 
 _PUNCT = SENTENCE_END | CLAUSE_END
@@ -137,7 +145,7 @@ def build_cues(req: SubsReq) -> list[Cue]:
     out: list[Cue] = []
     for item in sorted(req.items, key=lambda c: c.start_ms):
         text = unicodedata.normalize("NFC", " ".join(item.text.split()))
-        tokens = break_tokens(text, req.lang)
+        tokens = split_wide(break_tokens(text, req.lang), req.cpl, req.lang)
         if not tokens:
             continue
         chunks = split_into_cues(tokens, req.cpl, req.lang, req.max_lines)
