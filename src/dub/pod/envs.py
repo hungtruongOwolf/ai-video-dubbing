@@ -5,9 +5,11 @@ process, so their models share one Python environment and one GPU lock:
 
     asr  faster-whisper (Whisper large-v3, PhoWhisper)        pod/envs/asr.txt
     sep  audio-separator (Mel-Band RoFormer)                  pod/envs/sep.txt
-    tts  OmniVoice + SaT (sentence boundaries)                pod/envs/tts.txt
+    tts  OmniVoice + SaT (sentences) + ECAPA (speakers)       pod/envs/tts.txt
+    tts2 VieNeu-TTS (its transformers pin differs)            pod/envs/tts2.txt
 
-Installing is `pod/setup_env.sh <env>`: a uv venv under /workspace/dub/envs/<env>, skipped when
+Installing is `pod/setup_env.sh <env>`: a uv venv under /workspace/dub/envs/<env> whose files are
+symlinks into the shared uv cache on the volume (one copy of torch for every env), skipped when
 the requirements file has not changed since the last install. Workers start as soon as their
 own env is ready and preload their models, so the first job does not pay the load time.
 """

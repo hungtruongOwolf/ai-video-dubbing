@@ -78,8 +78,8 @@ Volume layout:
 /workspace/dub/
   bin/        uv, ffmpeg, ffprobe
   python/     Python builds managed by uv
-  uv-cache/   wheel cache shared by all envs
-  envs/       core, asr, sep, tts
+  uv-cache/   one copy of every package; the venvs are symlinks into it (never prune it)
+  envs/       core, asr, sep, tts, tts2
   repo/       the code at the requested commit
   hf/         Hugging Face cache (Whisper, PhoWhisper, OmniVoice weights)
   models/     audio-separator models

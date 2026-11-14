@@ -260,6 +260,8 @@ The benchmark ran the volume out of quota twice. Measured: 35.0 GB of data (`du`
 on the volume was hardlinked into every venv, so it doubled every install. Fixes:
 - the uv cache now lives on the container disk and packages are copied into the venvs
   (`pod/setup_env.sh`): the volume dropped to 38.4 GB;
+  (M4 replaced this: the cache is back on the volume and the venvs are symlinks into it,
+  so torch is stored once for all envs; see the M4 notes);
 - `dub gc [--remote]` deletes CAS files that no stored result points to (experiment outputs,
   replaced intermediates); it freed 0.8 GB here;
 - a 5-minute video still leaves ~190 MB of WAVs on the volume (48 kHz stereo audio, both
