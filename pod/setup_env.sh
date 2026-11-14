@@ -29,7 +29,9 @@ echo "[$NAME] installing $(grep -cv '^\s*#' "$REQ" || true) requirement lines"
 # a fresh venv every time: no stale packages, and with symlinks a rebuild is cheap
 rm -rf "$VENV"
 uv venv --quiet --python 3.12 "$VENV"
-uv pip install --python "$VENV/bin/python" -r "$REQ"
+# bytecode compiled now, in parallel: otherwise the first import of torch in a worker writes
+# thousands of .pyc files to the network volume one by one (minutes)
+uv pip install --compile-bytecode --python "$VENV/bin/python" -r "$REQ"
 uv pip install --quiet --python "$VENV/bin/python" -e "$REPO"
 echo "$STAMP" > "$VENV/.dub-stamp"
 echo "[$NAME] done"
