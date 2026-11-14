@@ -471,7 +471,10 @@ def cmd_bench_speed(a) -> int:
     rep = analyse(job, media_s)
     print(render(rep))
     if a.json:
-        a.json.write_text(json.dumps(rep.as_dict(), indent=1), encoding="utf-8")
+        out = rep.as_dict()
+        if (job / "metrics.json").exists():  # quality next to speed, for A/B runs
+            out["metrics"] = json.loads((job / "metrics.json").read_text(encoding="utf-8"))
+        a.json.write_text(json.dumps(out, indent=1), encoding="utf-8")
     return 0
 
 
