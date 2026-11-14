@@ -98,15 +98,20 @@ def _stream(sentences: list[str], lang: str) -> tuple[list[str], list[int], list
 
 
 def boundary_f1(pred_sentences: list[str], gold_sentences: list[str], lang: str, tol: int = 1):
-    """F1 of our sentence ends against the reference sentence ends (in our word positions)."""
+    """F1 of our sentence ends against the reference sentence ends (in our word positions).
+
+    A reference boundary is carried over by the last character of its sentence. When the ASR
+    did not produce that character (a number read out: "832" vs "tam tram ba muoi hai"), the
+    first character of the next sentence is used instead: the boundary is just before it.
+    """
     pc, pw, pends = _stream(pred_sentences, lang)
     gc, _, _ = _stream(gold_sentences, lang)
-    # char index (in the gold stream) of the last char of each gold sentence
-    gold_end_chars, n = [], 0
+    spans, n = [], 0  # (first, last) char index of each gold sentence in the gold stream
     for s in gold_sentences:
-        n += len(_stream([s], lang)[0])
-        if n and (not gold_end_chars or gold_end_chars[-1] != n - 1):
-            gold_end_chars.append(n - 1)
+        m = len(_stream([s], lang)[0])
+        if m:
+            spans.append((n, n + m - 1))
+        n += m
     sm = difflib.SequenceMatcher(None, gc, pc, autojunk=False)
     g2p: dict[int, int] = {}
     for a, b, size in sm.get_matching_blocks():
@@ -114,12 +119,14 @@ def boundary_f1(pred_sentences: list[str], gold_sentences: list[str], lang: str,
             g2p[a + k] = b + k
     matched = sorted(g2p)
     gold: list[int] = []
-    for gi in gold_end_chars[:-1]:  # the end of the text is not a boundary
-        if gi in g2p:
-            gold.append(pw[g2p[gi]])
-            continue
-        before = [m for m in matched if m < gi]  # the reference end was not recognised:
-        if before:  # use the last recognised char before it
-            gold.append(pw[g2p[before[-1]]])
+    for (_, last), (first_next, _) in zip(spans, spans[1:], strict=False):
+        if last in g2p:
+            gold.append(pw[g2p[last]])
+        elif first_next in g2p and g2p[first_next] > 0:
+            gold.append(pw[g2p[first_next]] - 1)
+        else:
+            before = [m for m in matched if m < last]
+            if before:
+                gold.append(pw[g2p[before[-1]]])
     gold = sorted(set(gold))
     return match_f1(pends[:-1], gold, tol)

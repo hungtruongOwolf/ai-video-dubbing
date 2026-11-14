@@ -15,7 +15,8 @@ reads NTREX sentences at a grid of speaking rates. Quality signals:
 E9 repeats the natural rate with 16 diffusion steps instead of 32.
 
 Steps (on the pod; the dubd workers must be running):
-    envs/core/bin/python experiments/tts_rate.py gen      # TTS + stretch + back-check
+    envs/core/bin/python experiments/tts_rate.py gen --langs vi   # one process per language
+    envs/core/bin/python experiments/tts_rate.py gen --langs en,es # group (they run in parallel)
     envs/tts/bin/python  experiments/tts_rate.py mos      # UTMOS scores
     envs/core/bin/python experiments/tts_rate.py report   # tables -> results/tts_rate.json
 """
@@ -53,9 +54,9 @@ PLAN = {  # target language -> reference voices (always from another language)
     "ja": ["en_f"],
     "th": ["en_f"],
 }
-RATES = [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.35]  # x the langpack's units_per_s
-STRETCH_LANGS = {"vi", "en"}
-N_SENT = 14
+RATES = [0.7, 0.8, 0.9, 1.0, 1.1, 1.25]  # x the langpack's units_per_s
+STRETCH = {("vi", "en_f")}  # (language, voice) pairs with a rubberband arm
+N_SENT = 10
 ASR_FOR = {"vi": "phowhisper_large_ct2"}
 
 
@@ -67,8 +68,15 @@ def _workspace():
     )
 
 
-def _index_path() -> Path:
-    return data_dir() / "results" / "tts_index.json"
+def _index_path(tag: str = "all") -> Path:
+    return data_dir() / "results" / f"tts_index_{tag}.json"
+
+
+def _load_rows() -> list[dict]:
+    rows: list[dict] = []
+    for f in sorted((data_dir() / "results").glob("tts_index_*.json")):
+        rows += json.loads(f.read_text(encoding="utf-8"))
+    return rows
 
 
 def sentences(lang: str) -> list[str]:
@@ -89,7 +97,7 @@ def sentences(lang: str) -> list[str]:
     return out
 
 
-def gen() -> None:
+def gen(langs: list[str]) -> None:
     from dub.contracts.v1 import AudioReq, StretchReq, TrimReq
     from dub.core.config import load_config
     from dub.ops import media
@@ -160,7 +168,9 @@ def gen() -> None:
             "steps": steps,
         }
 
-    for lang, voices in PLAN.items():
+    tag = "-".join(langs)
+    for lang in langs:
+        voices = PLAN[lang]
         lp = cfg.langpack(lang)
         texts = sentences(lang)
         for voice in voices:
@@ -173,7 +183,7 @@ def gen() -> None:
                     target = round(units / (r * lp.units_per_s) * 1000)
                     exact = synth(base, target, 32, f"-r{r}")
                     rows.append({**exact, "arm": "exact", "rate": r, "target_ms": target})
-                    if lang in STRETCH_LANGS:
+                    if (lang, voice) in STRETCH:
                         # rubberband the natural take to the same length
                         tempo = free["voice_ms"] / target
                         st = media.stretch(
@@ -202,8 +212,8 @@ def gen() -> None:
                 fast = synth(base, round(units / lp.units_per_s * 1000), 16, "-s16")
                 rows.append({**fast, "arm": "steps16", "rate": 1.0})
             print(lang, voice, len(rows), flush=True)
-            save_json(_index_path(), rows)
-    save_json(_index_path(), rows)
+            save_json(_index_path(tag), rows)
+    save_json(_index_path(tag), rows)
 
 
 def mos() -> None:
@@ -212,16 +222,19 @@ def mos() -> None:
     from dub.ops.audio_io import read_wav
 
     cas = _workspace().cas
-    rows = json.loads(_index_path().read_text(encoding="utf-8"))
     model = torch.hub.load("tarepan/SpeechMOS:v1.2.0", "utmos22_strong", trust_repo=True)
     model = model.cuda().eval()
+    n = 0
     with torch.no_grad():
-        for r in rows:
-            audio, sr = read_wav(cas.path(r["key"]))
-            wave = torch.from_numpy(audio[:, 0]).unsqueeze(0).cuda()
-            r["utmos"] = round(float(model(wave, sr).mean()), 3)
-    save_json(_index_path(), rows)
-    print("scored", len(rows))
+        for f in sorted((data_dir() / "results").glob("tts_index_*.json")):
+            rows = json.loads(f.read_text(encoding="utf-8"))
+            for r in rows:
+                audio, sr = read_wav(cas.path(r["key"]))
+                wave = torch.from_numpy(audio[:, 0]).unsqueeze(0).cuda()
+                r["utmos"] = round(float(model(wave, sr).mean()), 3)
+            save_json(f, rows)
+            n += len(rows)
+    print("scored", n)
 
 
 def _med(xs):
@@ -236,7 +249,7 @@ def report() -> None:
     from dub.core.config import load_config
 
     cfg = load_config()
-    rows = json.loads(_index_path().read_text(encoding="utf-8"))
+    rows = _load_rows()
     out: dict = {}
     for lang in PLAN:
         lp = cfg.langpack(lang)
@@ -288,8 +301,12 @@ def report() -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("step", choices=["gen", "mos", "report"])
+    ap.add_argument("--langs", default=",".join(PLAN))
     a = ap.parse_args()
-    {"gen": gen, "mos": mos, "report": report}[a.step]()
+    if a.step == "gen":
+        gen(a.langs.split(","))
+    else:
+        {"mos": mos, "report": report}[a.step]()
 
 
 if __name__ == "__main__":
