@@ -133,6 +133,10 @@ def test_risk_puts_problems_first():
 # -------------------------------------------------------------------- end to end (fake models)
 
 
+class SimulatedKill(BaseException):
+    """Like a kill: not an Exception, so nothing in the pipeline catches it."""
+
+
 @pytest.fixture(scope="module")
 def demo(tmp_path_factory) -> Path:
     from dub.demo import make_demo
@@ -185,11 +189,11 @@ def test_kill_and_resume_gives_identical_output(demo, tmp_path, monkeypatch):
     def flaky(self, req, ctx):
         calls["n"] += 1
         if calls["n"] == 7:
-            raise KeyboardInterrupt("simulated kill")
+            raise SimulatedKill("simulated kill")
         return real_op(self, req, ctx)
 
     monkeypatch.setattr(fake.FakeTTS, "op_tts_synthesize", flaky)
-    with pytest.raises(BaseException):  # noqa: B017 - the simulated kill
+    with pytest.raises(SimulatedKill):
         run_video(RunOptions(video=demo, tgt="vi", fake=True), ws, log=lambda m: None)
     monkeypatch.setattr(fake.FakeTTS, "op_tts_synthesize", real_op)
     resumed = run_video(RunOptions(video=demo, tgt="vi", fake=True), ws, log=lambda m: None)
