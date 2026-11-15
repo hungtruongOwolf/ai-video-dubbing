@@ -3,7 +3,7 @@
 Measurements that set defaults. A default changes only through a measured comparison (the
 "swap gate" in the design), so every number in `configs/` that matters points to one of
 these scripts and to its write-up in `docs/m3-segmentation-timing.md` or
-`docs/m4-speakers-routing.md` (later: `docs/m7-quality-pass.md`, `docs/m8-one-pass.md`).
+`docs/m4-speakers-routing.md` (later: `docs/m7-quality-pass.md`, `docs/m8-one-pass.md`, `docs/m9-faster-better.md`).
 
 | Script | Experiment | Runs on | Decides |
 |---|---|---|---|
@@ -27,6 +27,8 @@ these scripts and to its write-up in `docs/m3-segmentation-timing.md` or
 | `phrase_speakers.py SRC_KEY LABELS --units units.json` | M8: who says each subtitle cue, against hand labels (`golden/*.speakers.json`): diarizer thresholds, cue clustering, reassignment, a finished job; B-cubed and turn-change P/R; ECAPA cosine between people | pod, `core` env + running workers | `text.speakers` (the voices cannot separate the women of the zh drama) |
 | `short_lines.py [--refs JOB/refs.json]` | M8: intelligibility of 1-6 syllable Vietnamese lines at 1.0-2.5x their linear length, per voice (back-check guarded against invented text) | pod, `core` env + running workers | `short_boost`, `short_units` (vi) |
 | `accent.py JOB_DIR [--src zh]` | M8: lines heard as the source language, CER and speaker similarity: OmniVoice default, guidance 3, best of 3 seeds, VieNeu | pod, `core` env + running workers | the accent of cross-lingual clones |
+| `judge_translations.py NAME=JOB ... --judges opus,fable` | M9: the dubbed lines of several runs of one video (other LLM model, prompt) ranked blind by judge LLMs: meaning, natural speech, forms of address | laptop (`claude` CLI) | the translation model (Sonnet: even with Opus and Fable, 3x faster) |
+| `lid_check.py UNITS --cas CAS` | M9: Whisper's language detection alone vs a full transcription on a job's takes: agreement and time | pod, `asr` env | the accent check (`detect_only`) |
 
 Data: [NTREX-128](https://github.com/MicrosoftTranslator/NTREX) (CC BY-SA 4.0), downloaded
 on first use into `$DUB_EXP_DATA` (default `experiments/data/`, not committed). Results are

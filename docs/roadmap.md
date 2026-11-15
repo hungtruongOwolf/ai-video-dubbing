@@ -263,3 +263,18 @@ whose first dub needed three or four rounds of edits ([m8-one-pass.md](m8-one-pa
   14 of 86 lines worth a listen, 0 left failing for an accent
 - [ ] Not done: an LLM pass correcting the transcript without subtitles, VoiceStudio's
   measured-duration rewrite, a listening test
+
+## M9: Faster runs, better lines (done)
+
+Write-up: [m9-faster-better.md](m9-faster-better.md).
+
+- [x] VieNeu loaded with the pod (first calls of a job waited 130-196 s): cartoon job 175 s -> 71 s, drama voicing 227 s -> 95 s
+- [x] Jobs start while workers load; workers serve while they load (first-use order); envs started at once; the pod rented while the video is read
+- [x] Accent check by language detection only (40/40 same answers, 89 vs 460 ms a take)
+- [x] Laughs, cries and fillers keep the original audio (langpack `interjections`)
+- [x] Speakers: 3 readings voted, on Fable (B-cubed F1 0.711 -> 0.782, speaker changes recall 0.82 -> 0.88); disagreements flagged
+- [x] Translation model: Sonnet kept (blind judges: even with Opus and Fable)
+- [x] Wordings voiced and measured for VieNeu; QA retry on OmniVoice; worker lock race fixed
+- [x] Drama: QA passed 0.899 -> 0.989, lines worth a listen 14/86 -> 11/96
+- [ ] Not done: weights on faster storage (cold start ~4 min), who speaks from the picture, listening test
+
