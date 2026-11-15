@@ -96,7 +96,8 @@ def original_extents(
     pad_ms: int = 150,
     vad_margin_ms: int = 800,
     max_extend_ms: int = 6000,
-    min_share: float = 0.5,
+    min_share: float = 0.6,
+    min_chars: int = 2,
 ) -> dict[str, tuple[int, int]]:
     """Where a line kept in the original audio really sounds: its slot, the subtitle cues
     that carry its text, and the vocal sound touching them, but never into a dubbed line's
@@ -117,7 +118,10 @@ def original_extents(
         a, b = s0, e0
         for c0, c1, ct in cues:
             near = c1 >= s0 - max_extend_ms and c0 <= e0 + max_extend_ms
-            if near and share(ct, text) >= min_share:
+            # most of the cue's characters, and at least two, are the line's ("大爷" shares
+            # one character with 扭扭大肚肚: the next line's cue, not the song's)
+            sh = share(ct, text)
+            if near and sh >= min_share and sh * len(_content(ct)) >= min_chars:
                 a, b = min(a, c0), max(b, c1)
         core = (a, b)
         # the vocal sound overlapping the line and its cues, at most vad_margin_ms beyond them:

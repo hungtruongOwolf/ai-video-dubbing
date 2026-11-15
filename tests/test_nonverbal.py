@@ -39,7 +39,8 @@ def test_a_kept_line_covers_its_real_sound():
 
     lines = [("song", 40, 340, "扭扭大肚肚舞步萌"), ("dudu", 3780, 4940, "嘟嘟"),
              ("line", 6020, 8300, "大爷 你切什么呀")]  # fmt: skip
-    cues = [(1500, 3000, "扭扭大肚肚"), (3250, 4750, "舞步萌嘟嘟"), (6750, 8500, "你切什么呀")]
+    cues = [(1500, 3000, "扭扭大肚肚"), (3250, 4750, "舞步萌嘟嘟"), (6000, 6750, "大爷"),
+            (6750, 8500, "你切什么呀")]  # fmt: skip
     regions = [(0, 2900), (3050, 4950), (5150, 5500), (6000, 8300)]
     ext = original_extents(lines, {"song", "dudu"}, cues, regions)
     assert ext["song"][0] == 0 and ext["song"][1] >= 4750  # the whole song
