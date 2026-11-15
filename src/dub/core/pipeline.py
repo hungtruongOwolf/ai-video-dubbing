@@ -812,6 +812,13 @@ async def run_job(
 
     choices = {u.id: choose(u, translations[u.id]) for u in voiced}
     units = voiced
+    # lines kept in the original audio cover their real sound (a song the ASR squeezed into
+    # 300 ms went silent): their cues and the vocal sound around them, up to the dubbed lines
+    extents = nonverbal_ops.original_extents(
+        [(u.id, u.start_ms, u.end_ms, u.text) for u in units], set(ue.original),
+        [(c.start_ms, c.end_ms, c.text) for c in (spec.hardsubs if hardsub_stats else [])],
+        speech.regions,
+    )  # fmt: skip
 
     placements: list[Placement] = []
     checks: dict[str, WordTimeline] = {}  # unit id -> back-check words (relative to the clip)
@@ -855,10 +862,11 @@ async def run_job(
                 else None
             )
             variant, text, pred = choices[u.id]
-            if u.id in ue.original:  # not voiced: the original vocals of the slot, as they are
+            if u.id in ue.original:  # not voiced: the original vocals of the line, as they are
+                a0, b0 = extents.get(u.id, (u.start_ms, u.end_ms))
                 orig: AudioRes = await cx.local(
                     "audio.cut", media_ops.cut,
-                    CutReq(audio_key=stems.vocals_key, start_ms=u.start_ms, end_ms=u.end_ms),
+                    CutReq(audio_key=stems.vocals_key, start_ms=a0, end_ms=b0),
                     AudioRes, subject=u.id,
                 )  # fmt: skip
                 # its subtitle: the full translation (no voice to fit into the slot)
@@ -867,7 +875,7 @@ async def run_job(
                     text = tr_o.target
                 return Placement(
                     unit_id=u.id, speaker=u.speaker, slot_start_ms=u.start_ms,
-                    slot_end_ms=u.end_ms, start_ms=u.start_ms, end_ms=u.start_ms + orig.dur_ms,
+                    slot_end_ms=u.end_ms, start_ms=a0, end_ms=a0 + orig.dur_ms,
                     natural_ms=orig.dur_ms, clip_ms=orig.dur_ms, rate=1.0, variant="original",
                     text=text, flags=["original"], audio_key=orig.audio_key,
                 )  # fmt: skip
@@ -1130,7 +1138,7 @@ async def run_job(
         nonverbal, nv_stats = await _nonverbal_events(
             cx, cfg, speech.regions, voiced,
             spec.hardsubs if hardsub_stats else [], stems.vocals_key, vocals16.audio_key,
-            src_lang, src_lp, log,
+            src_lang, src_lp, log, kept=list(extents.values()),
         )  # fmt: skip
         nonverbal_stats = nv_stats
     if placements:
@@ -1501,6 +1509,7 @@ async def _nonverbal_events(
     src_lang: str,
     src_lp,
     log: Callable[[str], None],
+    kept: list[tuple[int, int]] | None = None,
 ) -> tuple[list[Placement], dict[str, Any]]:
     """Laughter, cries, screams between the lines, kept in the original audio (see
     dub.ops.nonverbal): vocal sound where no line and no subtitle is, in which the source ASR
@@ -1508,6 +1517,7 @@ async def _nonverbal_events(
     source language."""
     m = cfg.dub.mix
     busy = [(u.start_ms, u.end_ms) for u in units] + [(c.start_ms, c.end_ms) for c in cues]
+    busy += kept or []  # lines kept original already cover their sound
     found = nonverbal_ops.gaps(regions, busy, pad_ms=m.nonverbal_pad_ms,
                                min_ms=m.nonverbal_min_ms)  # fmt: skip
 

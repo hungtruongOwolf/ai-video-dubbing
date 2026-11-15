@@ -67,3 +67,70 @@ def wordless(text: str, is_interjection) -> bool:
     """What the ASR heard in a gap holds no words: nothing, or only laughter and cries."""
     t = (text or "").strip()
     return not t or bool(is_interjection(t))
+
+
+def _content(text: str) -> list[str]:
+    return [ch for ch in text if ch.isalnum()]
+
+
+def share(cue_text: str, line_text: str) -> float:
+    """How much of a subtitle cue's text is in a line (characters, in any order)."""
+    cue = _content(cue_text)
+    if not cue:
+        return 0.0
+    pool = _content(line_text)
+    hit = 0
+    for ch in cue:
+        if ch in pool:
+            pool.remove(ch)
+            hit += 1
+    return hit / len(cue)
+
+
+def original_extents(
+    lines: list[tuple[str, int, int, str]],
+    original: set[str],
+    cues: list[tuple[int, int, str]],
+    regions: list[tuple[int, int]],
+    *,
+    pad_ms: int = 150,
+    touch_ms: int = 200,
+    max_extend_ms: int = 6000,
+    min_share: float = 0.5,
+) -> dict[str, tuple[int, int]]:
+    """Where a line kept in the original audio really sounds: its slot, the subtitle cues
+    that carry its text, and the vocal sound touching them, but never into a dubbed line's
+    slot (padded) nor into another kept line. The ASR had squeezed a 5 s song into 300 ms
+    (word times collapsed): cut at the slot, the song went silent from 0.3 s to 3.8 s.
+
+    `lines`: (id, start_ms, end_ms, source text) in time order; `cues`: (start, end, text)."""
+    lines = sorted(lines, key=lambda x: (x[1], x[2]))
+    out: dict[str, tuple[int, int]] = {}
+    for i, (uid, s0, e0, text) in enumerate(lines):
+        if uid not in original:
+            continue
+        lo = max((e + pad_ms for v, _, e, _ in lines[:i] if v not in original), default=0)
+        hi = min((s - pad_ms for v, s, _, _ in lines[i + 1:] if v not in original),
+                 default=e0 + max_extend_ms)  # fmt: skip
+        a, b = s0, e0
+        for c0, c1, ct in cues:
+            near = c1 >= s0 - max_extend_ms and c0 <= e0 + max_extend_ms
+            if near and share(ct, text) >= min_share:
+                a, b = min(a, c0), max(b, c1)
+        grew = True
+        while grew:  # vocal sound touching the extent (a region can bridge two cues)
+            grew = False
+            for r0, r1 in regions:
+                if r0 <= b + touch_ms and r1 >= a - touch_ms and (r0 < a or r1 > b):
+                    a, b, grew = min(a, r0), max(b, r1), True
+        a = max(a, lo, s0 - max_extend_ms)
+        b = min(b, hi, e0 + max_extend_ms)
+        out[uid] = (min(a, s0), max(b, e0)) if b > a else (s0, e0)
+    # two kept lines never sound twice over the same span: each starts where the last ended
+    done = 0
+    for uid in sorted(out, key=lambda k: out[k]):
+        a, b = out[uid]
+        a = max(a, done)
+        out[uid] = (a, max(a, b))
+        done = max(done, out[uid][1])
+    return out

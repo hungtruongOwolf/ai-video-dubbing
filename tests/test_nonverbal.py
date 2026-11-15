@@ -30,3 +30,22 @@ def test_only_wordless_gaps_are_kept():
     # an answer the ASR missed would leak Chinese into the dub
     assert not wordless("你瘦了", zh.is_interjection)
     assert not wordless("浓", zh.is_interjection)
+
+
+def test_a_kept_line_covers_its_real_sound():
+    # The cartoon: the ASR squeezed the song into 40-340 ms; its subtitles run 1.5-4.75 s; the
+    # next dubbed line starts at 6.02 s. Cut at the slot, the song went silent at 0.3-3.8 s.
+    from dub.ops.nonverbal import original_extents, share
+
+    lines = [("song", 40, 340, "扭扭大肚肚舞步萌"), ("dudu", 3780, 4940, "嘟嘟"),
+             ("line", 6020, 8300, "大爷 你切什么呀")]  # fmt: skip
+    cues = [(1500, 3000, "扭扭大肚肚"), (3250, 4750, "舞步萌嘟嘟"), (6750, 8500, "你切什么呀")]
+    regions = [(0, 2900), (3050, 4950), (5250, 5500), (6000, 8300)]
+    ext = original_extents(lines, {"song", "dudu"}, cues, regions)
+    assert ext["song"][0] == 0 and ext["song"][1] >= 4750  # the whole song
+    assert ext["dudu"][0] >= ext["song"][1]  # never twice over the same span
+    assert ext["dudu"][1] <= 6020 - 150  # never into the dubbed line
+    assert "line" not in ext
+    # a region 300 ms after the song (another word, "大爷") is not pulled in
+    assert max(b for _, b in ext.values()) < 5250
+    assert share("舞步萌嘟嘟", "扭扭大肚肚舞步萌") == 0.6
