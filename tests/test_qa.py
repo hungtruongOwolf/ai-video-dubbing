@@ -164,6 +164,18 @@ def test_another_wording_replaces_a_take_only_when_better():
     assert _prefer_take(None, 1.0, None, 1.0, 1.10, fuller=True)
 
 
+def test_a_rewrite_misheard_never_replaces_a_take_heard_right():
+    from dub.core.pipeline import _worse_rewrite
+    from dub.ops.qa import QaResult
+
+    good = QaResult(cer=0.0, sim_ratio=1.0, tail=1.0, passed=True)
+    bad = QaResult(cer=0.167, sim_ratio=None, tail=0.8, passed=False)  # "Vú nuôi vất vả à?"
+    assert _worse_rewrite(good, bad)
+    assert not _worse_rewrite(good, good)  # heard right, and shorter: the rewrite stays
+    assert not _worse_rewrite(bad, bad)  # nothing better to go back to
+    assert not _worse_rewrite(None, bad)  # no QA gate (draft)
+
+
 def test_risk_of_kept_originals_failed_takes_and_short_fills():
     from dub.contracts.v1 import Placement, Unit
     from dub.ops.risk import score

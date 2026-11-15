@@ -1054,9 +1054,18 @@ async def run_job(
                             break
                     return text, variant, pred, best, fit
 
+                before_rewrite = None
                 while True:
                     best = await voice(text, pred)
                     fit = fit_of(best, text, pred)
+                    if before_rewrite is not None and _worse_rewrite(before_rewrite[3][0], best[0]):
+                        # a shorter wording that the back-check no longer hears right does not
+                        # replace a take that was only fast ("Vú nuôi vất vả à?" failed QA
+                        # where the short line it replaced had passed)
+                        text, variant, pred, best, fit = before_rewrite
+                        qa, synth, trimmed, check_words = best
+                        natural = pred if synth.exact else trimmed.dur_ms
+                        break
                     if tr_u and variant in VARIANT_ORDER and not ue.is_protected(u.id):
                         text, variant, pred, best, fit = await measured_variant(
                             text, variant, pred, best, fit
@@ -1076,6 +1085,7 @@ async def run_job(
                         new = await rewrite(text, fit.rate)
                         if new is None:
                             break
+                        before_rewrite = (text, variant, pred, best, fit)
                         text, variant, pred = new, "rewrite", predict(new)
                         continue
                     break
@@ -1439,6 +1449,12 @@ NO_REWRITE_UNITS = 3  # lines this short are never shortened by the LLM (M8)
 REF_TEXT_OK = 0.15  # a clip heard within this CER of its line's text is clean
 VARIANT_ORDER = {"short": 0, "target": 1, "long": 2}  # the translator's wordings, by length
 FILL_TOL = 0.05  # a wording replaces a good take only when its fill is this much closer to 1
+
+
+def _worse_rewrite(before: qa_ops.QaResult | None, after: qa_ops.QaResult | None) -> bool:
+    """A rewrite's take is worse when the back-check heard the take it replaces right and
+    does not hear the rewrite right: a fast line that is heard beats a fitting one that is not."""
+    return before is not None and after is not None and before.passed and not after.passed
 
 
 def _prefer_take(
