@@ -105,6 +105,11 @@ class EnvManager:
         e.status, e.detail = status, detail
         if status in ("ready", "failed"):
             self._not_pending(e.name)
+        if status == "failed":  # registered early (it served while loading): calls fail now
+            with self._lock:
+                workers = json.loads(os.environ.get("DUB_WORKERS") or "{}")
+                workers.pop(e.name, None)
+                os.environ["DUB_WORKERS"] = json.dumps(workers)
         self.log(f"[env {e.name}] {status} {detail}".rstrip())
 
     def _not_pending(self, name: str) -> None:
@@ -211,6 +216,7 @@ class EnvManager:
     def _wait_ready(self, e: EnvInfo) -> None:
         url = f"http://127.0.0.1:{e.port}"
         deadline = e.started_at + READY_TIMEOUT_S
+        registered = False
         while time.time() < deadline:
             if e.proc and e.proc.poll() is not None:
                 tail = (self._logs() / f"{e.name}.log").read_text(errors="replace")[-800:]
@@ -218,9 +224,13 @@ class EnvManager:
                 return
             try:
                 health = get_json(f"{url}/v1/health", timeout=5)
+                if not registered:
+                    # the worker serves while it loads: a job's calls go to it now and wait
+                    # there for their model only (ECAPA is loaded long before OmniVoice)
+                    self._register(e.name, url)
+                    registered = True
                 wanted = {p for p in e.providers if self.cfg.providers[p].preload}
                 if set(health.get("loaded", [])) >= wanted:
-                    self._register(e.name, url)
                     self._set(e, "ready", f"{time.time() - e.started_at:.0f}s")
                     return
             except OSError:

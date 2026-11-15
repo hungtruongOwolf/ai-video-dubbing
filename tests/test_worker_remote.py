@@ -360,6 +360,63 @@ def test_unload_waits_for_a_running_call(cfg, ws, monkeypatch):
     assert events == ["run start", "run end", "cpu"]  # never moved in the middle of the call
 
 
+def test_a_model_serves_while_another_one_loads(cfg, ws, monkeypatch):
+    # The tts worker loaded ECAPA in 41 s and OmniVoice in 73 s: diarization must not wait
+    # for OmniVoice. A call for the model being loaded waits for that one load.
+    import time
+
+    from dub.contracts.v1 import EmbedReq
+    from dub.providers.fake import FakeTTS
+
+    gate = threading.Event()
+    loads: list[str] = []
+
+    def slow_load(self, ctx):
+        loads.append("tts")
+        gate.wait(5)
+
+    monkeypatch.setattr(FakeTTS, "load", slow_load, raising=False)
+    state = WorkerState("fx", ["fake_tts", "fake_diarize"], cfg, ws.cas)
+    assert state.preload_order() == ["fake_diarize", "fake_tts"]  # TTS engines last
+    state.preload("fake_diarize")
+    t = threading.Thread(target=state.preload, args=("fake_tts",))
+    t.start()
+    while "fake_tts" not in state.loading:
+        time.sleep(0.01)
+    tone = ws.cas.put_bytes(_tone_wav(), ".wav")
+    t0 = time.perf_counter()
+    state.submit("fake_diarize", "audio.embed", {}, EmbedReq(audio_key=tone))
+    assert time.perf_counter() - t0 < 2  # served while fake_tts still loads
+    done: list = []
+    req = SynthReq(unit_id="u", text="xin chào", lang="vi", speaker="S1", target_ms=400)
+    caller = threading.Thread(
+        target=lambda: done.append(state.submit("fake_tts", "tts.synthesize", {}, req))
+    )
+    caller.start()
+    time.sleep(0.2)
+    assert not done  # waits for the load in progress
+    gate.set()
+    t.join()
+    caller.join()
+    assert done and done[0].dur_ms == 400 and loads == ["tts"]  # loaded once, not twice
+
+
+def _tone_wav() -> bytes:
+    import io
+    import wave
+
+    import numpy as np
+
+    x = (0.3 * np.sin(2 * np.pi * 220 * np.arange(16000) / 16000) * 32767).astype("<i2")
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(x.tobytes())
+    return buf.getvalue()
+
+
 def test_remote_gc_runs_in_the_background_and_reports(dubd, tmp_path, monkeypatch):
     url, srv = dubd
     monkeypatch.setattr(remote.time, "sleep", lambda s: None)

@@ -62,6 +62,7 @@ class WorkerState:
         self.cv = threading.Condition()
         self.batches: list[int] = []  # sizes of the batches run (health, tests)
         self.offloaded: set[str] = set()  # models parked in CPU memory (restored on next use)
+        self.loading: dict[str, threading.Event] = {}  # preloads in progress (outside the lock)
         self.last_active = time.time()  # dubd's idle watchdog reads it (direct callers count)
         self._runner: threading.Thread | None = None
 
@@ -111,6 +112,9 @@ class WorkerState:
             _release_gpu_cache()
 
     def _execute_batch(self, batch: list[_Task]) -> None:
+        ev = self.loading.get(batch[0].pid)
+        if ev is not None:  # its preload is under way: wait for it, not for a second load
+            ev.wait()
         # The lock is held for the whole run: unload() from another job (its phase A is over)
         # must wait, not move the weights to the CPU in the middle of this call (two jobs at
         # once crashed voice_agender with "weight is on cpu").
@@ -181,14 +185,40 @@ class WorkerState:
     def instance(self, pid: str) -> Any:
         """Create (and load) a provider once. Call with self.lock held."""
         if pid not in self.instances:
-            m = self.cfg.providers[pid]
-            module_name, _, cls_name = (m.impl or "").partition(":")
-            cls = getattr(importlib.import_module(module_name), cls_name)
-            inst = cls(m)
-            if hasattr(inst, "load"):
-                inst.load(self.ctx(pid, dict(m.params)))
-            self.instances[pid] = inst
+            self.instances[pid] = self._create(pid)
         return self.instances[pid]
+
+    def _create(self, pid: str) -> Any:
+        m = self.cfg.providers[pid]
+        module_name, _, cls_name = (m.impl or "").partition(":")
+        cls = getattr(importlib.import_module(module_name), cls_name)
+        inst = cls(m)
+        if hasattr(inst, "load"):
+            inst.load(self.ctx(pid, dict(m.params)))
+        return inst
+
+    def preload(self, pid: str) -> None:
+        """Load a model without holding the lock, so that the models already loaded keep
+        serving (diarization waited ~100 s for OmniVoice to load next to ECAPA). A call for
+        this model waits for this load (`loading`) instead of starting another."""
+        with self.lock:
+            if pid in self.instances or pid in self.loading:
+                return
+            ev = self.loading[pid] = threading.Event()
+        try:
+            inst = self._create(pid)
+            with self.lock:
+                self.instances.setdefault(pid, inst)
+        finally:
+            with self.lock:
+                self.loading.pop(pid, None)
+            ev.set()
+
+    def preload_order(self) -> list[str]:
+        """The models of the first steps first (diarization, sentences, voice hints), the
+        TTS engines last: they are needed last."""
+        pids = [p for p in self.allowed if self.cfg.providers[p].preload]
+        return sorted(pids, key=lambda p: ("tts.synthesize" in self.cfg.providers[p].op, p))
 
 
 def _release_gpu_cache() -> None:
@@ -265,6 +295,9 @@ def make_handler(state: WorkerState):
                 return self._reply(200, {"ok": True, "freed": state.unload(pid)})
             if self.path == "/v1/load":
                 try:
+                    ev = state.loading.get(pid)
+                    if ev is not None:
+                        ev.wait()
                     with state.lock:
                         state.instance(pid)
                 except Exception as e:  # noqa: BLE001 - report every load failure to the core
@@ -319,13 +352,22 @@ def main(argv: list[str] | None = None) -> int:
     state = WorkerState(
         a.env, [p for p in a.providers.split(",") if p], cfg, CAS(Path(a.workspace) / "cas")
     )
-    if a.preload:
-        for pid in sorted(p for p in state.allowed if cfg.providers[p].preload):
-            t0 = time.perf_counter()
-            with state.lock:
-                state.instance(pid)
-            print(f"[{a.env}] loaded {pid} in {time.perf_counter() - t0:.1f}s", flush=True)
+    # Serve at once and load the models behind: health lists each model as it loads, and a
+    # call for a model already loaded runs while the others still load.
     server = serve(state, a.host, a.port)
     print(f"[{a.env}] serving {sorted(state.allowed)} on {a.host}:{a.port}", flush=True)
+
+    def preload_all() -> None:
+        for pid in state.preload_order():
+            t0 = time.perf_counter()
+            try:
+                state.preload(pid)
+            except Exception:  # noqa: BLE001 - reported again by the first call that needs it
+                traceback.print_exc()
+                continue
+            print(f"[{a.env}] loaded {pid} in {time.perf_counter() - t0:.1f}s", flush=True)
+
+    if a.preload:
+        threading.Thread(target=preload_all, name="preload", daemon=True).start()
     server.serve_forever()
     return 0
