@@ -63,8 +63,16 @@ class RunOutput:
     redone: dict[str, int] = field(default_factory=dict)
 
 
+_FILES_LOCK = threading.RLock()  # several videos at once write the same workspace files
+
+
 def audio_key_for(ws: Workspace, video: Path, log: Callable[[str], None] = print) -> str:
     """The CAS key of the video's audio track, extracting it only when the file changed."""
+    with _FILES_LOCK:  # sources.json is read, changed and written back
+        return _audio_key_for(ws, video, log)
+
+
+def _audio_key_for(ws: Workspace, video: Path, log: Callable[[str], None]) -> str:
     index_path = ws.root / "sources.json"
     try:
         index = json.loads(index_path.read_text(encoding="utf-8"))
@@ -116,9 +124,10 @@ def hardsubs_for(ws: Workspace, opts: RunOptions, audio_key: str, log) -> list[H
 
     if not hardsubs_ocr.available():
         return []
-    cues = hardsubs_ocr.burned_subtitles(opts.video.resolve(), log=log)
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    cache.write_text(json.dumps([c.model_dump() for c in cues], ensure_ascii=False), "utf-8")
+    cues = hardsubs_ocr.burned_subtitles(opts.video.resolve(), log=log)  # OCR runs in parallel
+    with _FILES_LOCK:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps([c.model_dump() for c in cues], ensure_ascii=False), "utf-8")
     return cues
 
 

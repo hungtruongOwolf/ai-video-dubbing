@@ -176,13 +176,16 @@ def make_handler(app: FetchApp, port: int):
             self._json(404, {"error": "not found"})
 
         def do_POST(self):
+            # read the body first, whatever the answer: replying before the client has sent it
+            # resets the connection on Windows (ConnectionAborted on the client)
+            n = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(min(n, 1_000_000)) if n > 0 else b""
             if not self._trusted():
                 return self._json(403, {"error": "forbidden"})
             if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                 return self._json(415, {"error": "send JSON"})
-            n = int(self.headers.get("Content-Length") or 0)
             try:
-                body = json.loads(self.rfile.read(min(n, 1_000_000)) or b"{}")
+                body = json.loads(raw or b"{}")
             except json.JSONDecodeError:
                 return self._json(400, {"error": "bad JSON"})
             if self.path == "/api/get":
