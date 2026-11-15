@@ -65,6 +65,22 @@ uv run dub down                                            # or let it idle out 
 
 One-time setup (API key, network volume, Claude token): [docs/m1-gpu-pod.md](docs/m1-gpu-pod.md).
 
+### From a link
+
+```bash
+uv run dub get https://www.youtube.com/watch?v=...         # save the video in Downloads
+uv run dub get                                             # a local page: paste links, Download
+uv run dub run https://www.tiktok.com/@user/video/... --to vi --remote   # download, then dub
+```
+
+Downloads go through [yt-dlp](https://github.com/yt-dlp/yt-dlp), which knows over a
+thousand sites (YouTube, TikTok, Facebook, X, Bilibili, Vimeo...). It picks H.264 first,
+then the highest resolution, so every player can play the file and the dub. Some sites
+only answer a browser that has visited them (Douyin, Instagram, private posts): pass your
+browser's cookies with `--cookies-from-browser firefox`, or export a `cookies.txt` and pass
+`--cookies FILE`. On Windows, Chrome and Edge encrypt their cookies so that other programs
+cannot read them, so use Firefox or the export. Download only what you have the right to.
+
 ### Fix lines and re-render only what changed
 
 ```bash
@@ -107,6 +123,7 @@ Speech is still faked, but the context pass (summary, glossary, cast sheet) and 
 |---|---|
 | `dub demo` | Build a 1-minute test interview video and its transcript |
 | `dub run VIDEO --to LANG[,LANG...] [--fake] [--use OP=PROVIDER] [--param PROVIDER.KEY=VALUE] [--profile draft\|final] [--speakers N] [--subs-only] [--confirm-cast]` | Dub one video, into one or several languages (the analysis runs once); `--confirm-cast` stops at the cast sheet to correct it |
+| `dub get [URL ...] [--download-dir DIR] [--cookies-from-browser B] [--cookies FILE]` | Download videos from links; without a link, open a local page to paste them. `dub run URL` and `dub review URL` download first |
 | `dub up` / `dub down` / `dub status` | Rent, terminate and inspect the GPU pod |
 | `dub review VIDEO --to LANG [--remote]` | Review page: listen, fix lines, render, export |
 | `dub edit VIDEO --to LANG ACTION ...` | Record an edit from the terminal (text, regen, speaker, nudge, split, merge, lock, undo, cast) |
@@ -132,6 +149,7 @@ src/dub/remote.py   laptop side of the pod: Runpod API, dub up/down/status, remo
 src/dub/runner.py   one run of one video, local or remote (shared by dub run and the review page)
 src/dub/edits.py    the human edit store (append-only JSONL on the laptop)
 src/dub/review/     the review page (local web app)
+src/dub/fetch/      dub get: videos from links (yt-dlp) and its local page
 src/dub/bench/      measuring a job: segmentation F1 against a reference, speed and GPU use
 experiments/        the measurements behind the defaults (E1, E3, E4, E6-E10, subtitle layout)
 pod/                pod bootstrap script and per-env requirement files

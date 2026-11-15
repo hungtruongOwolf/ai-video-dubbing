@@ -277,3 +277,46 @@ minute to voicing). Cost of the M8 work on the pod: about $2.20 (RTX PRO 4500, $
   is much shorter than the slot): variants already cover it here (`long`), not measured.
 - Collapsing Whisper repetition loops in the source transcript: not seen on any test video.
 - A listening test: every number here comes from an ASR or a speaker model, not from ears.
+
+## After M8: a second video, and videos from links
+
+### A cartoon (61 s, zh -> vi)
+
+A 3D cartoon (a yellow dragon, a boy, an old man) with animated burned-in subtitles. The first
+one-pass run lost two lines and misread a third:
+
+- OCR fed the whole subtitle band to recognition (no detection, for speed). On a short line
+  centred in a wide band it read part of it: 没兴趣 ("not interested") as 兴, 谁说的 as 的.
+  Each frame is now cut to the columns that hold letter edges before recognition: 16 of 16
+  test frames read right (before: 9), 20-175 ms a frame (detection + recognition: also 16 of
+  16, but ~1 s a frame). On the 5-minute drama the new reading fixed 三个 -> 三个月, 多钱 ->
+  多少钱, 令日 -> 今日, 寿面不能咳断 -> 咬断 and dropped stray characters (菜, 美, 卖) glued to
+  lines; one reading got worse (雇奶娘 -> 庭奶娘). Lone Latin letters (specks read as "S")
+  are dropped, and cues that differ only by a comma merge.
+- 没兴趣 was missing from the ASR altogether. A sure cue (conf >= 0.95, >= 2 characters)
+  with no ASR words under most of its time now becomes a word of its own, timed by the cue,
+  instead of being glued to the previous word: the speaker attribution can then give it to
+  another person. On the drama the rule adds no line (checked with the job's sentences).
+
+| | first run | after the two fixes |
+|---|---:|---:|
+| Lines missing from the dub | 2 (没兴趣, 奶龙) | 0 |
+| Dubbed units | 9 | 14 |
+| Song lines kept in the original | 0 | 2 |
+| Characters found by the attribution | 3 | 4 |
+| Lines worth a listen | 4 of 9 | 3 of 14 |
+
+Still wrong: the boy has no voice of his own (his lines go to the dragon: the script alone
+does not show who speaks, the picture does), and 没兴趣 came out as "Không hứng" (a
+clipped "not interested"), failing its back-check (CER 0.19).
+
+### dub get
+
+`dub get URL` downloads a video with yt-dlp (H.264 first: TikTok's 1080p is H.265 only,
+which Windows does not play without an extension; YouTube still gives 1080p H.264);
+`dub get` alone opens a local page to paste links; `dub run URL` downloads, then dubs.
+Measured: YouTube and TikTok download; Douyin answers only a browser that has visited it
+("fresh cookies are needed"), so it needs `--cookies-from-browser firefox` or an exported
+cookies.txt. On Windows, curl-cffi (the browser-like client TikTok needs) cannot open a CA
+bundle under a non-ASCII path, so every TikTok request failed as "HTTP Error 0" from this
+repository's folder; the bundle is now copied to an ASCII folder first.
