@@ -11,6 +11,8 @@ and is referenced by CAS key, exactly like in-process providers.
 
 The core finds workers through the DUB_WORKERS environment variable, a JSON object
 {"<env name>": "http://127.0.0.1:<port>"} set by the pod server once each worker is up.
+DUB_WORKERS_PENDING lists the envs still installing or loading their models: a job submitted
+while the pod boots routes to them as if they were up, and its calls wait for them.
 """
 
 from __future__ import annotations
@@ -33,6 +35,15 @@ def worker_urls() -> dict[str, str]:
     except json.JSONDecodeError:
         return {}
     return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
+
+def pending_workers() -> set[str]:
+    """Envs that will be up soon (the pod is still booting them)."""
+    try:
+        data = json.loads(os.environ.get("DUB_WORKERS_PENDING") or "[]")
+    except json.JSONDecodeError:
+        return set()
+    return {str(n) for n in data} if isinstance(data, list) else set()
 
 
 def post_json(url: str, body: dict[str, Any], timeout: float = 3600.0) -> dict[str, Any]:

@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -122,6 +124,8 @@ def hardsubs_for(ws: Workspace, opts: RunOptions, audio_key: str, log) -> list[H
 
 def run_video(opts: RunOptions, ws: Workspace, log: Callable[[str], None] = print) -> RunOutput:
     video = opts.video.resolve()
+    # A pod boots in 1.5-4 min: rent it first, read the audio and the subtitles meanwhile.
+    pod = _pod_in_background(opts, ws, log) if opts.remote else None
     audio_key = audio_key_for(ws, video, log)
     edits = EditStore.for_job(ws.root, audio_key, opts.tgt).all()
     spec = JobSpec(
@@ -133,7 +137,7 @@ def run_video(opts: RunOptions, ws: Workspace, log: Callable[[str], None] = prin
         hardsubs=hardsubs_for(ws, opts, audio_key, log),
     )  # fmt: skip
     if opts.remote:
-        return _run_remote(opts, ws, spec, log)
+        return _run_remote(opts, ws, spec, log, pod)
     cfg = load_config(opts.config_dir)
     res = asyncio.run(run_job(cfg, ws, spec, overrides=overrides_for(cfg, opts.use, opts.fake),
                               log=log))  # fmt: skip
@@ -148,14 +152,36 @@ def run_video(opts: RunOptions, ws: Workspace, log: Callable[[str], None] = prin
     )  # fmt: skip
 
 
-def _run_remote(opts: RunOptions, ws: Workspace, spec: JobSpec, log) -> RunOutput:
+_POD_LOCK = threading.Lock()
+
+
+def _pod_in_background(opts: RunOptions, ws: Workspace, log) -> Future:
+    """The running pod, or a new one being rented, as a future (see `_run_remote`)."""
     from dub import remote
 
-    state = remote.PodState.load(ws.root)
-    if state is None or not remote.Dubd(state.url, state.token).health():
-        log("[laptop] no running pod: starting one (dub up)")
-        cfg_dir = opts.config_dir or default_config_dir()
-        state = remote.pod_up(remote.PodConfig.load(cfg_dir), ws.root, cfg_dir.parent, log=log)
+    def get():
+        with _POD_LOCK:  # several target languages at once: one pod, not one each
+            state = remote.PodState.load(ws.root)
+            if state is not None and remote.Dubd(state.url, state.token).health():
+                return state
+            log("[laptop] no running pod: starting one (dub up) while the video is read")
+            cfg_dir = opts.config_dir or default_config_dir()
+            return remote.pod_up(
+                remote.PodConfig.load(cfg_dir), ws.root, cfg_dir.parent, log=log, until="dubd"
+            )
+
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pod-up")
+    fut = pool.submit(get)
+    pool.shutdown(wait=False)
+    return fut
+
+
+def _run_remote(
+    opts: RunOptions, ws: Workspace, spec: JobSpec, log, pod: Future | None = None
+) -> RunOutput:
+    from dub import remote
+
+    state = (pod or _pod_in_background(opts, ws, log)).result()
     dubd = remote.Dubd(state.url, state.token)
 
     def ensure(key: str) -> str:

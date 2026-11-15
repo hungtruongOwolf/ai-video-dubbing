@@ -90,6 +90,83 @@ def test_unregistered_worker_is_rejected_with_reason(cfg, monkeypatch):
         Router(hcfg).route("tts.synthesize", {"tgt_lang": "vi"})
 
 
+def test_a_job_routes_to_a_booting_worker_and_its_calls_wait_for_it(cfg, ws, monkeypatch):
+    # The laptop submits as soon as the pod answers: TTS may still be loading its models.
+    from dub.core import executor as executor_mod
+    from dub.core.router import Router
+
+    monkeypatch.delenv("DUB_WORKERS", raising=False)
+    monkeypatch.setenv("DUB_WORKERS_PENDING", json.dumps(["fx"]))
+    monkeypatch.setattr(executor_mod, "PENDING_POLL_S", 0.01)
+    hcfg = _http_cfg(cfg)
+    hcfg.langpacks["vi"] = hcfg.langpacks["vi"].model_copy(
+        update={"chains": {"tts.synthesize": ["fake_tts"]}}
+    )
+    assert Router(hcfg).route("tts.synthesize", {"tgt_lang": "vi"}).chain == ["fake_tts"]
+
+    state = WorkerState("fx", ["fake_tts"], cfg, ws.cas)
+    httpd = serve_worker(state, "127.0.0.1", 0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+    def worker_comes_up():  # what EnvManager does once the models are loaded
+        import os
+        import time
+
+        time.sleep(0.2)
+        os.environ["DUB_WORKERS"] = json.dumps({"fx": url})
+        os.environ["DUB_WORKERS_PENDING"] = "[]"
+
+    threading.Thread(target=worker_comes_up, daemon=True).start()
+    logs: list[str] = []
+    ex = Executor(hcfg, ws.cas, log=logs.append)
+    req = SynthReq(unit_id="u1", text="xin chào", lang="vi", speaker="S1", target_ms=500)
+    res = asyncio.run(ex.run(hcfg.providers["fake_tts"], "tts.synthesize", req, {}))
+    assert res.dur_ms == 500 and any("waiting for the fx worker" in m for m in logs)
+    httpd.shutdown()
+
+    # a worker that failed to start is no longer pending: the call fails instead of waiting
+    monkeypatch.setenv("DUB_WORKERS", "{}")
+    monkeypatch.setenv("DUB_WORKERS_PENDING", "[]")
+    with pytest.raises(ProviderError) as e:
+        asyncio.run(
+            Executor(hcfg, ws.cas).run(hcfg.providers["fake_tts"], "tts.synthesize", req, {})
+        )
+    assert e.value.kind == "unsupported"
+
+
+def test_env_manager_marks_envs_pending_until_they_settle(cfg, tmp_path, monkeypatch):
+    from dub.pod.envs import EnvInfo
+    from dub.worker.protocol import pending_workers
+
+    monkeypatch.setenv("DUB_WORKERS_PENDING", "[]")
+    envs = EnvManager(cfg, tmp_path, tmp_path, tmp_path)
+    envs.envs = {"asr": EnvInfo("asr", ["x"], 7101), "tts": EnvInfo("tts", ["y"], 7102)}
+    monkeypatch.setattr(envs, "_run_all", lambda: None)
+    envs.start()
+    assert pending_workers() == {"asr", "tts"}
+    envs._set(envs.envs["asr"], "ready")
+    envs._set(envs.envs["tts"], "starting", "loading y")
+    assert pending_workers() == {"tts"}
+    envs._set(envs.envs["tts"], "failed", "boom")
+    assert pending_workers() == set()
+
+
+def test_run_waits_only_for_the_pod_server(monkeypatch):
+    # `dub run --remote` goes on once dubd answers; `dub up` waits for every worker
+    replies = iter([None, {"ready": False, "envs": {"asr": {"status": "starting", "detail": ""}}}])
+    monkeypatch.setattr(remote.Dubd, "health", lambda self: next(replies))
+    monkeypatch.setattr(remote.time, "sleep", lambda s: None)
+    state = remote.PodState(pod_id="p", url="http://x", token="t", gpu="g", ref="r")
+    logs: list[str] = []
+    remote.wait_ready(state, logs.append, 1, until="dubd")
+    assert "workers still loading" in logs[-1]
+    failed = {"ready": False, "envs": {"tts": {"status": "failed", "detail": "oom"}}}
+    replies = iter([failed, {**failed, "ready": True}])
+    with pytest.raises(remote.RemoteError, match="failed to start"):
+        remote.wait_ready(state, logs.append, 1, until="dubd")
+
+
 # -------------------------------------------------------------------- dubd + laptop client
 
 

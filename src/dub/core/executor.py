@@ -20,7 +20,9 @@ from dub.contracts.v1 import OPS
 from dub.core.config import Config, ProviderManifest
 from dub.core.provider_api import ProviderError, RunCtx
 from dub.store.cas import CAS
-from dub.worker.protocol import post_json, worker_urls
+from dub.worker.protocol import pending_workers, post_json, worker_urls
+
+PENDING_POLL_S = 2.0  # how often a call waiting for a booting worker looks again
 
 
 def _load_class(impl: str) -> type:
@@ -37,6 +39,7 @@ class Executor:
         self.log = log
         self._instances: dict[str, Any] = {}
         self._sems: dict[str, asyncio.Semaphore] = {}
+        self._waited: set[str] = set()  # envs whose loading wait was already logged
 
     def _instance(self, m: ProviderManifest) -> Any:
         if m.id not in self._instances:
@@ -71,12 +74,25 @@ class Executor:
             return False
         return bool(reply.get("freed"))
 
+    async def _worker_url(self, m: ProviderManifest) -> str:
+        """The worker's URL; while the pod still boots that worker, wait for it (a job is
+        submitted as soon as the pod answers: separation and ASR start while TTS loads)."""
+        env = m.env or ""
+        while True:
+            url = worker_urls().get(env)
+            if url:
+                return url
+            if env not in pending_workers():
+                raise ProviderError(f"worker '{env}' is not running", kind="unsupported")
+            if env not in self._waited:
+                self._waited.add(env)
+                self.log(f"      waiting for the {env} worker to load its models")
+            await asyncio.sleep(PENDING_POLL_S)
+
     async def _run_http(
         self, m: ProviderManifest, op: str, req: BaseModel, params: dict[str, Any]
     ) -> BaseModel:
-        url = worker_urls().get(m.env or "")
-        if not url:
-            raise ProviderError(f"worker '{m.env}' is not running", kind="unsupported")
+        url = await self._worker_url(m)
         body = {
             "provider": m.id,
             "op": op,

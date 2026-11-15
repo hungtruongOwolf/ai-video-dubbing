@@ -369,7 +369,11 @@ def pod_up(
     gpus: list[str] | None = None,
     log: Callable[[str], None] = print,
     wait_minutes: float = 45,
+    until: str = "ready",
 ) -> PodState:
+    """Rent (or reuse) the pod and wait for it: `until="ready"` waits for every worker to load
+    its models (`dub up`); `until="dubd"` returns as soon as the pod server answers, so that a
+    job can start its separation and ASR while TTS still loads (`dub run --remote`)."""
     api = Runpod(runpod_key())
     state = PodState.load(ws_root)
     if state and (pod := api.get_pod(state.pod_id)) and pod_status_of(pod) == "RUNNING":
@@ -421,11 +425,13 @@ def pod_up(
             break
         else:
             raise RemoteError("no GPU available right now:\n  " + "\n  ".join(errors))
-    wait_ready(state, log, wait_minutes)
+    wait_ready(state, log, wait_minutes, until=until)
     return state
 
 
-def wait_ready(state: PodState, log: Callable[[str], None], wait_minutes: float) -> None:
+def wait_ready(
+    state: PodState, log: Callable[[str], None], wait_minutes: float, until: str = "ready"
+) -> None:
     dubd = Dubd(state.url, state.token)
     deadline = time.time() + wait_minutes * 60
     last = ""
@@ -439,6 +445,11 @@ def wait_ready(state: PodState, log: Callable[[str], None], wait_minutes: float)
                 log(f"[up] {time.time() - t0:5.0f}s  dubd up, {line}")
                 last = line
             restarting = any(e["status"] == "restarting" for e in envs.values())
+            failed_now = {n: e for n, e in envs.items() if e["status"] == "failed"}
+            if until == "dubd" and envs and not failed_now:
+                log(f"[up] pod answers after {time.time() - t0:.0f}s; workers still loading "
+                    "are waited for by the job")  # fmt: skip
+                return
             if h.get("ready") and not restarting:
                 failed = {n: e for n, e in envs.items() if e["status"] != "ready"}
                 if failed:

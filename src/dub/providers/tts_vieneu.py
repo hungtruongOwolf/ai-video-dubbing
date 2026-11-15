@@ -37,11 +37,21 @@ class VieNeuTTS:
         self.tts = Vieneu(
             mode="v3turbo", backbone_repo=p.get("model", "pnnbao-ump/VieNeu-TTS-v3-Turbo")
         )
-        # warm-up: compile kernels / capture graphs now, not on the first edited line
+        # Warm-up: every path a real line takes, now and not on the first line of a job (the
+        # graphs, the watermark, and enrolling a voice, which loads the denoiser). Loaded
+        # lazily, the first lines of a job waited 130-196 s for it.
+        import numpy as np
+
+        watermark = bool(p.get("watermark", True))
         try:
-            self.tts.infer("Xin chào.", apply_watermark=False)
+            audio = self.tts.infer("Xin chào, đây là câu thử giọng.", apply_watermark=watermark)
+            tmp = ctx.cas.tmp_path(".wav")
+            write_wav(tmp, np.asarray(audio, dtype=np.float32), SR)
+            self.tts.add_voice("_warmup", str(tmp), denoise=True)
+            self.tts.infer("Một hai ba.", voice="_warmup", apply_watermark=watermark)
+            tmp.unlink(missing_ok=True)
         except Exception as e:  # noqa: BLE001 - warm-up is best effort
-            ctx.log(f"warm-up skipped: {e}")
+            ctx.log(f"warm-up incomplete: {e}")
 
     def _voice(self, ctx: RunCtx, voice_key: str | None) -> str | None:
         if not voice_key:

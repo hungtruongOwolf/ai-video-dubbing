@@ -76,6 +76,9 @@ class EnvManager:
     # ------------------------------------------------------------ public
     def start(self) -> None:
         self.started = True
+        # every env is "coming": jobs submitted while the pod boots route to it and wait
+        with self._lock:
+            os.environ["DUB_WORKERS_PENDING"] = json.dumps(sorted(self.envs))
         threading.Thread(target=self._run_all, name="envs", daemon=True).start()
 
     def snapshot(self) -> dict[str, dict]:
@@ -100,7 +103,14 @@ class EnvManager:
     # ------------------------------------------------------------ internals
     def _set(self, e: EnvInfo, status: str, detail: str = "") -> None:
         e.status, e.detail = status, detail
+        if status in ("ready", "failed"):
+            self._not_pending(e.name)
         self.log(f"[env {e.name}] {status} {detail}".rstrip())
+
+    def _not_pending(self, name: str) -> None:
+        with self._lock:
+            pending = json.loads(os.environ.get("DUB_WORKERS_PENDING") or "[]")
+            os.environ["DUB_WORKERS_PENDING"] = json.dumps([n for n in pending if n != name])
 
     def _run_all(self) -> None:
         waiters: list[threading.Thread] = []

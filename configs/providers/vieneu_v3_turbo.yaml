@@ -12,7 +12,9 @@ impl: dub.providers.tts_vieneu:VieNeuTTS
 impl_version: "1"
 libs: [vieneu, transformers, torch]
 status: active
-preload: false
+# Loaded when the pod starts (with the other models): loaded on first use, the first lines
+# of a job waited 130-196 s for the model, its graphs, the watermark and the denoiser.
+preload: true
 weights: {hf: pnnbao-ump/VieNeu-TTS-v3-Turbo}
 params:
   model: pnnbao-ump/VieNeu-TTS-v3-Turbo
