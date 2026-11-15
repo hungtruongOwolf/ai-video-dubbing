@@ -492,23 +492,33 @@ async def run_job(
 
     accent_note: list[str] = []  # logged once: why the accent retry could not run
 
-    async def accent_retry(u: Unit, text: str, pred: int, seed: int, facts: dict, best):
-        """Every take carried the actor's accent (heard as the source language): one more
-        take from the engine the `accent-retry` route names. M8, experiments/accent.py on
-        a zh drama: OmniVoice clones were heard as Chinese on 22% of the lines (18% with
-        the best of 3 seeds), VieNeu-TTS on 3.7%, at a similar voice likeness (0.51 vs
-        0.53). Kept when it passes the gate or scores better."""
+    async def engine_retry(
+        u: Unit, text: str, pred: int, seed: int, facts: dict, best, fact: str = "take.accent_retry"
+    ):
+        """One more take from the engine a retry route names, when the line's own engine
+        failed it. `take.accent_retry`: every take carried the actor's accent (heard as the
+        source language); M8, experiments/accent.py on a zh drama: OmniVoice clones were
+        heard as Chinese on 22% of the lines (18% best of 3 seeds), VieNeu-TTS on 3.7%, at a
+        similar likeness (0.51 vs 0.53). `take.qa_retry`: every take failed the QA gate (VieNeu
+        read "hứng" as "hơn" in 9 takes out of 9). Kept when it passes the gate or scores
+        better; skipped when the route names the engine that already failed."""
+        try:
+            pid = cx.router.route("tts.synthesize", {**cx.facts, **facts, fact: True}).chain[0]
+        except RoutingError:
+            return best
+        if pid == best[1].provider:
+            return best
         try:
             take: SynthRes = await cx.call(
                 "tts.synthesize",
                 lambda m: synth_request(u, text, pred, seed, m),
-                facts={**facts, "take.accent_retry": True},
+                facts={**facts, fact: True},
                 subject=u.id,
             )
         except (RoutingError, ProviderError) as e:
             if not accent_note:
                 accent_note.append(str(e))
-                log(f"      accent retry unavailable: {str(e)[:160]}")
+                log(f"      {fact.split('.')[1].replace('_', ' ')} unavailable: {str(e)[:160]}")
             return best
         trim: TrimRes = await cx.local(
             "audio.trim", media_ops.trim, TrimReq(audio_key=take.audio_key), TrimRes,
@@ -813,7 +823,6 @@ async def run_job(
                     natural_ms=orig.dur_ms, clip_ms=orig.dur_ms, rate=1.0, variant="original",
                     text=text, flags=["original"], audio_key=orig.audio_key,
                 )  # fmt: skip
-            facts = unit_facts(u)
             rewrites = 0
             tr_u = translations.get(u.id)
             base_seed = ue.seed.get(u.id, 0)
@@ -894,8 +903,13 @@ async def run_job(
                             best = (res, take, take_trim, words_k)
                         if res.passed:
                             break
+                    lf = line_facts(u, text)
                     if inline_qa and best[0] is not None and best[0].foreign:
-                        best = await accent_retry(u, text, pred, base_seed, facts, best)
+                        best = await engine_retry(u, text, pred, base_seed, lf, best)
+                    if inline_qa and best[0] is not None and not best[0].passed:
+                        best = await engine_retry(
+                            u, text, pred, base_seed, lf, best, fact="take.qa_retry"
+                        )
                     return best
 
                 def fit_of(best, text: str, pred: int) -> Fit:

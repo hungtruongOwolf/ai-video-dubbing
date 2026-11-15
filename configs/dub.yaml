@@ -83,6 +83,9 @@ routes:
     # by the QA gate) gets one take from VieNeu: 3.7% of a zh drama's lines heard as Chinese
     # against OmniVoice's 22% (18% best of 3), voice likeness 0.51 vs 0.53 (experiments/accent.py)
     - {id: accent-retry, when: {take.accent_retry: true}, use: [vieneu_v3_turbo]}
+    # A line whose every take failed the QA gate gets one take from OmniVoice (when another
+    # engine voiced it): VieNeu read "Không hứng" as "không hơn" in 9 takes of 9.
+    - {id: qa-retry, when: {take.qa_retry: true}, use: [omnivoice]}
     # M8: Vietnamese lines of up to 6 syllables, understood (CER <= 0.15) by the back-check
     # with VieNeu 64% of the time against OmniVoice's 35% at 1.6x its linear length (6 voices
     # of a zh drama x 12 lines, experiments/short_lines.py --engine vieneu); 3 syllables 83%
