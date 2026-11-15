@@ -25,7 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dub.core.config import Config
+from dub.core.config import Config, worker_of
 from dub.worker.protocol import get_json
 
 BASE_PORT = 7101
@@ -38,6 +38,18 @@ RESTART_WINDOW_S = 15 * 60
 WATCH_EVERY_S = 5.0
 
 
+def worker_ports(cfg: Config) -> dict[str, tuple[str, int]]:
+    """Each worker process -> (its venv, its port). The envs' own workers keep the ports they
+    always had (asr 7101, sep 7102, tts 7103, tts2 7104); extra workers come after."""
+    venv: dict[str, str] = {}
+    for m in cfg.providers.values():
+        if m.runtime == "http" and m.env:
+            venv[worker_of(m)] = m.env
+    own = sorted(w for w, v in venv.items() if w == v)
+    extra = sorted(w for w, v in venv.items() if w != v)
+    return {w: (venv[w], BASE_PORT + i) for i, w in enumerate(own + extra)}
+
+
 @dataclass
 class EnvInfo:
     name: str
@@ -48,6 +60,7 @@ class EnvInfo:
     started_at: float = field(default_factory=time.time)
     proc: subprocess.Popen | None = None
     restarts: list[float] = field(default_factory=list)  # when the worker was started again
+    venv: str = ""  # the env whose venv the worker runs from (default: its name)
 
 
 class EnvManager:
@@ -62,11 +75,14 @@ class EnvManager:
         groups: dict[str, list[str]] = {}
         for m in cfg.providers.values():
             if m.runtime == "http" and m.env:
-                groups.setdefault(m.env, []).append(m.id)
+                groups.setdefault(worker_of(m), []).append(m.id)
+        ports = worker_ports(cfg)
         self.envs = {
-            name: EnvInfo(name, sorted(pids), BASE_PORT + i)
-            for i, (name, pids) in enumerate(sorted(groups.items()))
+            name: EnvInfo(name, sorted(groups[name]), port, venv=venv)
+            for name, (venv, port) in ports.items()
         }
+        self._installs: dict[str, threading.Lock] = {v: threading.Lock() for v, _ in ports.values()}
+        self._installed: set[str] = set()
         self.settled = threading.Event()
         self.started = False
         self._lock = threading.Lock()
@@ -177,19 +193,24 @@ class EnvManager:
 
     def _install(self, e: EnvInfo) -> None:
         self._set(e, "installing")
-        log_path = self._logs() / f"{e.name}.install.log"
-        with open(log_path, "w", encoding="utf-8") as f:
-            p = subprocess.run(
-                ["bash", str(self.repo / "pod" / "setup_env.sh"), e.name],
-                stdout=f,
-                stderr=subprocess.STDOUT,
-            )
-        if p.returncode != 0:
-            tail = log_path.read_text(encoding="utf-8", errors="replace")[-800:]
-            raise RuntimeError(f"install failed (see {log_path}):\n{tail}")
+        venv = e.venv or e.name
+        with self._installs.setdefault(venv, threading.Lock()):  # workers sharing a venv: once
+            if venv in self._installed:
+                return
+            log_path = self._logs() / f"{venv}.install.log"
+            with open(log_path, "w", encoding="utf-8") as f:
+                p = subprocess.run(
+                    ["bash", str(self.repo / "pod" / "setup_env.sh"), venv],
+                    stdout=f,
+                    stderr=subprocess.STDOUT,
+                )
+            if p.returncode != 0:
+                tail = log_path.read_text(encoding="utf-8", errors="replace")[-800:]
+                raise RuntimeError(f"install failed (see {log_path}):\n{tail}")
+            self._installed.add(venv)
 
     def _launch(self, e: EnvInfo) -> None:
-        venv = self.root / "envs" / e.name
+        venv = self.root / "envs" / (e.venv or e.name)
         env = dict(os.environ)
         # CTranslate2 and friends load cuBLAS/cuDNN from the pip "nvidia-*" packages.
         libs = sorted(str(p) for p in venv.glob("lib/python3*/site-packages/nvidia/*/lib"))

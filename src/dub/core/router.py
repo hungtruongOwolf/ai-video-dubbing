@@ -18,7 +18,14 @@ from fnmatch import fnmatch
 from typing import Any
 
 from dub.contracts.v1 import Rejection, RouteTrace
-from dub.core.config import CHAIN_FALLBACK, SOURCE_SIDE_OPS, Config, ProviderManifest, RouteRule
+from dub.core.config import (
+    CHAIN_FALLBACK,
+    SOURCE_SIDE_OPS,
+    Config,
+    ProviderManifest,
+    RouteRule,
+    worker_of,
+)
 from dub.worker.protocol import pending_workers, worker_urls
 
 
@@ -75,8 +82,9 @@ def unavailable_reason(m: ProviderManifest) -> str | None:
     elif m.runtime == "http":
         if not m.env:
             return "http provider without 'env'"
-        if m.env not in worker_urls() and m.env not in pending_workers():
-            return f"worker '{m.env}' is not running here (GPU pod only: dub run --remote)"
+        w = worker_of(m)
+        if w not in worker_urls() and w not in pending_workers():
+            return f"worker '{w}' is not running here (GPU pod only: dub run --remote)"
     return None
 
 

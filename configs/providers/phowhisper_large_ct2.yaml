@@ -4,6 +4,7 @@ id: phowhisper_large_ct2
 op: [asr.transcribe, asr.backcheck]
 runtime: http
 env: asr
+worker: backcheck      # M10: its own process: back-checks no longer queue behind Whisper (language ID, source)
 impl: dub.providers.asr_whisper:FasterWhisperASR
 impl_version: "4"     # 2: space_before on words; 3: clips; 4: one back-check path (M10)
 libs: [faster-whisper]

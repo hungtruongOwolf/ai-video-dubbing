@@ -17,7 +17,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from dub.contracts.v1 import OPS
-from dub.core.config import Config, ProviderManifest
+from dub.core.config import Config, ProviderManifest, worker_of
 from dub.core.provider_api import ProviderError, RunCtx
 from dub.store.cas import CAS
 from dub.worker.protocol import pending_workers, post_json, worker_urls
@@ -65,7 +65,7 @@ class Executor:
 
     async def unload(self, m: ProviderManifest) -> bool:
         """Ask the provider's worker to free its model (no-op for in-process providers)."""
-        url = worker_urls().get(m.env or "") if m.runtime == "http" else None
+        url = worker_urls().get(worker_of(m)) if m.runtime == "http" else None
         if not url:
             return False
         try:
@@ -77,7 +77,7 @@ class Executor:
     async def _worker_url(self, m: ProviderManifest) -> str:
         """The worker's URL; while the pod still boots that worker, wait for it (a job is
         submitted as soon as the pod answers: separation and ASR start while TTS loads)."""
-        env = m.env or ""
+        env = worker_of(m)
         while True:
             url = worker_urls().get(env)
             if url:

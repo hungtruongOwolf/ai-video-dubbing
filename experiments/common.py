@@ -131,20 +131,19 @@ def joiner_for(lang: str) -> str:
 
 
 def worker_url(env: str) -> str:
-    """URL of a worker started by dubd: ports follow the sorted env names (see EnvManager)."""
+    """URL of a worker started by dubd (ports as EnvManager assigns them)."""
     from dub.core.config import load_config
-    from dub.pod.envs import BASE_PORT
+    from dub.pod.envs import worker_ports
 
-    cfg = load_config()
-    envs = sorted({m.env for m in cfg.providers.values() if m.runtime == "http" and m.env})
-    return f"http://127.0.0.1:{BASE_PORT + envs.index(env)}"
+    return f"http://127.0.0.1:{worker_ports(load_config())[env][1]}"
 
 
 def run_worker(env: str, provider: str, op: str, request: dict, params: dict | None = None):
-    from dub.core.config import load_config
+    from dub.core.config import load_config, worker_of
     from dub.worker.protocol import post_json
 
     cfg = load_config()
+    env = worker_of(cfg.providers[provider]) or env  # a provider may have its own worker
     body = {
         "provider": provider,
         "op": op,

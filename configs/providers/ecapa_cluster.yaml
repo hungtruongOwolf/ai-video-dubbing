@@ -3,6 +3,7 @@ id: ecapa_cluster
 op: [audio.diarize, audio.embed]
 runtime: http
 env: tts                       # torch models share one env (the volume quota counts each torch copy)
+worker: speaker        # M10: its own process: 10 ms embeddings no longer queue behind OmniVoice batches
 impl: dub.providers.speaker_ecapa:EcapaSpeaker
 impl_version: "4"     # 3: pause-based resegmentation; 4: length-aware batches (60-min OOM)
 libs: [speechbrain, torch]

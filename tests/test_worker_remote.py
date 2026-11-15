@@ -564,3 +564,17 @@ def test_cheap_calls_are_served_before_queued_batches(cfg, ws):
     first = state._take()
     assert [t.op for t in first] == ["audio.embed"]
     assert state._take()[0].op == "tts.synthesize"  # then the queue in order
+
+
+def test_providers_with_their_own_worker_keep_the_old_ports(tmp_path):
+    from dub.core.config import load_config
+    from dub.pod.envs import EnvManager, worker_ports
+
+    cfg = load_config(None)
+    ports = worker_ports(cfg)
+    assert {w: p for w, (_, p) in ports.items() if w == ports[w][0]} == {
+        "asr": 7101, "sep": 7102, "tts": 7103, "tts2": 7104}  # fmt: skip
+    assert ports["backcheck"] == ("asr", 7105) and ports["speaker"] == ("tts", 7106)
+    envs = EnvManager(cfg, tmp_path, tmp_path, tmp_path).envs
+    assert envs["speaker"].providers == ["ecapa_cluster"] and envs["speaker"].venv == "tts"
+    assert "ecapa_cluster" not in envs["tts"].providers
