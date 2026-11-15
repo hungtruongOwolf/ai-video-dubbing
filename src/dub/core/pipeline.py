@@ -1039,6 +1039,14 @@ async def run_job(
                         # never trade a take that fits its slot for one that overruns it (a
                         # fuller wording for an underfilled line overran on 5 drama lines)
                         overruns = "overflow" in alt_fit.flags and "overflow" not in fit.flags
+                        # a take heard right is replaced only by one closer to its slot's
+                        # length: fuller wordings for underfilled lines ran past the slot on
+                        # 14 drama lines (fill > 1.2, against 5)
+                        alt_fill = (alt_fit.end_ms - alt_fit.start_ms) / max(1, u.slot_ms)
+                        cur_fill = (fit.end_ms - fit.start_ms) / max(1, u.slot_ms)
+                        farther = abs(alt_fill - 1) > abs(cur_fill - 1) + FILL_TOL
+                        if best[0] is not None and best[0].passed and farther:
+                            overruns = True
                         if not overruns and _prefer_take(alt_best[0], alt_fit.rate, best[0],
                                                          fit.rate, t.rate_p95, fuller):  # fmt: skip
                             text, variant, pred, best, fit = alt, name, alt_pred, alt_best, alt_fit
@@ -1430,6 +1438,7 @@ REF_CANDIDATES = 3  # reference clips tried per speaker (M8)
 NO_REWRITE_UNITS = 3  # lines this short are never shortened by the LLM (M8)
 REF_TEXT_OK = 0.15  # a clip heard within this CER of its line's text is clean
 VARIANT_ORDER = {"short": 0, "target": 1, "long": 2}  # the translator's wordings, by length
+FILL_TOL = 0.05  # a wording replaces a good take only when its fill is this much closer to 1
 
 
 def _prefer_take(
