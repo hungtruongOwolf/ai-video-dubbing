@@ -17,6 +17,15 @@ def score(unit: Unit, placement: Placement | None, tr: Translation | None,
           speaker_unsure: bool = False,
           ) -> tuple[float, list[str]]:  # fmt: skip
     s, why = 0.0, []
+    if placement and placement.variant == "original":
+        # a song, a cry, a laugh kept as it is: nothing dubbed to listen to (M10: two baby cries
+        # topped the drama's list)
+        return 0.0, ["kept in the original audio"]
+    if qa and qa.get("passed") is False:
+        # every take failed the gate: the one kept is the best of bad ones ("căng đến đau"
+        # heard as "căn đến đâu" scored 1.96 and was not listed)
+        s += 3
+        why.append("failed the QA gate: " + "; ".join(qa.get("reasons", [])[:2]))
     if speaker_unsure:
         s += 2
         why.append("who says it is a guess (the script does not show it)")
@@ -42,7 +51,13 @@ def score(unit: Unit, placement: Placement | None, tr: Translation | None,
             why.append(f"sped up x{r:.2f}")
         elif r < 0.75:
             s += (1.0 - r) * 2
-            why.append(f"much shorter than the original (x{r:.2f})")
+            why.append(f"drawn out to fill its slot (x{r:.2f})")
+        slot = placement.slot_end_ms - placement.slot_start_ms
+        fill = (placement.end_ms - placement.start_ms) / max(1, slot)
+        if slot >= 1200 and fill < 0.6:
+            # the voice stops long before the mouth does (VieNeu lines have no length control)
+            s += (0.6 - fill) * 6
+            why.append(f"fills {fill:.0%} of its slot")
         if "overflow" in placement.flags:
             s += 3
             why.append("does not fit its slot")

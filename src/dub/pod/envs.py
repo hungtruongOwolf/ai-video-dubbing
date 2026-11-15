@@ -196,6 +196,12 @@ class EnvManager:
         if libs:
             env["LD_LIBRARY_PATH"] = ":".join(libs + [env.get("LD_LIBRARY_PATH", "")]).rstrip(":")
         env["PYTHONUNBUFFERED"] = "1"
+        # Kernels compiled at run time kept on the volume: CTranslate2's wheels carry no sm_120
+        # code, so the driver compiled its PTX again in every fresh container (M10 review).
+        cache = self.root / "cache"
+        env.setdefault("CUDA_CACHE_PATH", str(cache / "cuda"))
+        env.setdefault("CUDA_CACHE_MAXSIZE", str(4 << 30))
+        env.setdefault("TORCHINDUCTOR_CACHE_DIR", str(cache / "inductor"))
         cmd = [
             str(venv / "bin" / "python"),
             "-m",

@@ -3,13 +3,14 @@
 # 0.59) and slow (3.7 syllables/s), so OmniVoice stays the vi default. M8: cloning Chinese
 # actors it carries far less of their accent (3.7% of lines heard as Chinese vs 22%), so the
 # `accent-retry` route (configs/dub.yaml) voices with it the lines whose OmniVoice takes all
-# sound foreign. Not in any chain: only that route (or --use) picks it.
+# sound foreign. Not in any langpack chain, but routes pick it often: `short-line-vi` (lines of
+# <= 6 syllables: 54 of the drama's 90 dubbed lines in M9), `accent-retry`, or --use.
 id: vieneu_v3_turbo
 op: [tts.synthesize]
 runtime: http
 env: tts2
 impl: dub.providers.tts_vieneu:VieNeuTTS
-impl_version: "1"
+impl_version: "2"   # 2: batched lines (infer_batch)
 libs: [vieneu, transformers, torch]
 status: active
 # Loaded when the pod starts (with the other models): loaded on first use, the first lines
@@ -25,6 +26,6 @@ caps:
   max_out_s: 30
   needs_ref_text: false
   sample_rate: 48000
-limits: {max_concurrency: 1}
+limits: {max_concurrency: 16, max_batch: 8}   # M10: lines queued at the worker run as one batch per voice
 license: Apache-2.0
 description: Vietnamese/English TTS with instant voice cloning (VieNeu-TTS v3 Turbo).

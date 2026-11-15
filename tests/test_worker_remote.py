@@ -547,3 +547,20 @@ def test_ctx_waits_for_a_restarting_worker(cfg, ws, monkeypatch):
     req = SynthReq(unit_id="u", text="xin chào", lang="vi", speaker="S1", target_ms=500)
     res = asyncio.run(cx.call("tts.synthesize", req, subject="u"))
     assert isinstance(res, SynthRes) and calls["n"] == 4
+
+
+def test_cheap_calls_are_served_before_queued_batches(cfg, ws):
+    # A 10 ms speaker embedding waited p50 1.7 s behind TTS batches on the drama.
+    from dub.contracts.v1 import EmbedReq
+    from dub.worker.server import _Task
+
+    state = WorkerState("fx", ["fake_tts", "fake_diarize"], cfg, ws.cas)
+    req = SynthReq(unit_id="u", text="xin chào", lang="vi", speaker="S1")
+    state.queue = [
+        _Task("fake_tts", "tts.synthesize", {}, req),
+        _Task("fake_tts", "tts.synthesize", {}, req),
+        _Task("fake_diarize", "audio.embed", {}, EmbedReq(audio_key="k.wav")),
+    ]
+    first = state._take()
+    assert [t.op for t in first] == ["audio.embed"]
+    assert state._take()[0].op == "tts.synthesize"  # then the queue in order

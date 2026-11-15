@@ -64,6 +64,7 @@ JOB_FILES = {
     "segmentation.json",
     "gpu.csv",
     "refs.json",
+    "batches.json",
 }
 _ID = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
 _KEY = re.compile(r"^[0-9a-f]{32}(\.[A-Za-z0-9]{1,8})?$")
@@ -136,6 +137,7 @@ class Jobs:
                 self._log(job_id, f"starting while these workers load: {', '.join(loading)}")
             job["status"] = "running"
             t0 = time.perf_counter()
+            batches0 = _worker_batches()
             gpu = GpuSampler().start()
             try:
                 res = asyncio.run(
@@ -147,6 +149,10 @@ class Jobs:
             finally:
                 gpu.stop()
             gpu.write(res.job_dir / "gpu.csv")
+            # how full the workers' batches were during the job (other jobs included)
+            (res.job_dir / "batches.json").write_text(
+                json.dumps(_batches_delta(batches0, _worker_batches()), indent=1), "utf-8"
+            )
             job["result"] = {
                 "job_dir": res.job_id,
                 "src_lang": res.src_lang,
@@ -286,6 +292,29 @@ class DubServer:
 
 BUSY_FILE = Path(os.environ.get("DUB_BUSY_FILE", "/tmp/dub.busy"))
 BUSY_FRESH_S = 120
+
+
+def _worker_batches() -> dict[str, dict[str, int]]:
+    """Each worker's histogram of batch sizes so far: {env: {size: count}}."""
+    out = {}
+    for env, url in json.loads(os.environ.get("DUB_WORKERS") or "{}").items():
+        try:
+            out[env] = {str(k): int(v) for k, v in get_json(f"{url}/v1/health", timeout=5)
+                        .get("batches", {}).items()}  # fmt: skip
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def _batches_delta(before: dict, after: dict) -> dict[str, dict[str, int]]:
+    """The batches run between two snapshots, per worker and size."""
+    out = {}
+    for env, hist in after.items():
+        d = {k: n - before.get(env, {}).get(k, 0) for k, n in hist.items()}
+        d = {k: n for k, n in sorted(d.items(), key=lambda kv: int(kv[0])) if n > 0}
+        if d:
+            out[env] = d
+    return out
 
 
 def _worker_idle_s(url: str) -> float | None:

@@ -44,6 +44,13 @@ def matches(used: str | None, want: str | None) -> bool:
     return not opts or not u or any(u == o or u.split()[0] == o.split()[0] for o in opts)
 
 
+def _name(term: str) -> bool:
+    """A proper name used to address someone ("A Duyên", "Nãi Long"): always a valid
+    vocative. The fix loop had replaced "A Duyên" by "em" and lost the name."""
+    t = (term or "").strip()
+    return bool(t) and t[0].isupper()
+
+
 def tokens(text: str) -> list[str]:
     return [_norm(t) for t in re.findall(r"\w+", unicodedata.normalize("NFC", text))]
 
@@ -74,6 +81,11 @@ def check_line(
     generic: set[str],
 ) -> list[str]:
     exp = expected(cast, unit.speaker, tr.listener, lang, unit.start_ms)
+    if exp is None and tr.listener:
+        # A listener with no relation in the cast sheet is someone the speaker has no tie to
+        # (the gatekeeper): "tôi" to a stranger is right. Flagging it made the husband's lines
+        # translated again (M10 review).
+        return []
     if exp is None:
         # Listener unknown: a speaker whose every relation uses kinship terms must still not
         # fall back to a generic pronoun ("Ông đã hứa thì tôi luôn giữ lời").
@@ -93,7 +105,7 @@ def check_line(
         ("self", tr.self_term, exp.self_term),
         ("other", tr.other_term, exp.other_term),
     ):
-        if used and want and not matches(used, want):
+        if used and want and not matches(used, want) and not (role == "other" and _name(used)):
             issues.append(f"{role} term '{used}' but the cast sheet says '{want}'")
     wanted = options(exp.self_term) | options(exp.other_term)
     wanted |= {w.split()[0] for w in wanted if w}

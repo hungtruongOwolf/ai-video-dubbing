@@ -22,6 +22,7 @@ import statistics
 import unicodedata
 from collections import Counter
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -203,6 +204,12 @@ async def run_job(
     overrides: list[tuple[str, list[str]]] | None = None,
     log: Callable[[str], None] = print,
 ) -> JobResult:
+    # Every worker call and CPU step holds a thread while it waits (asyncio.to_thread). The
+    # default pool (32 threads) was full 29-40% of the voicing time, so fewer lines reached
+    # the GPU workers to batch than were in flight.
+    asyncio.get_running_loop().set_default_executor(
+        ThreadPoolExecutor(max_workers=JOB_THREADS, thread_name_prefix="job")
+    )
     if "dub" in spec.params:  # --param dub.SECTION.KEY=VALUE: a dub.yaml setting, this run only
         cfg = with_settings(cfg, spec.params["dub"])
         spec = dataclasses.replace(
@@ -355,6 +362,8 @@ async def run_job(
     units, warnings = edits_ops.apply_structure(base_units, worded, edits, src_lp.joiner)
     for w in warnings:
         log(f"      edit skipped: {w}")
+    if speaker_stats.get("failed"):
+        warnings = [*warnings, "speaker attribution failed: speakers from the voices alone"]
     voiced = ue.apply_to_units(units)  # speaker and slot edits
     auto = _not_dialogue(voiced, spec.hardsubs, hardsub_stats, speaker_stats)
     cries = [u.id for u in voiced if src_lp.is_interjection(u.text) and u.id not in auto]
@@ -412,9 +421,13 @@ async def run_job(
         except (RoutingError, ProviderError) as e:
             log(f"      voice hints skipped: {str(e)[:200]}")
     if _free_phase_a(cfg):  # 24 GB GPUs: room for the TTS batches of phase B
+        # Whisper stays when the accent check (language ID of every take) needs it: freed, it
+        # was restored again by the first take
+        keep = ["asr.backcheck", "tts.synthesize", "audio.embed"]
+        keep += ["asr.transcribe"] if cfg.dub.qa.source_lid else []
         freed = await cx.free_models(
             ["audio.separate", "asr.transcribe", "text.boundaries", "audio.voice_profile"],
-            keep_ops=["asr.backcheck", "tts.synthesize", "audio.embed"],
+            keep_ops=keep,
         )
         if freed:
             log(f"      GPU memory freed: {', '.join(freed)}")
@@ -547,20 +560,46 @@ async def run_job(
             AudioRes,
             subject=u.id,
         )
-        check: WordTimeline = await cx.call(
-            "asr.backcheck",
-            TranscribeReq(audio_key=clip16.audio_key, lang=spec.tgt_lang, expected_text=text),
-            subject=u.id,
-        )
-        # what a clip this short can hold (Whisper invents text on sub-second clips)
-        heard = qa_ops.plausible(check.words, clip16.dur_ms, text, tgt_lp.speech_unit,
-                                 tgt_lp.joiner)  # fmt: skip
-        vec = None
-        if ref and ref.centroid:
+
+        # The three checks are independent: run them at the same time (awaited one by one they
+        # took p50 7.1 s per take on the drama for under 0.5 s of model work).
+        async def backcheck() -> WordTimeline:
+            return await cx.call(
+                "asr.backcheck",
+                TranscribeReq(audio_key=clip16.audio_key, lang=spec.tgt_lang, expected_text=text),
+                subject=u.id,
+            )
+
+        async def embed() -> list[float] | None:
+            if not (ref and ref.centroid):
+                return None
             e: Embeddings = await cx.call(
                 "audio.embed", EmbedReq(audio_key=clip16.audio_key), subject=u.id
             )
-            vec = e.vectors[0]
+            return e.vectors[0]
+
+        async def language() -> WordTimeline | None:
+            if not (
+                q.source_lid
+                and clip16.dur_ms >= q.lid_min_ms
+                and base_lang(src_lang) != base_lang(spec.tgt_lang)
+                and lid_ok()
+            ):
+                return None
+            try:
+                return await cx.call(
+                    "asr.transcribe",
+                    TranscribeReq(audio_key=clip16.audio_key, lang="auto", detect_only=True),
+                    subject=u.id,
+                )
+            except (RoutingError, ProviderError) as e:
+                log(f"      accent check skipped for {u.id}: {str(e)[:120]}")
+                return None
+
+        check, vec, lid = await asyncio.gather(backcheck(), embed(), language())
+        # what a clip this short can hold (Whisper invents text on sub-second clips)
+        heard = qa_ops.plausible(check.words, clip16.dur_ms, text, tgt_lp.speech_unit,
+                                 tgt_lp.joiner)  # fmt: skip
         res = qa_ops.judge(
             text,
             heard,
@@ -573,22 +612,8 @@ async def run_job(
             centroids={r.speaker: r.centroid for r in refs.refs if r.centroid},
             dur_ms=clip16.dur_ms,
         )
-        if (
-            q.source_lid
-            and clip16.dur_ms >= q.lid_min_ms
-            and base_lang(src_lang) != base_lang(spec.tgt_lang)
-            and lid_ok()
-        ):
-            try:
-                lid: WordTimeline = await cx.call(
-                    "asr.transcribe",
-                    TranscribeReq(audio_key=clip16.audio_key, lang="auto", detect_only=True),
-                    subject=u.id,
-                )
-                if base_lang(lid.lang) == base_lang(src_lang):
-                    res.mark_foreign(lid.lang)
-            except (RoutingError, ProviderError) as e:
-                log(f"      accent check skipped for {u.id}: {str(e)[:120]}")
+        if lid is not None and base_lang(lid.lang) == base_lang(src_lang):
+            res.mark_foreign(lid.lang)
         return res, heard
 
     # LLM in parallel with TTS (M5): as soon as a window is translated, its lines are voiced
@@ -1320,6 +1345,8 @@ def _cast_result(cx, tracer, ws, job_id, job_dir, spec, sheet, units, src_lang, 
 CALIB_MAX_PAD_MS = 800
 # Diarization again when the cast sheet finds several people under one speaker id (M8: a
 # TikTok drama of ~6 characters came out as 2 voices at 0.85; 0.75 gave 5).
+FREE_PHASE_A_BELOW_MIB = 30000  # "auto": free phase-A models on GPUs under this
+JOB_THREADS = 256  # threads a job may hold waiting on workers and CPU steps (M10)
 REF_CANDIDATES = 3  # reference clips tried per speaker (M8)
 NO_REWRITE_UNITS = 3  # lines this short are never shortened by the LLM (M8)
 REF_TEXT_OK = 0.15  # a clip heard within this CER of its line's text is clean
@@ -1447,7 +1474,12 @@ async def _attribute_speakers(
     got = [a for a in await asyncio.gather(*(reading(k) for k in range(n))) if a is not None]
     got = [a for a in got if len(a.speaker) == len(lines)]
     if not got:
-        return diar, {}
+        # Not silent: on the drama the voices alone catch 4-24% of the speaker changes
+        log(
+            "      WARNING: who says each line could not be read; the speakers come from the "
+            "voices alone, which merge similar voices (check them on the review page)"
+        )
+        return diar, {"failed": True}
     attr, agreement = speaker_ops.vote(got)
     turns, stats = speaker_ops.fuse(lines, attr, voices)
     stats["readings"] = len(got)
@@ -1696,7 +1728,9 @@ def _free_phase_a(cfg: Config) -> bool:
     v = cfg.dub.throughput.free_phase_a_models
     if v == "auto":
         mem = os.environ.get("DUB_GPU_MEM_MIB")  # set by dubd from nvidia-smi
-        return bool(mem) and int(mem) < 40000
+        # 24 GB cards only: the 5-min drama peaks at 16 GB on a 32 GB card, where freeing cost
+        # a 3.5 s stall on the critical path and restores later
+        return bool(mem) and int(mem) < FREE_PHASE_A_BELOW_MIB
     return bool(v)
 
 
@@ -1864,8 +1898,10 @@ RISK_REVIEW = 3.0  # a line this risky is worth a listen
 def _risk_kind(reason: str) -> str:
     """The family of a risk reason, for the summary."""
     for key, kind in (
+        ("failed the QA gate", "failed QA"),
         ("CER", "words"),
         ("voice", "voice"),
+        ("fills ", "short fill"),
         ("end of the line", "cut off"),
         ("who says it", "speaker guessed"),
         ("another voice", "mixed voices"),

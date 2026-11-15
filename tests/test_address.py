@@ -78,3 +78,17 @@ def test_whole_script_consistency_flags_the_odd_line_out():
     trs["u3"] = _tr(3, "...", "S1", None, "ông")  # a dropped pronoun is not a conflict
     out = consistency(units, trs, _cast())
     assert list(out) == ["u4"] and "3 of 5" in out["u4"]
+
+
+def test_a_stranger_and_a_name_are_not_address_errors():
+    # The husband says "tôi" to the gatekeeper (no relation in the cast sheet): right.
+    family = CastSheet(relations=_cast().relations[:2])
+    stranger = _tr(10, "Tôi tìm vợ tôi.", "S7", "tôi", "anh")
+    assert check_line(_unit(10), stranger.target, stranger, family, "vi", GENERIC) == []
+    # Addressing someone by name is a valid vocative: the fix loop had replaced "A Duyên" by
+    # "em" and lost the name.
+    named = _tr(11, "Ông ơi, cháu đói rồi.", "S1", "cháu", "A Duyên")
+    assert check_line(_unit(11), named.target, named, family, "vi", GENERIC) == []
+    # a wrong kinship term is still an error
+    wrong = _tr(12, "Bà ơi, cháu đói rồi.", "S1", "cháu", "bà")
+    assert check_line(_unit(12), wrong.target, wrong, family, "vi", GENERIC)

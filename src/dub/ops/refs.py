@@ -41,6 +41,7 @@ EDGE_IN_MS = 100  # and this far inside it
 NEIGHBOUR_MS = 300  # another speaker this close: the unit ranks last
 POOL_MIN_MS = 800  # pooled lines are at least this long
 POOL_TARGET_MS = 6000
+SELF_SIM_MIN_MS = 1200  # lines this long give a stable speaker embedding
 POOL_GAP_MS = 20
 
 
@@ -166,11 +167,25 @@ def extract_refs(req: RefsReq, cas: CAS) -> RefBank:
     crowded = _crowded(req.units)
     refs: list[VoiceRef] = []
     alternates: list[VoiceRef] = []
+    stats: dict[str, tuple[list[float], dict[str, float], float | None]] = {}
     for speaker, units in sorted(by_speaker.items()):
         vecs = {u.id: _unit_vec(req.unit_vectors[u.id]) for u in units if u.id in req.unit_vectors}
         centroid = _centroid(list(vecs.values())) if vecs else []
         sims = {uid: _cos(v, centroid) for uid, v in vecs.items()}
-        self_sim = sum(sims.values()) / len(sims) if sims else 0.0
+        # How alike a speaker's own lines are, from lines long enough for a stable embedding:
+        # sub-second lines pulled it down (QA floors of 0.24-0.37 cosine), and a speaker with
+        # one line got 1.0, the strictest floor for the least known voice (M10 review).
+        long_ = [
+            sims[u.id] for u in units if u.id in sims and u.end_ms - u.start_ms >= SELF_SIM_MIN_MS
+        ]
+        own = sum(long_) / len(long_) if len(long_) >= 2 else None
+        stats[speaker] = (centroid, sims, own)
+    known = sorted(v for _, _, v in stats.values() if v is not None)
+    typical = known[len(known) // 2] if known else None
+    for speaker, units in sorted(by_speaker.items()):
+        centroid, sims, own = stats[speaker]
+        fallback = sum(sims.values()) / len(sims) if sims else 0.0
+        self_sim = own if own is not None else (typical if typical is not None else fallback)
         extra = {
             "centroid": [round(x, 5) for x in centroid],
             "self_sim": round(self_sim, 4),

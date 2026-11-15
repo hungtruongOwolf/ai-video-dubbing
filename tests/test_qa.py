@@ -162,3 +162,24 @@ def test_another_wording_replaces_a_take_only_when_better():
     assert not _prefer_take(worse, 1.0, bad, 1.0, 1.10, fuller=True)
     # no QA gate (draft): the fuller line when it fits
     assert _prefer_take(None, 1.0, None, 1.0, 1.10, fuller=True)
+
+
+def test_risk_of_kept_originals_failed_takes_and_short_fills():
+    from dub.contracts.v1 import Placement, Unit
+    from dub.ops.risk import score
+
+    u = Unit(id="u1", speaker="S1", sentence_ids=[], start_ms=0, end_ms=3600, text="x",
+             n_words=1, asr_conf=0.95)  # fmt: skip
+
+    def place(variant="target", end=3600, flags=()):
+        return Placement(unit_id="u1", speaker="S1", slot_start_ms=0, slot_end_ms=3600,
+                         start_ms=0, end_ms=end, natural_ms=end, clip_ms=end, rate=1.0,
+                         variant=variant, text="t", flags=list(flags))  # fmt: skip
+
+    assert score(u, place("original"), None, cer=0.9)[0] == 0.0  # a cry kept as it is
+    failed = {"passed": False, "reasons": ["words: CER 18%"], "tail": 1.0}
+    s, why = score(u, place(), None, cer=0.14, qa=failed)
+    assert s >= 3 and "failed the QA gate" in why[0]
+    s, why = score(u, place(end=1100), None)  # 1.1 s of voice in a 3.6 s slot
+    assert s > 1.5 and any("fills 31%" in w for w in why)
+    assert score(u, place(), None)[0] == 0.0

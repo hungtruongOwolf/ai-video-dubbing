@@ -74,6 +74,14 @@ class FasterWhisperASR:
     def run(self, op: str, req: TranscribeReq, ctx: RunCtx) -> WordTimeline:
         if op not in ("asr.transcribe", "asr.backcheck"):
             raise ProviderError(f"{self.manifest.id} does not implement {op}", kind="unsupported")
+        if op == "asr.backcheck" and not req.clips and not req.detect_only:
+            # A back-check takes the batched path even alone: alone it got VAD and the
+            # temperature fallback, batched neither, so a take's QA depended on what else was
+            # queued (35 of the drama's 85 back-check runs were alone; M10 review).
+            return self.run_batch(op, [req], ctx)[0]
+        return self._transcribe(op, req, ctx)
+
+    def _transcribe(self, op: str, req: TranscribeReq, ctx: RunCtx) -> WordTimeline:
         self._ready(ctx)
         p = ctx.params
         forced = p.get("language")
@@ -150,7 +158,7 @@ class FasterWhisperASR:
             self.model.model.load_model()
 
     def run_batch(self, op: str, reqs: list[TranscribeReq], ctx: RunCtx) -> list[WordTimeline]:
-        if op != "asr.backcheck" or len(reqs) < 2:
+        if op != "asr.backcheck":
             return [self.run(op, r, ctx) for r in reqs]
         self._ready(ctx)
         import numpy as np
@@ -165,8 +173,8 @@ class FasterWhisperASR:
         for i, r in enumerate(reqs):
             audio, sr = read_wav(ctx.cas.path(r.audio_key))
             mono = audio.mean(axis=1).astype(np.float32)
-            if sr != 16000 or len(mono) / 16000 > MAX_BATCH_S or r.clips:
-                out[i] = self.run(op, r, ctx)
+            if sr != 16000 or len(mono) / 16000 > MAX_BATCH_S or r.clips or r.detect_only:
+                out[i] = self._transcribe(op, r, ctx)
                 continue
             clips[i] = mono
             lang = p.get("language") or (None if r.lang in ("", "auto") else r.lang)

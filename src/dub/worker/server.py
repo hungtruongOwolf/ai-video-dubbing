@@ -47,6 +47,14 @@ class _Task:
         self.error: BaseException | None = None
 
 
+QUICK_OPS = {"audio.embed", "audio.voice_profile", "text.boundaries"}
+
+
+def _quick(t: _Task) -> bool:
+    """Milliseconds of GPU work: served before the batches of TTS or transcription."""
+    return t.op in QUICK_OPS or bool(getattr(t.req, "detect_only", False))
+
+
 # The order in which a job first calls the ops (phase A, then voicing).
 OP_FIRST_USE = [
     "audio.separate", "asr.transcribe", "audio.diarize", "audio.embed", "audio.voice_profile",
@@ -92,7 +100,10 @@ class WorkerState:
         with self.cv:
             while not self.queue:
                 self.cv.wait()
-            first = self.queue.pop(0)
+            # Cheap calls first: a 10 ms speaker embedding queued behind a 16-line TTS batch
+            # waited p50 1.7 s / p90 7.8 s on the drama, and every take's QA waits for it.
+            k = min(range(len(self.queue)), key=lambda i: (not _quick(self.queue[i]), i))
+            first = self.queue.pop(k)
             limit = self.cfg.providers[first.pid].limits.max_batch
             batch, rest = [first], []
             for t in self.queue:

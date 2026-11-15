@@ -83,7 +83,7 @@ def load_gpu(path: Path, t0_unix: float | None) -> list[tuple[float, float]]:
         return []
     out = []
     for line in path.read_text(encoding="utf-8").splitlines()[1:]:
-        t, util, _mem = line.split(",")
+        t, util = line.split(",")[:2]  # unix_s, util_pct, mem_mib[, power_w, sm_mhz]
         out.append((float(t) - t0_unix, float(util)))
     return out
 

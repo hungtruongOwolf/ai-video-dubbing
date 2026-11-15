@@ -5,7 +5,7 @@ op: [asr.transcribe, asr.backcheck]
 runtime: http
 env: asr
 impl: dub.providers.asr_whisper:FasterWhisperASR
-impl_version: "3"     # 2: space_before on words; 3: clips
+impl_version: "4"     # 2: space_before on words; 3: clips; 4: one back-check path (M10)
 libs: [faster-whisper]
 preload: false  # only needed for Vietnamese sources: load on first use, save VRAM
 weights: {hf: kiendt/PhoWhisper-large-ct2, revision: abceb098c94235c16414dda9e1aada82ebcf6288}

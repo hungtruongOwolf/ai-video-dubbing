@@ -22,6 +22,7 @@ from dub.core.provider_api import ProviderError, RunCtx
 from dub.ops.audio_io import write_wav
 
 SR = 48000
+WARM_BATCH = 8  # = limits.max_batch in the manifest
 
 
 class VieNeuTTS:
@@ -49,6 +50,10 @@ class VieNeuTTS:
             write_wav(tmp, np.asarray(audio, dtype=np.float32), SR)
             self.tts.add_voice("_warmup", str(tmp), denoise=True)
             self.tts.infer("Một hai ba.", voice="_warmup", apply_watermark=watermark)
+            # the batch sizes a job sends (lines queued at the worker run as one batch)
+            for n in (2, 4, WARM_BATCH):
+                self.tts.infer_batch(["Một hai ba bốn."] * n, voice="_warmup",
+                                     apply_watermark=watermark)  # fmt: skip
             tmp.unlink(missing_ok=True)
         except Exception as e:  # noqa: BLE001 - warm-up is best effort
             ctx.log(f"warm-up incomplete: {e}")
@@ -66,7 +71,6 @@ class VieNeuTTS:
             raise ProviderError(f"{self.manifest.id} does not implement {op}", kind="unsupported")
         if self.tts is None:
             self.load(ctx)
-        import numpy as np
         import torch
 
         torch.manual_seed(req.seed)
@@ -77,6 +81,40 @@ class VieNeuTTS:
             temperature=float(p.get("temperature", 0.8)),
             apply_watermark=bool(p.get("watermark", True)),
         )
+        return self._result(req, audio, ctx)
+
+    def run_batch(self, op: str, reqs: list[SynthReq], ctx: RunCtx) -> list[SynthRes]:
+        """Lines queued at the worker, one forward pass per voice (`infer_batch`: every
+        chunk of every line shares the decoding steps). One at a time, the drama's 151 short
+        lines took 105 s in series while 10-21 waited. Sampling runs batched, so a take is
+        equivalent but not bit-identical to the same line voiced alone (as with OmniVoice,
+        M5); the seed of a group is that of its first line."""
+        if op != "tts.synthesize" or len(reqs) < 2:
+            return [self.run(op, r, ctx) for r in reqs]
+        if self.tts is None:
+            self.load(ctx)
+        import torch
+
+        p = ctx.params
+        groups: dict[str | None, list[int]] = {}
+        for i, r in enumerate(reqs):
+            groups.setdefault(r.voice_key, []).append(i)
+        out: list[SynthRes | None] = [None] * len(reqs)
+        for key, idx in groups.items():
+            torch.manual_seed(reqs[idx[0]].seed)
+            wavs = self.tts.infer_batch(
+                [reqs[i].text for i in idx],
+                voice=self._voice(ctx, key),
+                temperature=float(p.get("temperature", 0.8)),
+                apply_watermark=bool(p.get("watermark", True)),
+            )
+            for i, w in zip(idx, wavs, strict=True):
+                out[i] = self._result(reqs[i], w, ctx)
+        return out  # type: ignore[return-value]
+
+    def _result(self, req: SynthReq, audio, ctx: RunCtx) -> SynthRes:
+        import numpy as np
+
         audio = np.asarray(audio, dtype=np.float32)
         if audio.size == 0:
             raise ProviderError("empty audio", kind="bad_output", retryable=True)

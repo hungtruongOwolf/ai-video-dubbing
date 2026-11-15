@@ -192,7 +192,7 @@ class ThroughputCfg(Cfg):
     # largest batch the TTS can see (with its manifest's limits.max_batch).
     units_in_flight: int = 8
     # After phase A, unload the models only phase A uses (separation, source ASR, sentence
-    # boundaries) so the TTS batches have room. "auto": on GPUs under 40 GB.
+    # boundaries) so the TTS batches have room. "auto": on GPUs under 30 GB (24 GB cards).
     free_phase_a_models: bool | Literal["auto"] = "auto"
 
 
