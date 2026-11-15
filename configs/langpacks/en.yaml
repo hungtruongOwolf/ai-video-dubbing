@@ -13,3 +13,6 @@ chains:
 calibration:
   - "The weather is lovely today, so let's go for a walk."
   - "Thank you all for listening to this story."
+# Laughter, cries and fillers (haha, oh, uh-huh, hmm): such a line keeps its original
+# audio. Not hi/hey/yes/no: words to translate.
+interjections: '(?:o+h+|a+h+|u+h+|u+m+|h+m+|m+h*m+|e+h+|h+u+h+|(?:ha)+h?|(?:he)+h?|w+o+w+|w+h+o+a+|o+w+|o+u+c+h+|u+g+h+|a+w+|o+o+p+s+|a+r+g+h+)+'

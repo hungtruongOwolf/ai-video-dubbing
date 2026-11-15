@@ -357,12 +357,16 @@ async def run_job(
         log(f"      edit skipped: {w}")
     voiced = ue.apply_to_units(units)  # speaker and slot edits
     auto = _not_dialogue(voiced, spec.hardsubs, hardsub_stats, speaker_stats)
-    auto = [uid for uid in auto if uid not in ue.dub_forced]
+    cries = [u.id for u in voiced if src_lp.is_interjection(u.text) and u.id not in auto]
+    auto = [uid for uid in auto + cries if uid not in ue.dub_forced]
     ue.original.update(auto)
-    if hardsub_stats or speaker_stats.get("applied"):
+    if cries:
+        speaker_stats["interjections_original"] = len(cries)
+    if hardsub_stats or speaker_stats.get("applied") or cries:
         speaker_stats["auto_original"] = len(auto)
         if auto:
-            log(f"      {len(auto)} lines kept original (songs, background voices)")
+            log(f"      {len(auto)} lines kept original (songs, background voices, "
+                f"{len(cries)} laughs and cries)")  # fmt: skip
     # Speaker embedding of every line: picks the most typical reference clip per speaker and
     # gives the QA gate each speaker's centroid. Purity: share of a line spoken by its speaker.
     emb: Embeddings = await cx.call(
@@ -799,6 +803,10 @@ async def run_job(
                     CutReq(audio_key=stems.vocals_key, start_ms=u.start_ms, end_ms=u.end_ms),
                     AudioRes, subject=u.id,
                 )  # fmt: skip
+                # its subtitle: the full translation (no voice to fit into the slot)
+                tr_o = translations.get(u.id)
+                if tr_o and variant in VARIANT_ORDER and tr_o.target:
+                    text = tr_o.target
                 return Placement(
                     unit_id=u.id, speaker=u.speaker, slot_start_ms=u.start_ms,
                     slot_end_ms=u.end_ms, start_ms=u.start_ms, end_ms=u.start_ms + orig.dur_ms,
@@ -854,7 +862,8 @@ async def run_job(
                         if new is None:
                             break
                         text, variant, pred = new, "rewrite", predict(new)
-                while True:
+
+                async def voice(text: str, pred: int):
                     # Up to `takes` deterministic takes (seed, seed+1000, ...): keep the first
                     # that passes the QA gate, else the best one (flagged).
                     best = None
@@ -887,12 +896,14 @@ async def run_job(
                             break
                     if inline_qa and best[0] is not None and best[0].foreign:
                         best = await accent_retry(u, text, pred, base_seed, facts, best)
-                    qa, synth, trimmed, check_words = best
-                    natural = pred if synth.exact else trimmed.dur_ms
-                    fit = fit_unit(
+                    return best
+
+                def fit_of(best, text: str, pred: int) -> Fit:
+                    synth, trimmed = best[1], best[2]
+                    return fit_unit(
                         slot_start=u.start_ms,
                         slot_end=u.end_ms,
-                        natural_ms=natural,
+                        natural_ms=pred if synth.exact else trimmed.dur_ms,
                         clip_ms=trimmed.dur_ms,
                         prev=prev,
                         next_=nxt,
@@ -900,6 +911,43 @@ async def run_job(
                         media_end_ms=media.duration_ms,
                         rate_ref_ms=linear(text) if synth.exact else None,
                     )
+
+                async def measured_variant(text: str, variant: str, pred: int, best, fit):
+                    """Variants voiced and measured, not only predicted: (1) an engine without
+                    duration control (VieNeu) got the short variant on a prediction, and the
+                    full line may fit after all ("Không hứng" for "Không hứng thú"); (2) every
+                    take failed the QA gate: another wording may be heard right."""
+                    cands: list[tuple[str, str]] = []
+                    if not best[1].exact and variant == "short":
+                        cands.append(("target", tr_u.target))
+                    if inline_qa and best[0] is not None and not best[0].passed:
+                        cands += [("target", tr_u.target), ("short", tr_u.short),
+                                  ("long", tr_u.long)]  # fmt: skip
+                    tried = {text}
+                    for name, alt in cands:
+                        if not alt or alt in tried:
+                            continue
+                        tried.add(alt)
+                        alt_pred = predict(alt)
+                        alt_best = await voice(alt, alt_pred)
+                        alt_fit = fit_of(alt_best, alt, alt_pred)
+                        fuller = VARIANT_ORDER[name] > VARIANT_ORDER[variant]
+                        if _prefer_take(alt_best[0], alt_fit.rate, best[0], fit.rate,
+                                        t.rate_p95, fuller):  # fmt: skip
+                            text, variant, pred, best, fit = alt, name, alt_pred, alt_best, alt_fit
+                        if best[0] is None or best[0].passed:
+                            break
+                    return text, variant, pred, best, fit
+
+                while True:
+                    best = await voice(text, pred)
+                    fit = fit_of(best, text, pred)
+                    if tr_u and variant in VARIANT_ORDER and not ue.is_protected(u.id):
+                        text, variant, pred, best, fit = await measured_variant(
+                            text, variant, pred, best, fit
+                        )
+                    qa, synth, trimmed, check_words = best
+                    natural = pred if synth.exact else trimmed.dur_ms
                     if (
                         fit.rate > t.rate_p95
                         and count_units(text, tgt_lp.speech_unit) > NO_REWRITE_UNITS
@@ -1260,6 +1308,29 @@ CALIB_MAX_PAD_MS = 800
 REF_CANDIDATES = 3  # reference clips tried per speaker (M8)
 NO_REWRITE_UNITS = 3  # lines this short are never shortened by the LLM (M8)
 REF_TEXT_OK = 0.15  # a clip heard within this CER of its line's text is clean
+VARIANT_ORDER = {"short": 0, "target": 1, "long": 2}  # the translator's wordings, by length
+
+
+def _prefer_take(
+    new: qa_ops.QaResult | None,
+    new_rate: float,
+    cur: qa_ops.QaResult | None,
+    cur_rate: float,
+    max_rate: float,
+    fuller: bool,
+) -> bool:
+    """Is another wording's take better than the current one? It must fit (no faster than the
+    timing allows, or than the current one); then a take heard right beats one that is not,
+    the fuller wording wins between two good ones, the higher QA score between two bad ones."""
+    if new_rate > max(max_rate, cur_rate):
+        return False
+    if new is None or cur is None:  # no QA gate: the fuller line when it fits
+        return fuller
+    if new.passed != cur.passed:
+        return new.passed
+    return fuller if new.passed else new.score > cur.score
+
+
 DIAR_STEP = 0.1
 DIAR_FLOOR = 0.7
 DIAR_FINER_MIN_SHARE = 0.03
@@ -1347,14 +1418,25 @@ async def _attribute_speakers(
     lines = speaker_ops.lines(words, diar.turns, cues, joiner)
     if len(lines) < 2:
         return diar, {}
-    try:
-        attr: Attribution = await cx.call(
-            "text.speakers", SpeakersReq(lang=src_lang, lines=lines, voices=voices)
-        )
-    except (RoutingError, ProviderError) as e:
-        log(f"      who says each line: not read ({str(e)[:200]})")
+
+    async def reading(k: int) -> Attribution | None:
+        try:
+            return await cx.call(
+                "text.speakers", SpeakersReq(lang=src_lang, lines=lines, voices=voices, sample=k)
+            )
+        except (RoutingError, ProviderError) as e:
+            log(f"      who says each line: reading {k + 1} failed ({str(e)[:200]})")
+            return None
+
+    n = max(1, cx.cfg.dub.speakers.votes)
+    got = [a for a in await asyncio.gather(*(reading(k) for k in range(n))) if a is not None]
+    got = [a for a in got if len(a.speaker) == len(lines)]
+    if not got:
         return diar, {}
+    attr, agreement = speaker_ops.vote(got)
     turns, stats = speaker_ops.fuse(lines, attr, voices)
+    stats["readings"] = len(got)
+    stats["agreement"] = round(agreement, 3)
     if turns is None:
         n_bad, n = stats.get("gender_conflicts", 0), stats["lines"]
         log(f"      who says each line: not used ({stats.get('rejected')}: "
@@ -1362,7 +1444,8 @@ async def _attribute_speakers(
         return diar, stats
     people = ", ".join(f"{k} {v}" for k, v in stats["names"].items())
     log(f"      who says each line: {stats['characters']} people in {stats['lines']} lines, "
-        f"{stats['moved']} lines moved off the voice clusters ({people})")  # fmt: skip
+        f"{stats['moved']} lines moved off the voice clusters ({people}); "
+        f"{len(got)} readings agree on {agreement:.0%} of the lines")  # fmt: skip
     speakers = sorted({t.speaker for t in turns}, key=lambda s: int(s[1:]))
     return Diarization(turns=turns, speakers=speakers), {**stats, "applied": True}
 

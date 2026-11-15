@@ -25,3 +25,6 @@ chains:
 calibration:
   - "Hôm nay trời rất đẹp, chúng ta cùng đi dạo nhé."
   - "Cảm ơn mọi người đã lắng nghe câu chuyện này."
+# Laughter, cries and fillers (haha, ôi, á): such a line keeps its original audio.
+# Not ừ/vâng/dạ (yes): words to translate.
+interjections: '(?:ha+|hi+|hì+|he+|hê+|há+|ô+|ồ+|ố+|ôi+|ối+|a+|à+|á+|ơ+|ờ+|ớ+|ui+|úi+|chà+|ủa+)+'

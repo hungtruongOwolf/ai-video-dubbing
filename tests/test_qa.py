@@ -141,3 +141,24 @@ def test_residual_risks_list_the_lines_worth_a_listen():
     out = residual_risks(rows)
     assert out[0] == "## Residual risks" and "`u1` risk 8.0: dòng 1" in out[4]
     assert not any("`u3`" in ln for ln in out)  # a human already looked at it
+
+
+def test_another_wording_replaces_a_take_only_when_better():
+    from dub.core.pipeline import _prefer_take
+    from dub.ops.qa import QaResult
+
+    good = QaResult(cer=0.0, sim_ratio=1.0, tail=1.0, passed=True)
+    bad = QaResult(cer=0.19, sim_ratio=None, tail=0.75, passed=False)  # "Không hứng" misheard
+    worse = QaResult(cer=0.4, sim_ratio=None, tail=0.5, passed=False)
+    # heard right and fits: replaces a take that failed the gate
+    assert _prefer_take(good, 1.05, bad, 1.0, 1.10, fuller=True)
+    # does not fit (faster than the timing allows and than the current take): never
+    assert not _prefer_take(good, 1.3, bad, 1.0, 1.10, fuller=True)
+    # both heard right: the fuller wording ("Không hứng thú") over the clipped one
+    assert _prefer_take(good, 1.0, good, 1.0, 1.10, fuller=True)
+    assert not _prefer_take(good, 1.0, good, 1.0, 1.10, fuller=False)
+    # both fail: the better score
+    assert _prefer_take(bad, 1.0, worse, 1.0, 1.10, fuller=False)
+    assert not _prefer_take(worse, 1.0, bad, 1.0, 1.10, fuller=True)
+    # no QA gate (draft): the fuller line when it fits
+    assert _prefer_take(None, 1.0, None, 1.0, 1.10, fuller=True)

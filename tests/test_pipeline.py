@@ -4,6 +4,7 @@ tracks, and a rerun that is served 100% from the cache."""
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -166,7 +167,11 @@ def test_bench_speed_reports_stages_lanes_and_ops(demo, tmp_path, capsys):
     synth = [e for e in events if e["name"] == "tts.synthesize" and e["ph"] == "X"]
     lines = [e for e in synth if not e["args"]["subject"].startswith("calibration")]
     units = json.loads((job / "units.json").read_text(encoding="utf-8"))
-    assert len(lines) == len(units)
+    per_unit = Counter(e["args"]["subject"] for e in lines)
+    assert set(per_unit) == {x["unit"]["id"] for x in units}
+    # once each; twice when an engine without duration control got the short wording on a
+    # prediction and the full line was voiced to measure it (never a line voiced again)
+    assert max(per_unit.values()) <= 2
 
 
 def test_one_source_many_targets_shares_the_analysis(demo, tmp_path, capsys):

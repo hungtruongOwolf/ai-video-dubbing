@@ -13,3 +13,5 @@ chains:
 calibration:
   - "Hoy hace muy buen tiempo, así que vamos a pasear."
   - "Gracias a todos por escuchar esta historia."
+# Laughter, cries and fillers (jaja, ay, uf): such a line keeps its original audio.
+interjections: '(?:a+y+|u+y+|u+f+|o+h+|a+h+|e+h+|(?:ja)+j?|(?:je)+j?|(?:ha)+h?|m+h*m+|e+m+|u+h+|g+u+a+u+)+'

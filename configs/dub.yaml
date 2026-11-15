@@ -46,6 +46,11 @@ voice:
   audition: 1
   audition_cer_slack: 0.05
 
+# Who says each line: the LLM reads the script this many times (concurrently) and each line
+# goes to the character most readings give it; lines the readings disagree on are flagged.
+speakers:
+  votes: 3
+
 translate:
   window_units: 12             # units per LLM call
   context_units: 3             # neighbouring units sent as context

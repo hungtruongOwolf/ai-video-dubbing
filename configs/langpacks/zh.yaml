@@ -13,3 +13,6 @@ chains:
 calibration:
   - "今天天气很好，我们一起去散步吧。"
   - "谢谢大家听我讲这个故事。"
+# Laughter, cries and fillers (哈哈, 啊, 嗯, 哎呀): such a line keeps its original audio.
+# Not 喂 (hello), 好/对 (yes) or 阿 (a name prefix: 阿元).
+interjections: '[哈呵嘿嘻啊呀哎哟唉嗯哦噢喔呃咦哇呜嗷]+'

@@ -12,6 +12,8 @@ Adding a language = adding a langpack. Adding a model = adding a manifest (+ an 
 from __future__ import annotations
 
 import os
+import re
+import unicodedata
 from pathlib import Path
 from typing import Any, Literal
 
@@ -112,6 +114,16 @@ class Langpack(Cfg):
     # Two plain sentences in the language: each voice speaks them once so we can measure the
     # silence the TTS adds inside the length we ask for, and ask for that much more.
     calibration: list[str] = Field(default_factory=list)
+    # A line made only of these (laughter, a cry, a filler: 哈哈, 啊, "uh-huh") keeps its
+    # original audio: dubbed, "Ha" sounds fake and rarely fits a 20 ms slot. A regex matched
+    # against the whole line, lower-cased, without spaces and punctuation; "" = none.
+    interjections: str = ""
+
+    def is_interjection(self, text: str) -> bool:
+        if not self.interjections:
+            return False
+        bare = re.sub(r"[\W_]+", "", unicodedata.normalize("NFC", text).lower())
+        return bool(bare) and re.fullmatch(self.interjections, bare) is not None
 
     def segment_params(self) -> SegmentParams:
         s = self.segment
@@ -202,6 +214,11 @@ class VoiceCfg(Cfg):
     audition_cer_slack: float = 0.05  # intelligible: back-check CER within this of the best
 
 
+class SpeakersCfg(Cfg):
+    # Readings of the script by the LLM (text.speakers), voted line by line (ops/speakers.py).
+    votes: int = 3
+
+
 class DubConfig(Cfg):
     version: int = 1
     profile: str = "draft"
@@ -210,6 +227,7 @@ class DubConfig(Cfg):
     qa: QaCfg = Field(default_factory=QaCfg)
     mix: MixCfg = Field(default_factory=MixCfg)
     voice: VoiceCfg = Field(default_factory=VoiceCfg)
+    speakers: SpeakersCfg = Field(default_factory=SpeakersCfg)
     translate: TranslateCfg = Field(default_factory=TranslateCfg)
     throughput: ThroughputCfg = Field(default_factory=ThroughputCfg)
     defaults: dict[str, list[str]] = Field(default_factory=dict)

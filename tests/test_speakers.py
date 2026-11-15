@@ -147,3 +147,59 @@ def test_songs_stay_original_and_uncaptioned_answers_are_dubbed():
     assert _not_dialogue(units, cues, hs, st) == ["c", "d"]
     # no subtitles at all: a song still stays original, a background voice is dubbed
     assert _not_dialogue(units, [], {}, st) == ["c"]
+
+
+def test_laughs_and_cries_are_not_dubbed():
+    # "哈哈" dubbed as "Ha" overran a 20 ms slot and sounded fake: such lines keep the original
+    from dub.core.config import load_config
+
+    cfg = load_config(None)
+    zh, en, ja, vi = (cfg.langpack(x) for x in ("zh", "en", "ja", "vi"))
+    assert all(zh.is_interjection(x) for x in ["哈哈", "啊！", "嗯嗯。", "哎呀", "啊啊啊"])
+    assert not any(zh.is_interjection(x) for x in ["好啊", "阿元", "喂", "没谁啊", ""])
+    assert all(en.is_interjection(x) for x in ["Haha!", "Uh-huh.", "Oh", "Hmm...", "Wow!"])
+    assert not any(en.is_interjection(x) for x in ["Oh no", "Hi", "Yes", "a"])
+    assert ja.is_interjection("ふふふ") and not ja.is_interjection("はい")  # はい = yes
+    assert not ja.is_interjection("うん")
+    assert vi.is_interjection("Haha") and not vi.is_interjection("Ừ")
+    assert not cfg.langpack("th").is_interjection("555")  # no pattern: nothing kept
+
+
+def test_readings_are_voted_line_by_line():
+    from dub.contracts.v1 import Attribution, Character
+    from dub.ops.speakers import vote
+
+    def reading(ids, chars, sure=None):
+        return Attribution(
+            characters=[Character(id=c, who=w, kind=k) for c, w, k in chars],
+            speaker=ids,
+            sure=sure or [True] * len(ids),
+        )
+
+    a = reading(["P1", "P2", "P1", "P2", "P3"],
+                [("P1", "the nurse", "person"), ("P2", "the steward", "person"),
+                 ("P3", "song", "singing")])  # fmt: skip
+    # the same reading with other ids (characters numbered differently), and the song
+    # seen as a person
+    b = reading(["P2", "P1", "P2", "P1", "P3"],
+                [("P2", "wet nurse", "person"), ("P1", "Steward Sun", "person"),
+                 ("P3", "background song", "singing")])  # fmt: skip
+    # a third reading gives line 3 to the steward
+    c = reading(["P1", "P2", "P2", "P2", "P3"],
+                [("P1", "nurse", "person"), ("P2", "steward", "person"),
+                 ("P3", "song", "person")])  # fmt: skip
+    voted, agreement = vote([a, b, c])
+    assert voted.speaker == ["P1", "P2", "P1", "P2", "P3"]  # 2 of 3 on line 3
+    assert voted.sure == [True, True, False, True, True]  # the disagreement is a guess
+    assert agreement == 0.8
+    assert {ch.id: ch.kind for ch in voted.characters}["P3"] == "singing"  # 2 of 3
+    assert vote([a]) == (a, 1.0)
+    # a character only another reading found keeps its own (primed) id where it wins
+    d = reading(["P1", "P2", "P1", "P4", "P3"],
+                [("P1", "n", "person"), ("P2", "s", "person"), ("P4", "boy", "person"),
+                 ("P3", "song", "singing")])  # fmt: skip
+    e = reading(["P1", "P2", "P1", "P4", "P3"],
+                [("P1", "n", "person"), ("P2", "s", "person"), ("P4", "boy", "person"),
+                 ("P3", "song", "singing")])  # fmt: skip
+    voted, _ = vote([a, d, e])
+    assert voted.speaker[3] == "P4'" and "P4'" in {ch.id for ch in voted.characters}

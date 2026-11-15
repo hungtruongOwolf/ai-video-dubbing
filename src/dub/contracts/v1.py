@@ -175,6 +175,7 @@ class SpeakersReq(Model):
     lang: str
     lines: list[SpeakerLine]
     voices: list[SpeakerVoice] = Field(default_factory=list)  # gender of each diarizer voice
+    sample: int = 0  # which reading (several are voted on): a distinct call per reading
 
 
 class Character(Model):

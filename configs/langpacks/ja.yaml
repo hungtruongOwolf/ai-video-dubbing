@@ -13,3 +13,6 @@ chains:
 calibration:
   - "今日はとても天気がいいので、散歩に行きましょう。"
   - "この話を聞いてくれて、ありがとうございました。"
+# Laughter, cries and fillers (はは, あ, えっ, ふふ): such a line keeps its original audio.
+# Not はい or うん (yes): words to translate.
+interjections: '[あぁうぅえぇおぉアァウゥエェオォはハへヘほホひヒふフっッー〜]+'

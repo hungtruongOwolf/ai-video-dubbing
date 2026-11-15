@@ -15,13 +15,19 @@ calls himself "Steward Sun", the employer states the rules. So:
    otherwise the transcript cut at pauses, sentence ends and diarizer turn changes.
 2. `text.speakers` (an LLM) names the characters and says who speaks each line, seeing the
    diarizer's voice under each line and the gender of each voice (weak evidence).
-3. `fuse` checks the answer against the voices and turns it into speaker turns: characters
+3. `vote`: the LLM reads the script several times (it is sampled: one run found six people
+   in the drama, the next five); each run's characters are matched to the first run's by
+   the lines they share, and every line goes to the character most runs give it. A line the
+   runs disagree on is marked unsure (a guess, flagged for review).
+4. `fuse` checks the answer against the voices and turns it into speaker turns: characters
    become S1, S2... in order of first appearance. When too many lines would give a character
    a voice of the other gender (both sure), the LLM misread the scene and the diarizer's
    turns are kept.
 """
 
 from __future__ import annotations
+
+from collections import Counter
 
 from dub.contracts.v1 import (
     Attribution,
@@ -209,3 +215,59 @@ def fuse(
     stats["kinds"] = {names[c.id]: c.kind for c in attr.characters
                       if c.id in names and c.kind != "person"}  # fmt: skip
     return turns, stats
+
+
+def _match(base: Attribution, other: Attribution) -> dict[str, str]:
+    """Each character of `other` -> the character of `base` saying most of the same lines
+    (one to one, the largest overlaps first). Characters left over keep their own id,
+    prefixed so that they cannot collide with the base's."""
+    shared = Counter(zip(other.speaker, base.speaker, strict=True))
+    out: dict[str, str] = {}
+    used: set[str] = set()
+    for (o, b), _n in sorted(shared.items(), key=lambda kv: -kv[1]):
+        if o not in out and b not in used:
+            out[o] = b
+            used.add(b)
+    for c in other.characters:
+        out.setdefault(c.id, f"{c.id}'")
+    for o in other.speaker:
+        out.setdefault(o, f"{o}'")
+    return out
+
+
+def vote(attrs: list[Attribution]) -> tuple[Attribution, float]:
+    """One attribution from several readings of the same lines, and the share of lines on
+    which every reading agreed. Ties go to the first reading."""
+    base = attrs[0]
+    if len(attrs) == 1:
+        return base, 1.0
+    maps = [{c: c for c in base.speaker} | {c.id: c.id for c in base.characters}]
+    maps += [_match(base, a) for a in attrs[1:]]
+    chars = {c.id: c for c in base.characters}
+    kinds: dict[str, Counter] = {}
+    for a, m in zip(attrs, maps, strict=True):
+        for c in a.characters:
+            chars.setdefault(m[c.id], c.model_copy(update={"id": m[c.id]}))
+            kinds.setdefault(m[c.id], Counter())[c.kind] += 1
+    speaker: list[str] = []
+    sure: list[bool] = []
+    agreed = 0
+    for i in range(len(base.speaker)):
+        says = [m[a.speaker[i]] for a, m in zip(attrs, maps, strict=True)]
+        count = Counter(says)
+        top = max(count.values())
+        who = next(s for s in says if count[s] == top)  # the first reading among the tied
+        speaker.append(who)
+        all_agree = top == len(says)
+        agreed += all_agree
+        sure.append(all_agree and sum(a.sure[i] for a in attrs) * 2 > len(attrs))
+    used = set(speaker)
+    characters = [
+        chars[c].model_copy(update={"kind": kinds[c].most_common(1)[0][0]}) if c in kinds
+        else chars[c]
+        for c in dict.fromkeys([*(c.id for c in base.characters), *chars])
+        if c in used
+    ]  # fmt: skip
+    return Attribution(characters=characters, speaker=speaker, sure=sure), agreed / max(
+        1, len(base.speaker)
+    )
