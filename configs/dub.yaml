@@ -58,7 +58,12 @@ translate:
 # M5: units voiced at the same time. The GPU workers batch whatever is queued (continuous
 # batching, up to each manifest's limits.max_batch), so this also bounds the TTS batch.
 throughput:
-  units_in_flight: 48           # M10: 24 left OmniVoice batches at ~4-6 lines (max 16) on 32 GB
+  # M10 A/B on the drama's cached translations (voicing only): 24 in flight, retakes one after
+  # another 74.5 s; 24 at once 77.6 s; 48 one after another 79.2 s; 48 at once 93.2 s. More work
+  # queued only lengthened the queues of the single-runner workers. The code before M10 took
+  # 87.8 s on the same lines with far fewer back-checks to compute (cached).
+  units_in_flight: 24
+  parallel_retakes: false
 
 # Used when no rule matches and the langpack has no chain for the op.
 # Real speech models arrive in M1; until then use --fake for those ops.

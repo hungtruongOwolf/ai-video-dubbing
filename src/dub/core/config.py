@@ -205,7 +205,7 @@ class ThroughputCfg(Cfg):
     free_phase_a_models: bool | Literal["auto"] = "auto"
     # When take 0 of a line fails QA, voice its other takes (and other wordings) at once
     # instead of one after another: shorter retake chains, more work queued at once.
-    parallel_retakes: bool = True
+    parallel_retakes: bool = False  # M10 A/B: slower (more work queued, same choices)
 
 
 class TranslateCfg(Cfg):
