@@ -581,10 +581,11 @@ async def run_job(
         ):
             try:
                 lid: WordTimeline = await cx.call(
-                    "asr.transcribe", TranscribeReq(audio_key=clip16.audio_key, lang="auto"),
+                    "asr.transcribe",
+                    TranscribeReq(audio_key=clip16.audio_key, lang="auto", detect_only=True),
                     subject=u.id,
-                )  # fmt: skip
-                if lid.words and base_lang(lid.lang) == base_lang(src_lang):
+                )
+                if base_lang(lid.lang) == base_lang(src_lang):
                     res.mark_foreign(lid.lang)
             except (RoutingError, ProviderError) as e:
                 log(f"      accent check skipped for {u.id}: {str(e)[:120]}")

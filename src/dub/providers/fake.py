@@ -108,6 +108,8 @@ class FakeASR(_Base):
                 w.model_copy(update={"speaker": None}) for w in tl.words
             ]  # ASR has no speakers
             return WordTimeline(lang=tl.lang if req.lang == "auto" else req.lang, words=words)
+        if req.detect_only:  # a fake cannot tell languages apart
+            return WordTimeline(lang="und", words=[], lang_prob=0.0)
 
         audio, sr = read_wav(ctx.cas.path(req.audio_key))
         words: list[Word] = []

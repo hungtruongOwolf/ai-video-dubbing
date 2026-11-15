@@ -106,6 +106,9 @@ class TranscribeReq(Model):
     # Transcribe only these spans, each on its own (one per speaker turn): no word can cross
     # from one speaker into the next.
     clips: list[tuple[int, int]] = Field(default_factory=list)
+    # Only the spoken language (Whisper: one encoder pass on the first 30 s), no words: the
+    # accent check of every take needs no more.
+    detect_only: bool = False
 
 
 class BoundaryReq(Model):
@@ -125,6 +128,7 @@ class Boundaries(Model):
 class WordTimeline(Model):
     lang: str
     words: list[Word]
+    lang_prob: float | None = None  # how sure the detected language is (detect_only)
 
 
 # ---------------------------------------------------------------- diarization

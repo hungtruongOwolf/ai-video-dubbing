@@ -83,6 +83,13 @@ class FasterWhisperASR:
         audio, sr = read_wav(ctx.cas.path(req.audio_key))
         if sr != 16000:
             raise ProviderError(f"expected 16 kHz audio, got {sr} Hz", kind="bad_input")
+        if req.detect_only:
+            # the detection transcribe() runs first (same VAD, one 30 s window), without the
+            # decoding: ~6 s a take with beam search and word times on a 5-minute drama
+            found, prob, _ = self.model.detect_language(
+                audio=audio.mean(axis=1), vad_filter=bool(p.get("vad_filter", True))
+            )
+            return WordTimeline(lang=forced or found, words=[], lang_prob=round(float(prob), 3))
         extra: dict = {}
         # A punctuated example nudges Whisper to write punctuation (zh/ja conversation often
         # comes out without any). initial_prompt conditions the first window, hotwords every one.
