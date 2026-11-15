@@ -110,6 +110,7 @@ from dub.ops import vad as vad_ops
 from dub.ops.align import cer
 from dub.ops.script import base_lang
 from dub.ops.timing import (
+    FILL_MIN,
     Fit,
     Neighbor,
     count_units,
@@ -1006,10 +1007,16 @@ async def run_job(
                     """Variants voiced and measured, not only predicted: (1) an engine without
                     duration control (VieNeu) got the short variant on a prediction, and the
                     full line may fit after all ("Không hứng" for "Không hứng thú"); (2) every
-                    take failed the QA gate: another wording may be heard right."""
+                    take failed the QA gate: another wording may be heard right; (3) the line
+                    fills under FILL_MIN of its slot: the mouth goes on moving with no voice
+                    (10.25-11.14 s of the cartoon), a fuller wording may fill it."""
                     cands: list[tuple[str, str]] = []
                     if not best[1].exact and variant == "short":
                         cands.append(("target", tr_u.target))
+                    fill = (fit.end_ms - fit.start_ms) / max(1, u.slot_ms)
+                    if fill < FILL_MIN and variant in ("short", "target"):
+                        cands += [("target", tr_u.target)] if variant == "short" else []
+                        cands.append(("long", tr_u.long))
                     if inline_qa and best[0] is not None and not best[0].passed:
                         cands += [("target", tr_u.target), ("short", tr_u.short),
                                   ("long", tr_u.long)]  # fmt: skip

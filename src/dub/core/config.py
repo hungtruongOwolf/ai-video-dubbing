@@ -199,7 +199,7 @@ class MixCfg(Cfg):
     keep_nonverbal: bool = True
     # Scale the separated stems so that they add up to the mix (the separator normalises each)
     rebalance_stems: bool = True
-    nonverbal_min_ms: int = 300
+    nonverbal_min_ms: int = 200  # M10: a 250 ms cry between the song and a line was left out
     nonverbal_pad_ms: int = 150
 
 
