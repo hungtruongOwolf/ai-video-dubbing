@@ -194,6 +194,13 @@ class MixCfg(Cfg):
     match_level: bool = True
     level_max_dev_db: float = 10.0
     level_max_gain_db: float = 24.0
+    # Laughter, cries, screams between the lines (no words heard in them) stay in the dub
+    # (dub.ops.nonverbal); gaps shorter than nonverbal_min_ms are left out.
+    keep_nonverbal: bool = True
+    # Scale the separated stems so that they add up to the mix (the separator normalises each)
+    rebalance_stems: bool = True
+    nonverbal_min_ms: int = 300
+    nonverbal_pad_ms: int = 150
 
 
 class ThroughputCfg(Cfg):

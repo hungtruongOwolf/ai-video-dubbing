@@ -47,6 +47,16 @@ class SeparateReq(Model):
 class Stems(Model):
     vocals_key: str
     instrumental_key: str  # the "bed": music + effects, no speech
+    vocals_gain: float = 1.0  # the scale that made the stems add up to the mix (rebalance)
+    bed_gain: float = 1.0
+
+
+class RebalanceReq(Model):
+    """Scale the two stems so that vocals + bed = the mix again."""
+
+    mix_key: str  # the 48 kHz WAV the separator was given
+    vocals_key: str
+    instrumental_key: str
 
 
 # ---------------------------------------------------------------- ASR

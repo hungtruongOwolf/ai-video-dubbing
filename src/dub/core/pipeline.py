@@ -51,6 +51,7 @@ from dub.contracts.v1 import (
     MasterReq,
     MediaInfo,
     Placement,
+    RebalanceReq,
     RefBank,
     RefsReq,
     RewriteReq,
@@ -98,6 +99,7 @@ from dub.ops import hardsubs as hardsub_ops
 from dub.ops import level as level_ops
 from dub.ops import media as media_ops
 from dub.ops import mix as mix_ops
+from dub.ops import nonverbal as nonverbal_ops
 from dub.ops import qa as qa_ops
 from dub.ops import refs as refs_ops
 from dub.ops import risk as risk_ops
@@ -265,6 +267,14 @@ async def run_job(
     )
     stems: Stems
     words: WordTimeline
+    if cfg.dub.mix.rebalance_stems:
+        stems = await cx.local(
+            "audio.rebalance",
+            mix_ops.rebalance,
+            RebalanceReq(mix_key=media.a48k_key, vocals_key=stems.vocals_key,
+                         instrumental_key=stems.instrumental_key),
+            Stems,
+        )  # fmt: skip
     src_lang = words.lang
     cx.facts["src_lang"] = src_lang
     src_lp, tgt_lp = cfg.langpack(src_lang), cfg.langpack(spec.tgt_lang)
@@ -627,7 +637,7 @@ async def run_job(
     def choose(u: Unit, tr: Translation) -> tuple[str, str, int]:
         if u.id in ue.text:
             return ("edit", ue.text[u.id], predict(ue.text[u.id]))
-        return pick_variant(tr, u.slot_ms, predict, t.variant_window)
+        return pick_variant(tr, u.slot_ms, predict, t.variant_window, t.rate_p95)
 
     def unit_facts(u: Unit) -> dict[str, Any]:
         return {"unit.slot_ms": u.slot_ms, "unit.words": u.n_words, "unit.asr_conf": u.asr_conf}
@@ -1102,13 +1112,23 @@ async def run_job(
         ]
         level_stats = level_ops.level_metrics(levels, gains)
     export: asyncio.Task | None = None
+    nonverbal: list[Placement] = []
+    nonverbal_stats: dict[str, Any] = {}
+    if placements and cfg.dub.mix.keep_nonverbal:
+        nonverbal, nv_stats = await _nonverbal_events(
+            cx, cfg, speech.regions, voiced,
+            spec.hardsubs if hardsub_stats else [], stems.vocals_key, vocals16.audio_key,
+            src_lang, src_lp, log,
+        )  # fmt: skip
+        nonverbal_stats = nv_stats
     if placements:
+        mixed = placements + nonverbal
         tile_reqs = [
             TileReq(
                 bed_key=stems.instrumental_key,
                 start_ms=a,
                 end_ms=b,
-                placements=[p for p in placements if p.start_ms < b and p.end_ms > a],
+                placements=[p for p in mixed if p.start_ms < b and p.end_ms > a],
                 bed_gain_db=cfg.dub.mix.bed_gain_db,
             )
             for a, b in mix_ops.plan_tiles(media.duration_ms)
@@ -1204,6 +1224,7 @@ async def run_job(
     metrics.update(speaker_metrics(diar, purity, qas, refs))
     metrics.update(level_stats)
     metrics.update(hardsub_stats)
+    metrics.update(nonverbal_stats)
     metrics.update({f"speakers_{k}": v for k, v in speaker_stats.items()
                     if k not in ("names", "kinds", "auto_original", "unsure_spans")})  # fmt: skip
     if "auto_original" in speaker_stats:
@@ -1454,6 +1475,65 @@ def _turn_spans(turns: list[Turn], per_speaker: int = 5) -> tuple[list[tuple[int
             spans.append((t.start_ms, t.end_ms))
             speakers.append(spk)
     return spans, speakers
+
+
+async def _nonverbal_events(
+    cx: Ctx,
+    cfg: Config,
+    regions: list[tuple[int, int]],
+    units: list[Unit],
+    cues: list[HardsubCue],
+    vocals_key: str,
+    vocals16_key: str,
+    src_lang: str,
+    src_lp,
+    log: Callable[[str], None],
+) -> tuple[list[Placement], dict[str, Any]]:
+    """Laughter, cries, screams between the lines, kept in the original audio (see
+    dub.ops.nonverbal): vocal sound where no line and no subtitle is, in which the source ASR
+    hears no words (or only laughter and cries). A gap with words is dropped: it would leak the
+    source language."""
+    m = cfg.dub.mix
+    busy = [(u.start_ms, u.end_ms) for u in units] + [(c.start_ms, c.end_ms) for c in cues]
+    found = nonverbal_ops.gaps(regions, busy, pad_ms=m.nonverbal_pad_ms,
+                               min_ms=m.nonverbal_min_ms)  # fmt: skip
+
+    async def judge(span: tuple[int, int]) -> Placement | None:
+        a, b = span
+        clip: AudioRes = await cx.local(
+            "audio.cut", media_ops.cut, CutReq(audio_key=vocals16_key, start_ms=a, end_ms=b),
+            AudioRes, subject=f"nv{a:07d}",
+        )  # fmt: skip
+        try:
+            heard: WordTimeline = await cx.call(
+                "asr.transcribe", TranscribeReq(audio_key=clip.audio_key, lang=src_lang),
+                subject=f"nv{a:07d}",
+            )  # fmt: skip
+        except (RoutingError, ProviderError) as e:
+            log(f"      non-verbal sound at {a / 1000:.1f}s not checked: {str(e)[:120]}")
+            return None
+        text = join_words(heard.words, src_lp.joiner)
+        if not nonverbal_ops.wordless(text, src_lp.is_interjection):
+            return None
+        orig: AudioRes = await cx.local(
+            "audio.cut", media_ops.cut, CutReq(audio_key=vocals_key, start_ms=a, end_ms=b),
+            AudioRes, subject=f"nv{a:07d}",
+        )  # fmt: skip
+        return Placement(
+            unit_id=f"nv{a:07d}", speaker="-", slot_start_ms=a, slot_end_ms=b, start_ms=a,
+            end_ms=a + orig.dur_ms, natural_ms=orig.dur_ms, clip_ms=orig.dur_ms, rate=1.0,
+            variant="original", text=text, flags=["original", "nonverbal"],
+            audio_key=orig.audio_key,
+        )  # fmt: skip
+
+    judged = await asyncio.gather(*(judge(s) for s in found))
+    kept = [p for p in judged if p is not None]
+    kept_s = sum(p.end_ms - p.start_ms for p in kept) / 1000
+    if found:
+        log(f"      non-verbal sounds kept: {len(kept)} of {len(found)} vocal gaps "
+            f"({kept_s:.1f} s); {len(found) - len(kept)} held words and stay out")  # fmt: skip
+    return kept, {"nonverbal_kept": len(kept), "nonverbal_kept_s": round(kept_s, 1),
+                  "nonverbal_dropped": len(found) - len(kept)}  # fmt: skip
 
 
 async def _attribute_speakers(

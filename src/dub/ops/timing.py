@@ -91,22 +91,46 @@ def predict_ms(
 # ---------------------------------------------------------------- step 1: pick a variant
 
 
+FILL_MIN = 0.75  # a target filling less of its slot than this gives way to the long wording
+SHORT_MIN = 0.7  # a short wording under this share of the target drops content (numbers, names)
+NEAR_FIT = 1.3  # ... and is used only when the target is longer than this times the slot
+
+
 def pick_variant(
-    tr: Translation, slot_ms: int, predict: Callable[[str], int], window: float
+    tr: Translation,
+    slot_ms: int,
+    predict: Callable[[str], int],
+    window: float,
+    max_rate: float = 1.10,
 ) -> tuple[str, str, int]:
-    """Return (variant name, text, predicted length in ms)."""
+    """Return (variant name, text, predicted length in ms).
+
+    The target wording first: it fits when it can be spoken at most `max_rate` times faster
+    than predicted (the timing allows that much). The long wording only when the target would
+    leave a quarter of the slot silent (long wordings padded terse lines: 26 of the drama's 96);
+    the short one only when the target does not fit, and not when it is much shorter than the
+    target while the target nearly fits (it dropped the sums and names; M10 review)."""
     candidates = (("target", tr.target), ("short", tr.short), ("long", tr.long))
-    options = [(n, t, predict(t)) for n, t in candidates if t and t.strip()]
-    if not options:
+    opts = {n: (t, predict(t)) for n, t in candidates if t and t.strip()}
+    if not opts:
         raise ValueError(f"Empty translation for {tr.unit_id}")
     slot = max(slot_ms, 1)
-    for name, text, pred in options:  # 'target' is checked first
-        if abs(pred / slot - 1.0) <= window:
-            return name, text, pred
-    fitting = [o for o in options if o[2] <= slot * (1 + window)]
-    if fitting:
-        return max(fitting, key=lambda o: o[2])  # longest that still fits: natural, less silence
-    return min(options, key=lambda o: o[2])  # everything is too long: take the shortest
+    tol = max(window, max_rate - 1.0)
+    if "target" in opts:
+        t_text, t_pred = opts["target"]
+        if t_pred <= slot * (1 + tol):
+            lng = opts.get("long")
+            if (t_pred < slot * FILL_MIN and lng and lng[0] != t_text
+                    and lng[1] <= slot * (1 + window)):  # fmt: skip
+                return "long", lng[0], lng[1]
+            return "target", t_text, t_pred
+        sh = opts.get("short")
+        if sh and sh[1] <= slot * (1 + tol):
+            if sh[1] >= SHORT_MIN * t_pred or t_pred > slot * NEAR_FIT:
+                return "short", sh[0], sh[1]
+            return "target", t_text, t_pred  # nearly fits: sped up, rewritten or measured
+    name = min(opts, key=lambda n: opts[n][1])  # everything is too long: take the shortest
+    return name, opts[name][0], opts[name][1]
 
 
 def exact_target_ms(slot_ms: int, natural_ms: int, safe: tuple[float, float]) -> int:

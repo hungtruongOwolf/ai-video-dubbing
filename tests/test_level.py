@@ -101,3 +101,33 @@ def test_mix_applies_the_line_gain(tmp_path):
         outs.append(read_wav(cas.path(tile.audio_key))[0][:, 0])
     ratio = np.abs(outs[1][SR // 4 : SR // 2]).max() / np.abs(outs[0][SR // 4 : SR // 2]).max()
     assert abs(20 * np.log10(ratio) - 6.0) < 0.1
+
+
+def test_stems_rebalanced_to_add_up_to_the_mix(tmp_path):
+    # the separator normalises each stem to its own peak: bed + vocals != mix
+    import numpy as np
+
+    from dub.contracts.v1 import RebalanceReq
+    from dub.ops.audio_io import read_wav, write_wav
+    from dub.ops.mix import rebalance
+    from dub.store.cas import CAS
+
+    cas = CAS(tmp_path / "cas")
+    rng = np.random.default_rng(0)
+    t = np.arange(48000 * 3) / 48000
+    voice = 0.3 * np.sin(2 * np.pi * 220 * t) * (rng.random(len(t)) > 0.3)
+    bed = 0.2 * rng.standard_normal(len(t)).clip(-2, 2) / 2
+    keys = []
+    for x in (voice + bed, voice / np.abs(voice).max() * 0.9, bed / np.abs(bed).max() * 0.9):
+        p = tmp_path / f"{len(keys)}.wav"
+        write_wav(p, np.stack([x, x], axis=1), 48000)
+        keys.append(cas.put_file(p))
+    out = rebalance(
+        RebalanceReq(mix_key=keys[0], vocals_key=keys[1], instrumental_key=keys[2]), cas
+    )
+    v, _ = read_wav(cas.path(out.vocals_key))
+    b, _ = read_wav(cas.path(out.instrumental_key))
+    m, _ = read_wav(cas.path(keys[0]))
+    resid = np.sqrt(np.mean((v + b - m) ** 2)) / np.sqrt(np.mean(m**2))
+    assert resid < 0.01  # -40 dB: the stems add up to the mix again
+    assert abs(out.vocals_gain - 0.3 / 0.9) < 0.01

@@ -30,6 +30,14 @@ def test_pick_variant_prefers_target_when_it_fits():
     assert pick_variant(tr, 500, lengths.get, 0.08)[0] == "short"
     # everything is short: the longest that fits
     assert pick_variant(tr, 5000, lengths.get, 0.08)[0] == "long"
+    # M10: a target 1.09x the slot can be spoken a little faster (it lost to a short wording)
+    assert pick_variant(tr, 920, lengths.get, 0.08)[0] == "target"
+    # a target filling 80% of its slot is kept (the long wording padded it)
+    assert pick_variant(tr, 1250, lengths.get, 0.08)[0] == "target"
+    # a short wording at 60% of the target drops content: not while the target nearly fits
+    clipped = {"s": 600, "t": 1000, "l": 1300}
+    assert pick_variant(tr, 880, clipped.get, 0.08)[0] == "target"
+    assert pick_variant(tr, 700, clipped.get, 0.08)[0] == "short"  # far too long: short
 
 
 def test_exact_target_stays_inside_safe_ratio():

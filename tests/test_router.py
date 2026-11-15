@@ -141,9 +141,11 @@ def test_short_vietnamese_lines_go_to_vieneu(cfg):
     rule = next(r for r in cfg.dub.routes["tts.synthesize"] if r.id == "short-line-vi")
     from dub.core.router import rule_matches
 
-    assert rule_matches(rule, {"tgt_lang": "vi", "line.units": 3})
-    assert not rule_matches(rule, {"tgt_lang": "vi", "line.units": 7})
-    assert not rule_matches(rule, {"tgt_lang": "es", "line.units": 3})
+    assert rule_matches(rule, {"tgt_lang": "vi", "line.units": 3, "unit.slot_ms": 1200})
+    assert not rule_matches(rule, {"tgt_lang": "vi", "line.units": 7, "unit.slot_ms": 1200})
+    assert not rule_matches(rule, {"tgt_lang": "es", "line.units": 3, "unit.slot_ms": 1200})
+    # M10: a long slot goes to OmniVoice, which plans the length (VieNeu left it half silent)
+    assert not rule_matches(rule, {"tgt_lang": "vi", "line.units": 3, "unit.slot_ms": 3600})
     assert not rule_matches(rule, {"tgt_lang": "vi"})  # length unknown: the usual chain
 
 

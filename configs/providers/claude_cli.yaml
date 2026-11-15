@@ -22,8 +22,8 @@ params:
 op_params:
   text.speakers: {model: fable}
 prompt_files:                  # prompt text is hashed into the cache key
-  mt.context: mt_context.v1.md
-  mt.translate: mt_translate.v1.md
+  mt.context: mt_context.v2.md       # M10: names, aliases, motifs, name policy
+  mt.translate: mt_translate.v2.md   # M10: dubbing style guide (meaning, mishearing, register, variants)
   mt.rewrite: mt_rewrite.v1.md
   text.boundaries: text_boundaries.v1.md
   text.speakers: text_speakers.v1.md

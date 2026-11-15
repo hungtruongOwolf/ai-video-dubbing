@@ -16,13 +16,22 @@ import wave
 
 import numpy as np
 
-from dub.contracts.v1 import AudioRes, ConcatReq, MasterReq, Tile, TileReq
+from dub.contracts.v1 import (
+    AudioRes,
+    ConcatReq,
+    MasterReq,
+    RebalanceReq,
+    Stems,
+    Tile,
+    TileReq,
+)
 from dub.ops.audio_io import duration_ms, read_wav, read_wav_range, write_wav
 from dub.ops.media import probe, run_ffmpeg
 from dub.store.cas import CAS
 
 SR = 48000
 FADE_MS = 8  # short fade in/out so line starts and ends do not click
+ORIGINAL_FADE_MS = 40  # original audio kept in the dub: a longer, equal-power fade
 TILE_MS = 30_000
 KNEE = 0.8  # soft clipper: untouched below, smoothly limited above
 
@@ -31,11 +40,15 @@ def plan_tiles(duration_ms: int, tile_ms: int = TILE_MS) -> list[tuple[int, int]
     return [(t, min(t + tile_ms, duration_ms)) for t in range(0, max(duration_ms, 1), tile_ms)]
 
 
-def _fade(clip: np.ndarray) -> np.ndarray:
-    n = min(len(clip) // 2, int(SR * FADE_MS / 1000))
+def _fade(clip: np.ndarray, ms: int = FADE_MS, smooth: bool = False) -> np.ndarray:
+    n = min(len(clip) // 2, int(SR * ms / 1000))
     if n <= 0:
         return clip
     ramp = np.linspace(0.0, 1.0, n, dtype=np.float32)
+    if smooth:  # equal-power (sine) ramp
+        ramp = np.sin(ramp * np.float32(np.pi / 2))
+    if clip.ndim == 2:
+        ramp = ramp[:, None]
     clip = clip.copy()
     clip[:n] *= ramp
     clip[-n:] *= ramp[::-1]
@@ -69,13 +82,18 @@ def mix_tile(req: TileReq, cas: CAS) -> Tile:
         clip, csr = read_wav(cas.path(p.audio_key))
         if csr != SR:
             raise ValueError(f"Clip {p.unit_id} must be 48 kHz, got {csr}")
-        mono = _fade(clip.mean(axis=1))
+        if p.variant == "original" and clip.shape[1] >= 2:
+            # original audio (a cry, a song, a laugh) keeps its stereo image and fades in and
+            # out longer and smoothly (8 ms linear cut screams mid-sound; M10 review)
+            sig = _fade(clip[:, :2], ORIGINAL_FADE_MS, smooth=True)
+        else:
+            sig = _fade(clip.mean(axis=1))[:, None]
         if p.gain_db:
-            mono = mono * np.float32(10 ** (p.gain_db / 20))
+            sig = sig * np.float32(10 ** (p.gain_db / 20))
         c0 = int(p.start_ms * SR / 1000)  # clip start on the timeline
-        a, b = max(c0, t0), min(c0 + len(mono), t1)  # overlap with the tile
+        a, b = max(c0, t0), min(c0 + len(sig), t1)  # overlap with the tile
         if b > a:
-            out[a - t0 : b - t0] += mono[a - c0 : b - c0, None]
+            out[a - t0 : b - t0] += sig[a - c0 : b - c0]
 
     tmp = cas.tmp_path(".wav")
     write_wav(tmp, soft_clip(out), SR)
@@ -135,3 +153,44 @@ def master(req: MasterReq, cas: CAS) -> AudioRes:
     ])  # fmt: skip
     dur = round(float(probe(out).get("format", {}).get("duration", 0)) * 1000)
     return AudioRes(audio_key=cas.put_file(out, move=True), dur_ms=dur)
+
+
+REBALANCE_BLOCK_S = 60  # stems are read and written a minute at a time
+
+
+def rebalance(req: RebalanceReq, cas: CAS) -> Stems:
+    """The separator normalises each stem to its own peak (audio-separator: 0.9), so the bed
+    came out about 2 dB low against the voices: kept original lines (a cry, a song) jumped out
+    of the dub (M10 review). Least squares finds a, b with mix ~ a * vocals + b * bed; both
+    stems are rewritten at those scales, so they add up to the mix again."""
+    paths = [cas.path(k) for k in (req.mix_key, req.vocals_key, req.instrumental_key)]
+    with wave.open(str(paths[1]), "rb") as w:
+        sr, n = w.getframerate(), w.getnframes()
+    block = REBALANCE_BLOCK_S * sr
+    g = np.zeros((2, 2))
+    h = np.zeros(2)
+    for a in range(0, n, block):
+        m, v, b = (read_wav_range(p, a, block)[0] for p in paths)
+        k = min(len(m), len(v), len(b))
+        m, v, b = m[:k].ravel(), v[:k].ravel(), b[:k].ravel()
+        g += [[v @ v, v @ b], [v @ b, b @ b]]
+        h += [v @ m, b @ m]
+    try:
+        gv, gb = np.linalg.solve(g, h)
+    except np.linalg.LinAlgError:
+        gv, gb = 1.0, 1.0
+    if not (0.1 <= gv <= 10.0 and 0.1 <= gb <= 10.0):  # silence or a failed fit: as they are
+        return Stems(vocals_key=req.vocals_key, instrumental_key=req.instrumental_key)
+    out = []
+    for p, gain in ((paths[1], gv), (paths[2], gb)):
+        tmp = cas.tmp_path(".wav")
+        with wave.open(str(p), "rb") as src, wave.open(str(tmp), "wb") as dst:
+            dst.setnchannels(src.getnchannels())
+            dst.setsampwidth(2)
+            dst.setframerate(src.getframerate())
+            for a in range(0, n, block):
+                x = read_wav_range(p, a, block)[0] * gain
+                dst.writeframes((np.clip(x, -1.0, 1.0) * 32767.0).round().astype("<i2").tobytes())
+        out.append(cas.put_file(tmp, move=True))
+    return Stems(vocals_key=out[0], instrumental_key=out[1], vocals_gain=round(float(gv), 4),
+                 bed_gain=round(float(gb), 4))  # fmt: skip

@@ -95,6 +95,9 @@ routes:
     # with VieNeu 64% of the time against OmniVoice's 35% at 1.6x its linear length (6 voices
     # of a zh drama x 12 lines, experiments/short_lines.py --engine vieneu); 3 syllables 83%
     # vs 17%. VieNeu also says them shorter (4-6 syllables in 0.9-1.5 s).
-    - {id: short-line-vi, when: {tgt_lang: vi, line.units: {lte: 6}}, use: [vieneu_v3_turbo]}
+    # M10: only in slots up to 1.6 s. VieNeu has no length control: in longer slots its short
+    # lines filled under 70% of the slot (24 of the drama's 90 lines outside 0.7-1.2), while
+    # OmniVoice plans them at 1.6x their linear length (understood 96% at 4-6 syllables, M8).
+    - {id: short-line-vi, when: {tgt_lang: vi, line.units: {lte: 6}, unit.slot_ms: {lte: 1600}}, use: [vieneu_v3_turbo]}
     - {id: short-line, when: {unit.slot_ms: {lt: 1300}}, require: {duration_control: exact}}
     - {id: weak-asr,   when: {unit.asr_conf: {lt: 0.6}}, require: {needs_ref_text: false}}
