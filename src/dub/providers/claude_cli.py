@@ -408,6 +408,19 @@ def to_batch(out: LLMTranslation, req: TranslateReq) -> TranslationBatch:
         for ln in out.lines
         if ln.unit_id in wanted
     ]
+    # A wordless line (a cry kept in the original audio) may come back empty: it keeps its
+    # source text, never voiced.
+    source = {u.id: u.text for u in req.units}
+    returned = {t.unit_id for t in items}
+    for uid in req.wordless:
+        if uid in wanted and uid not in returned:
+            items.append(Translation(unit_id=uid, short="", target="", long=""))
+    items = [
+        t if t.target.strip() or t.unit_id not in req.wordless
+        else t.model_copy(update={"short": source[t.unit_id], "target": source[t.unit_id],
+                                  "long": source[t.unit_id], "note": "kept in the original audio"})
+        for t in items
+    ]  # fmt: skip
     # Every line must come back, translated: a missing or empty line would otherwise be voiced
     # in the source language. Retryable: the core asks again (the answer varies).
     got = {t.unit_id for t in items if t.target.strip()}

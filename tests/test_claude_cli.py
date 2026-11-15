@@ -297,3 +297,25 @@ def test_speakers_in_windows_keep_character_ids(cfg, ctx, monkeypatch):
     assert "0 [00:00.0] V1: How many months?" in seen[0]
     assert "- V1: sounds female" in seen[0] and "- none yet" in seen[0]
     assert "- P2: the wet nurse (female, person)" in seen[1] and "Context before:" in seen[1]
+
+
+def test_a_wordless_line_may_come_back_empty():
+    # Prompt v2 never writes laughter out: a line that is only a cry came back empty and the
+    # whole translation failed. Such a line is kept in the original audio anyway.
+    from dub.contracts.v1 import ContextSheet, TranslateReq, Unit
+    from dub.providers.claude_cli import LLMLine, LLMTranslation, to_batch
+
+    def unit(uid, text):
+        return Unit(id=uid, speaker="S1", sentence_ids=[], start_ms=0, end_ms=1000, text=text,
+                    n_words=1)  # fmt: skip
+
+    req = TranslateReq(src_lang="zh", tgt_lang="vi", units=[unit("a", "你好"), unit("b", "啊啊啊")],
+                       context=ContextSheet(), wordless=["b"])  # fmt: skip
+    out = LLMTranslation(lines=[LLMLine(unit_id="a", short="Chào", target="Xin chào",
+                                        long="Xin chào anh", listener=None, self_term=None,
+                                        other_term=None, note=None)])  # fmt: skip
+    batch = to_batch(out, req)
+    b = next(t for t in batch.items if t.unit_id == "b")
+    assert b.target == "啊啊啊" and b.note == "kept in the original audio"
+    with pytest.raises(Exception, match="incomplete"):  # a real line still must come back
+        to_batch(out, req.model_copy(update={"wordless": []}))

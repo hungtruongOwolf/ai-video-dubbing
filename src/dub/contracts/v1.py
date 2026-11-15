@@ -399,6 +399,9 @@ class TranslateReq(Model):
     speech_unit: Literal["syllable", "char", "word"] = "syllable"
     units_per_s: float = 4.5  # estimated speaking rate of the target language
     feedback: dict[str, str] = Field(default_factory=dict)  # unit id -> problem to fix
+    # Lines that are only laughter or cries (kept in the original audio): the translator may
+    # return them empty (prompt v2: laughter is never written out)
+    wordless: list[str] = Field(default_factory=list)
 
 
 class Translation(Model):

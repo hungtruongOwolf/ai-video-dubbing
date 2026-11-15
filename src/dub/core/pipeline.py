@@ -377,6 +377,9 @@ async def run_job(
     voiced = ue.apply_to_units(units)  # speaker and slot edits
     auto = _not_dialogue(voiced, spec.hardsubs, hardsub_stats, speaker_stats)
     cries = [u.id for u in voiced if src_lp.is_interjection(u.text) and u.id not in auto]
+    cries_set = {
+        u.id for u in voiced if src_lp.is_interjection(u.text) and u.id not in ue.dub_forced
+    }
     auto = [uid for uid in auto + cries if uid not in ue.dub_forced]
     ue.original.update(auto)
     if cries:
@@ -736,6 +739,7 @@ async def run_job(
             speech_unit=tgt_lp.speech_unit,
             units_per_s=tgt_lp.units_per_s,
             feedback={u.id: feedback[u.id] for u in win if feedback and u.id in feedback},
+            wordless=[u.id for u in win if u.id in cries_set],
         )
         batch: TranslationBatch = await cx.call("mt.translate", req, subject=f"w{k:04d}")
         for tr in batch.items:
@@ -1171,6 +1175,7 @@ async def run_job(
                 words=_shift(checks[p.unit_id].words, p.start_ms) if p.unit_id in checks else [],
             )
             for p in placements
+            if p.unit_id not in cries_set  # a cry kept as it is needs no subtitle
         ]
     else:
         await checking
