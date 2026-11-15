@@ -130,8 +130,10 @@ class Jobs:
         job = self.jobs[job_id]
         try:
             if self.envs.started and not self.envs.settled.is_set():
-                self._log(job_id, "waiting for the model workers to finish loading")
-                self.envs.settled.wait()
+                # no waiting here: a call to a worker still loading waits for that worker
+                # (executor), so separation and ASR run while TTS loads
+                loading = [n for n, e in self.envs.snapshot().items() if e["status"] != "ready"]
+                self._log(job_id, f"starting while these workers load: {', '.join(loading)}")
             job["status"] = "running"
             t0 = time.perf_counter()
             gpu = GpuSampler().start()
