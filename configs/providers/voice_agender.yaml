@@ -6,7 +6,7 @@ env: tts                       # torch + transformers already there
 impl: dub.providers.voice_agender:AgeGenderVoice
 impl_version: "1"
 weights: {hf: audeering/wav2vec2-large-robust-24-ft-age-gender, revision: bad2737f529168bc3d3fcd97edfaba9583c7d36d}
-preload: false                 # one call per job
+preload: true                  # on the critical path of a cold pod (the voice hints waited 93 s); freed after phase A
 params:
   model: audeering/wav2vec2-large-robust-24-ft-age-gender
   revision: bad2737f529168bc3d3fcd97edfaba9583c7d36d

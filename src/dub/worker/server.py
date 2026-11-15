@@ -47,6 +47,13 @@ class _Task:
         self.error: BaseException | None = None
 
 
+# The order in which a job first calls the ops (phase A, then voicing).
+OP_FIRST_USE = [
+    "audio.separate", "asr.transcribe", "audio.diarize", "audio.embed", "audio.voice_profile",
+    "text.boundaries", "asr.backcheck", "tts.synthesize",
+]  # fmt: skip
+
+
 class WorkerState:
     def __init__(self, env: str, providers: list[str], cfg: Config, cas: CAS):
         unknown = [p for p in providers if p not in cfg.providers]
@@ -215,10 +222,15 @@ class WorkerState:
             ev.set()
 
     def preload_order(self) -> list[str]:
-        """The models of the first steps first (diarization, sentences, voice hints), the
-        TTS engines last: they are needed last."""
-        pids = [p for p in self.allowed if self.cfg.providers[p].preload]
-        return sorted(pids, key=lambda p: ("tts.synthesize" in self.cfg.providers[p].op, p))
+        """Models in the order a job first needs them (a cold pod: the voice hints waited 93 s
+        behind ECAPA and SaT), TTS engines last."""
+
+        def first_use(pid: str) -> tuple[int, str]:
+            ops = self.cfg.providers[pid].op
+            return min((OP_FIRST_USE.index(o) for o in ops if o in OP_FIRST_USE),
+                       default=len(OP_FIRST_USE)), pid  # fmt: skip
+
+        return sorted((p for p in self.allowed if self.cfg.providers[p].preload), key=first_use)
 
 
 def _release_gpu_cache() -> None:

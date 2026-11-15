@@ -378,6 +378,9 @@ def test_a_model_serves_while_another_one_loads(cfg, ws, monkeypatch):
     monkeypatch.setattr(FakeTTS, "load", slow_load, raising=False)
     state = WorkerState("fx", ["fake_tts", "fake_diarize"], cfg, ws.cas)
     assert state.preload_order() == ["fake_diarize", "fake_tts"]  # TTS engines last
+    order = WorkerState("tts", ["omnivoice", "sat_12l_sm", "voice_agender", "ecapa_cluster"],
+                        cfg, ws.cas).preload_order()  # fmt: skip
+    assert order == ["ecapa_cluster", "voice_agender", "sat_12l_sm", "omnivoice"]  # first use
     state.preload("fake_diarize")
     t = threading.Thread(target=state.preload, args=("fake_tts",))
     t.start()
