@@ -94,14 +94,16 @@ def original_extents(
     regions: list[tuple[int, int]],
     *,
     pad_ms: int = 150,
-    touch_ms: int = 200,
+    vad_margin_ms: int = 800,
     max_extend_ms: int = 6000,
     min_share: float = 0.5,
 ) -> dict[str, tuple[int, int]]:
     """Where a line kept in the original audio really sounds: its slot, the subtitle cues
     that carry its text, and the vocal sound touching them, but never into a dubbed line's
     slot (padded) nor into another kept line. The ASR had squeezed a 5 s song into 300 ms
-    (word times collapsed): cut at the slot, the song went silent from 0.3 s to 3.8 s.
+    (word times collapsed): cut at the slot, the song went silent from 0.3 s to 3.8 s. Only
+    sound overlapping the line or its cues is taken: anything beside it goes through the
+    non-verbal step and its check for words.
 
     `lines`: (id, start_ms, end_ms, source text) in time order; `cues`: (start, end, text)."""
     lines = sorted(lines, key=lambda x: (x[1], x[2]))
@@ -117,14 +119,15 @@ def original_extents(
             near = c1 >= s0 - max_extend_ms and c0 <= e0 + max_extend_ms
             if near and share(ct, text) >= min_share:
                 a, b = min(a, c0), max(b, c1)
-        grew = True
-        while grew:  # vocal sound touching the extent (a region can bridge two cues)
-            grew = False
-            for r0, r1 in regions:
-                if r0 <= b + touch_ms and r1 >= a - touch_ms and (r0 < a or r1 > b):
-                    a, b, grew = min(a, r0), max(b, r1), True
-        a = max(a, lo, s0 - max_extend_ms)
-        b = min(b, hi, e0 + max_extend_ms)
+        core = (a, b)
+        # the vocal sound overlapping the line and its cues, at most vad_margin_ms beyond them:
+        # a separate sound next to it (a word of the next line) is the non-verbal step's to judge,
+        # with its leak check (first version took in a word 250 ms after the song)
+        for r0, r1 in regions:
+            if r0 < core[1] and r1 > core[0]:
+                a, b = min(a, r0), max(b, r1)
+        a = max(a, core[0] - vad_margin_ms, lo, s0 - max_extend_ms)
+        b = min(b, core[1] + vad_margin_ms, hi, e0 + max_extend_ms)
         out[uid] = (min(a, s0), max(b, e0)) if b > a else (s0, e0)
     # two kept lines never sound twice over the same span: each starts where the last ended
     done = 0

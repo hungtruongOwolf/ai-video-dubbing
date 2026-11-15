@@ -864,6 +864,7 @@ async def run_job(
             variant, text, pred = choices[u.id]
             if u.id in ue.original:  # not voiced: the original vocals of the line, as they are
                 a0, b0 = extents.get(u.id, (u.start_ms, u.end_ms))
+                b0 = max(b0, a0 + 10)  # covered by the line before it: a 10 ms sliver
                 orig: AudioRes = await cx.local(
                     "audio.cut", media_ops.cut,
                     CutReq(audio_key=stems.vocals_key, start_ms=a0, end_ms=b0),
