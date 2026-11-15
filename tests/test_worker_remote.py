@@ -329,6 +329,37 @@ def test_worker_offloads_models_that_can_and_restores_them_on_the_next_call(cfg,
     assert moves == ["cpu", "gpu"] and not state.offloaded
 
 
+def test_unload_waits_for_a_running_call(cfg, ws, monkeypatch):
+    # Two jobs: one frees its phase-A models while the other is still using one of them.
+    import time
+
+    from dub.providers.fake import FakeTTS
+
+    events: list[str] = []
+    real_run = FakeTTS.run
+
+    def slow_run(self, op, req, ctx):
+        events.append("run start")
+        time.sleep(0.3)
+        events.append("run end")
+        return real_run(self, op, req, ctx)
+
+    monkeypatch.setattr(FakeTTS, "run", slow_run)
+    monkeypatch.setattr(FakeTTS, "offload", lambda self: events.append("cpu"), raising=False)
+    monkeypatch.setattr(FakeTTS, "restore", lambda self: events.append("gpu"), raising=False)
+    state = WorkerState("fx", ["fake_tts"], cfg, ws.cas)
+    req = SynthReq(unit_id="u", text="xin chào", lang="vi", speaker="S1")
+    state.submit("fake_tts", "tts.synthesize", {}, req)  # loaded
+    events.clear()
+    t = threading.Thread(target=state.submit, args=("fake_tts", "tts.synthesize", {}, req))
+    t.start()
+    while "run start" not in events:
+        time.sleep(0.01)
+    assert state.unload("fake_tts") is True
+    t.join()
+    assert events == ["run start", "run end", "cpu"]  # never moved in the middle of the call
+
+
 def test_remote_gc_runs_in_the_background_and_reports(dubd, tmp_path, monkeypatch):
     url, srv = dubd
     monkeypatch.setattr(remote.time, "sleep", lambda s: None)

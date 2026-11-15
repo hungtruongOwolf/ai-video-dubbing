@@ -111,13 +111,19 @@ class WorkerState:
             _release_gpu_cache()
 
     def _execute_batch(self, batch: list[_Task]) -> None:
+        # The lock is held for the whole run: unload() from another job (its phase A is over)
+        # must wait, not move the weights to the CPU in the middle of this call (two jobs at
+        # once crashed voice_agender with "weight is on cpu").
+        with self.lock:
+            self._execute_locked(batch)
+
+    def _execute_locked(self, batch: list[_Task]) -> None:
         first = batch[0]
         try:
-            with self.lock:
-                inst = self.instance(first.pid)
-                if first.pid in self.offloaded:
-                    inst.restore()
-                    self.offloaded.discard(first.pid)
+            inst = self.instance(first.pid)
+            if first.pid in self.offloaded:
+                inst.restore()
+                self.offloaded.discard(first.pid)
         except BaseException as e:  # noqa: BLE001 - a failed load fails every queued call
             for t in batch:
                 t.error = e
