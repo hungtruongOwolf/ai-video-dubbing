@@ -6,6 +6,10 @@
 2. Crop the band at 4 frames per second (ffmpeg) and cut it into events where the picture
    of the band changes (mean absolute difference of a 200 x 20 grey thumbnail > 6).
 3. Recognition only (no detection) on up to 3 frames of each event; the surest reading wins.
+   Each frame is first cut to the columns that hold letters (sharp horizontal edges): fed the
+   whole band, recognition drops most of a short line ("没兴趣" read as "兴", "谁说的" as
+   "的"); cut to the text it reads 16 of 16 test frames right, at the same speed (detection
+   reads them right too, but takes ~1 s a frame instead of ~50 ms).
    Consecutive events with the same text become one cue.
 
 Speed on a laptop CPU: ~10 s for a 5-minute video (full OCR of every frame took 964 s).
@@ -31,6 +35,8 @@ BAND_TOP = 0.6  # look for subtitles in the bottom 40% of the picture
 MIN_SHARE = 0.4  # of the sampled frames must show text in the band
 CHANGE = 6.0  # grey-level difference of the band thumbnail that starts a new event
 MIN_SCORE = 0.6
+EDGE = 60  # grey-level jump between neighbouring pixels that counts as a letter edge
+EDGE_COLS = 2  # edges a column needs to hold text
 _KEEP = re.compile(r"[\w　-〿＀-￯，。！？、；：“”‘’（）]")
 
 
@@ -101,6 +107,25 @@ def _clean(text: str) -> str:
     return "".join(_KEEP.findall(text.replace("#", "")))
 
 
+def _same(a: str, b: str) -> bool:
+    """Same words, whatever the punctuation."""
+    return [c for c in a if c.isalnum()] == [c for c in b if c.isalnum()]
+
+
+def text_crop(img):
+    """The part of a band picture that holds its text: the columns with letter edges, plus
+    half the band height on each side. The whole picture when no column has any."""
+    g = np.asarray(img.convert("L"), dtype=np.float32)
+    cols = (np.abs(np.diff(g, axis=1)) > EDGE).sum(axis=0)
+    on = np.flatnonzero(cols >= EDGE_COLS)
+    if on.size == 0:
+        return img
+    pad = img.height // 2
+    return img.crop(
+        (max(0, int(on[0]) - pad), 0, min(img.width, int(on[-1]) + 1 + pad), img.height)
+    )
+
+
 def read_cues(video: Path, band: tuple[int, int, int, int], ocr=None) -> list[HardsubCue]:
     from PIL import Image
 
@@ -123,16 +148,28 @@ def read_cues(video: Path, band: tuple[int, int, int, int], ocr=None) -> list[Ha
             picks = sorted({a + (b - a) // 4, (a + b - 1) // 2, b - 1 - (b - a) // 4})
             best = ("", 0.0)
             for k in picks:
-                res, _ = ocr(str(files[k]), use_det=False, use_cls=False, use_rec=True)
+                with Image.open(files[k]) as img:
+                    res, _ = ocr(text_crop(img), use_det=False, use_cls=False, use_rec=True)
                 if res and float(res[0][1]) > best[1]:
                     best = (_clean(res[0][0]), float(res[0][1]))
             text, score = best
-            if score < MIN_SCORE or not any(ch.isalnum() for ch in text):
+            # a lone Latin letter is a speck of the picture read as text
+            if (
+                score < MIN_SCORE
+                or not any(ch.isalnum() for ch in text)
+                or (text.isascii() and len(text) < 2)
+            ):
                 continue
             s_ms, e_ms = round(a * 1000 / FPS), round(b * 1000 / FPS)
-            if cues and cues[-1].text == text and s_ms - cues[-1].end_ms <= 300:
+            if cues and _same(cues[-1].text, text) and s_ms - cues[-1].end_ms <= 300:
+                # one cue read twice (a comma seen in one frame only): keep the surer reading
+                keep = text if score > cues[-1].conf else cues[-1].text
                 cues[-1] = cues[-1].model_copy(
-                    update={"end_ms": e_ms, "conf": max(cues[-1].conf, round(score, 3))}
+                    update={
+                        "end_ms": e_ms,
+                        "text": keep,
+                        "conf": max(cues[-1].conf, round(score, 3)),
+                    }
                 )
             else:
                 cues.append(HardsubCue(start_ms=s_ms, end_ms=e_ms, text=text, conf=round(score, 3)))

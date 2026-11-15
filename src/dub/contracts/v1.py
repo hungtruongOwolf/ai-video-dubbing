@@ -86,11 +86,14 @@ class HardsubReq(Model):
 
 
 class HardsubFix(Model):
-    words: list[Word]  # the ASR words, their text corrected from the cues (times unchanged)
+    # the ASR words, their text corrected from the cues (times unchanged), plus one word for
+    # each whole cue the ASR missed (timed by the cue)
+    words: list[Word]
     corrected: int  # characters replaced or added
     coverage: (
         float  # share of the ASR words' time inside a cue: do the subtitles carry the dialogue?
     )
+    inserted: int = 0  # whole cues the ASR missed, added as words
 
 
 class TranscribeReq(Model):

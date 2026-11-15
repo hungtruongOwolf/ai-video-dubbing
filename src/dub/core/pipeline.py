@@ -299,9 +299,11 @@ async def run_job(
         )  # fmt: skip
         asr_words = fix.words
         hardsub_stats = {"hardsub_cues": len(spec.hardsubs), "hardsub_corrected": fix.corrected,
+                         "hardsub_inserted": fix.inserted,
                          "hardsub_coverage": fix.coverage}  # fmt: skip
-        log(f"      burned-in subtitles: {fix.corrected} characters of the transcript corrected "
-            f"(the subtitles cover {fix.coverage:.0%} of the speech)")  # fmt: skip
+        missed = f", {fix.inserted} lines the ASR missed added" if fix.inserted else ""
+        log(f"      burned-in subtitles: {fix.corrected} characters of the transcript corrected"
+            f"{missed} (the subtitles cover {fix.coverage:.0%} of the speech)")  # fmt: skip
     # M8: who says each line, read from the script. The diarizer merges similar voices and
     # misses quick exchanges; the turns it gave are replaced by one per line of dialogue.
     speaker_stats: dict[str, Any] = {}

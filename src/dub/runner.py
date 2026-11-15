@@ -100,7 +100,7 @@ def transcript_key_for(ws: Workspace, opts: RunOptions, log: Callable[[str], Non
 
 
 HARDSUB_LANGS = {"auto", "zh", "yue", "cmn"}  # the OCR model reads Chinese (and Latin letters)
-HARDSUB_VERSION = 1
+HARDSUB_VERSION = 2  # 2: frames cut to the text before recognition
 
 
 def hardsubs_for(ws: Workspace, opts: RunOptions, audio_key: str, log) -> list[HardsubCue]:
