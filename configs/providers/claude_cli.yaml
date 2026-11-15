@@ -13,6 +13,14 @@ params:
   reads_pauses: true           # text.boundaries: the request carries the pause after each word
   window_words: 400            # text.boundaries: words decided per call (plus 40 of context)
   window_lines: 300            # text.speakers: lines decided per call (plus 15 of context)
+# Who says each line, read by a stronger model. On the zh drama (3 readings, voted; hand
+# labels of 177 subtitle cues): speaker changes that change voice F1 sonnet 0.84, opus 0.88,
+# fable 0.90; B-cubed F1 0.756 / 0.776 / 0.775; the readings agree on 71% / 93% of the lines.
+# Translation stays on sonnet: three blind judges (opus, fable, sonnet) ranked the three
+# models' Vietnamese lines even (mean rank 1.94-2.08, every pair 43-52%, 62 lines), and
+# sonnet wrote the context + translation in 52 s against opus's 168 s.
+op_params:
+  text.speakers: {model: fable}
 prompt_files:                  # prompt text is hashed into the cache key
   mt.context: mt_context.v1.md
   mt.translate: mt_translate.v1.md

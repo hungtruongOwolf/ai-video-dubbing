@@ -145,3 +145,25 @@ def test_short_vietnamese_lines_go_to_vieneu(cfg):
     assert not rule_matches(rule, {"tgt_lang": "vi", "line.units": 7})
     assert not rule_matches(rule, {"tgt_lang": "es", "line.units": 3})
     assert not rule_matches(rule, {"tgt_lang": "vi"})  # length unknown: the usual chain
+
+
+def test_op_params_apply_to_their_op_only(cfg):
+    # a stronger LLM for text.speakers only: translation params (and cache keys) unchanged
+    from dub.core.ctx import Ctx
+
+    m = cfg.providers["claude_cli"]
+    assert m.op_params["text.speakers"]["model"] != m.params["model"]
+    params_for = Ctx.params_for
+
+    class _Fake:
+        router = type("R", (), {"profile": type("P", (), {"params": {}})()})()
+        overrides = {"claude_cli": {}}
+
+        def _prompt_params(self, m, op):
+            return {}
+
+    f = _Fake()
+    assert params_for(f, m, "text.speakers")["model"] == m.op_params["text.speakers"]["model"]
+    assert params_for(f, m, "mt.translate")["model"] == m.params["model"]
+    f.overrides = {"claude_cli": {"model": "opus"}}  # --param claude_cli.model=opus wins
+    assert params_for(f, m, "text.speakers")["model"] == "opus"

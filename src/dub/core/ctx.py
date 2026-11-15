@@ -213,10 +213,11 @@ class Ctx:
         self.stats.append(CallStat(op, provider, subject, key, hit, started_at, dur_ms))
 
     def params_for(self, m: ProviderManifest, op: str) -> dict[str, Any]:
-        """Manifest params, the profile's overrides, the run's --param overrides, then prompt
-        hashes."""
+        """Manifest params, the manifest's params for this op, the profile's overrides, the
+        run's --param overrides, then prompt hashes."""
         return {
             **m.params,
+            **m.op_params.get(op, {}),
             **self.router.profile.params.get(m.id, {}),
             **self.overrides.get(m.id, {}),
             **self._prompt_params(m, op),

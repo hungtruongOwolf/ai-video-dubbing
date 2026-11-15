@@ -61,6 +61,8 @@ class ProviderManifest(Cfg):
     libs: list[str] = Field(default_factory=list)
     weights: dict[str, Any] | None = None
     params: dict[str, Any] = Field(default_factory=dict)
+    # per-op params on top of `params` (e.g. a stronger LLM for one op only)
+    op_params: dict[str, dict[str, Any]] = Field(default_factory=dict)
     prompt_files: dict[str, str] = Field(default_factory=dict)  # op -> file in prompts/
     caps: Caps = Field(default_factory=Caps)
     limits: Limits = Field(default_factory=Limits)
