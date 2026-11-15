@@ -898,37 +898,51 @@ async def run_job(
                             break
                         text, variant, pred = new, "rewrite", predict(new)
 
+                async def one_take(text: str, pred: int, k: int):
+                    def make_req(
+                        m: ProviderManifest, text=text, pred=pred, seed=base_seed + 1000 * k
+                    ) -> SynthReq:
+                        return synth_request(u, text, pred, seed, m)
+
+                    take: SynthRes = await cx.call(
+                        "tts.synthesize", make_req, facts=line_facts(u, text), subject=u.id
+                    )
+                    # Fit the voice, not the clip: silence the engine left around it would
+                    # shift the onset and waste the slot.
+                    take_trim: TrimRes = await cx.local(
+                        "audio.trim",
+                        media_ops.trim,
+                        TrimReq(audio_key=take.audio_key),
+                        TrimRes,
+                        subject=u.id,
+                    )
+                    if not inline_qa:
+                        return (None, take, take_trim, [])
+                    res, words_k = await qa_take(u, take_trim.audio_key, text)
+                    return (res, take, take_trim, words_k)
+
                 async def voice(text: str, pred: int):
                     # Up to `takes` deterministic takes (seed, seed+1000, ...): keep the first
-                    # that passes the QA gate, else the best one (flagged).
-                    best = None
-                    for k in range(max(1, profile.takes) if inline_qa else 1):
-
-                        def make_req(
-                            m: ProviderManifest, text=text, pred=pred, seed=base_seed + 1000 * k
-                        ) -> SynthReq:
-                            return synth_request(u, text, pred, seed, m)
-
-                        take: SynthRes = await cx.call(
-                            "tts.synthesize", make_req, facts=line_facts(u, text), subject=u.id
+                    # that passes the QA gate, else the best one (flagged). Take 0 alone first
+                    # (most lines pass on it); when it fails, the other takes run at once, not
+                    # one after another: a hard line's retakes in series were the tail of the
+                    # drama's voicing (13 rounds, ~120 s; M10).
+                    takes = [await one_take(text, pred, 0)]
+                    n = max(1, profile.takes) if inline_qa else 1
+                    if n > 1 and not takes[0][0].passed:
+                        takes += await asyncio.gather(
+                            *(one_take(text, pred, k) for k in range(1, n))
                         )
-                        # Fit the voice, not the clip: silence the engine left around it
-                        # would shift the onset and waste the slot.
-                        take_trim: TrimRes = await cx.local(
-                            "audio.trim",
-                            media_ops.trim,
-                            TrimReq(audio_key=take.audio_key),
-                            TrimRes,
-                            subject=u.id,
-                        )
-                        if not inline_qa:
-                            best = (None, take, take_trim, [])
-                            break
-                        res, words_k = await qa_take(u, take_trim.audio_key, text)
-                        if best is None or res.score > best[0].score:
-                            best = (res, take, take_trim, words_k)
-                        if res.passed:
-                            break
+                    passing = [b for b in takes if b[0] is not None and b[0].passed]
+                    best = passing[0] if passing else takes[0]
+                    if not passing:
+                        for b in takes[1:]:  # the best score; the earlier take on a tie
+                            if (
+                                b[0] is not None
+                                and best[0] is not None
+                                and (b[0].score > best[0].score)
+                            ):
+                                best = b
                     lf = line_facts(u, text)
                     if inline_qa and best[0] is not None and best[0].foreign:
                         best = await engine_retry(u, text, pred, base_seed, lf, best)
@@ -964,12 +978,15 @@ async def run_job(
                         cands += [("target", tr_u.target), ("short", tr_u.short),
                                   ("long", tr_u.long)]  # fmt: skip
                     tried = {text}
+                    alts: list[tuple[str, str]] = []
                     for name, alt in cands:
-                        if not alt or alt in tried:
-                            continue
-                        tried.add(alt)
+                        if alt and alt not in tried:
+                            tried.add(alt)
+                            alts.append((name, alt))
+                    # every wording voiced at once; then judged in the same order as before
+                    voiced_alts = await asyncio.gather(*(voice(a, predict(a)) for _, a in alts))
+                    for (name, alt), alt_best in zip(alts, voiced_alts, strict=True):
                         alt_pred = predict(alt)
-                        alt_best = await voice(alt, alt_pred)
                         alt_fit = fit_of(alt_best, alt, alt_pred)
                         fuller = VARIANT_ORDER[name] > VARIANT_ORDER[variant]
                         if _prefer_take(alt_best[0], alt_fit.rate, best[0], fit.rate,
