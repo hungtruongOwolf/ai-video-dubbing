@@ -1036,8 +1036,11 @@ async def run_job(
                         alt_best = voiced_alts[i] or await voice(alt, alt_pred)
                         alt_fit = fit_of(alt_best, alt, alt_pred)
                         fuller = VARIANT_ORDER[name] > VARIANT_ORDER[variant]
-                        if _prefer_take(alt_best[0], alt_fit.rate, best[0], fit.rate,
-                                        t.rate_p95, fuller):  # fmt: skip
+                        # never trade a take that fits its slot for one that overruns it (a
+                        # fuller wording for an underfilled line overran on 5 drama lines)
+                        overruns = "overflow" in alt_fit.flags and "overflow" not in fit.flags
+                        if not overruns and _prefer_take(alt_best[0], alt_fit.rate, best[0],
+                                                         fit.rate, t.rate_p95, fuller):  # fmt: skip
                             text, variant, pred, best, fit = alt, name, alt_pred, alt_best, alt_fit
                         if best[0] is None or best[0].passed:
                             break
