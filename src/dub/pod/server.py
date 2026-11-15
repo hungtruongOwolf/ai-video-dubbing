@@ -86,6 +86,9 @@ class Jobs:
         self.cfg, self.ws, self.envs, self.touch = cfg, ws, envs, touch
         self.jobs: dict[str, dict[str, Any]] = {}
         self.lock = threading.Lock()
+        # Several videos at once (`dub run A B C`): one job analyses (separation, ASR,
+        # speakers: the VRAM peaks) while the others translate (LLM, GPU idle) or voice.
+        self.phase_a = threading.Semaphore(max(1, cfg.dub.throughput.analyses_at_once))
 
     def running(self) -> int:
         with self.lock:
@@ -135,6 +138,16 @@ class Jobs:
                 # (executor), so separation and ASR run while TTS loads
                 loading = [n for n, e in self.envs.snapshot().items() if e["status"] != "ready"]
                 self._log(job_id, f"starting while these workers load: {', '.join(loading)}")
+            if not self.phase_a.acquire(blocking=False):
+                self._log(job_id, "waiting for another video's analysis to finish")
+                self.phase_a.acquire()
+            released = threading.Event()
+
+            def phase_a_done() -> None:
+                if not released.is_set():
+                    released.set()
+                    self.phase_a.release()
+
             job["status"] = "running"
             t0 = time.perf_counter()
             batches0 = _worker_batches()
@@ -143,11 +156,12 @@ class Jobs:
                 res = asyncio.run(
                     run_job(
                         self.cfg, self.ws, spec, overrides=overrides,
-                        log=lambda m: self._log(job_id, m),
+                        log=lambda m: self._log(job_id, m), phase_a_done=phase_a_done,
                     )
                 )  # fmt: skip
             finally:
                 gpu.stop()
+                phase_a_done()  # a job that failed early must not hold the next one
             gpu.write(res.job_dir / "gpu.csv")
             # how full the workers' batches were during the job (other jobs included)
             (res.job_dir / "batches.json").write_text(

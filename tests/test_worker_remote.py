@@ -578,3 +578,53 @@ def test_providers_with_their_own_worker_keep_the_old_ports(tmp_path):
     envs = EnvManager(cfg, tmp_path, tmp_path, tmp_path).envs
     assert envs["speaker"].providers == ["ecapa_cluster"] and envs["speaker"].venv == "tts"
     assert "ecapa_cluster" not in envs["tts"].providers
+
+
+def test_several_videos_on_one_pod(dubd, tmp_path):
+    # `dub run A B --remote`: both are dubbed on the same pod, one analysis at a time
+    import shutil
+
+    from dub.demo import make_demo
+
+    url, srv = dubd
+    video, _ = make_demo(tmp_path / "demo")
+    other = video.with_name("second.mp4")
+    shutil.copyfile(video, other)
+    ws_dir = tmp_path / "laptop-ws"
+    ws_dir.mkdir()
+    remote.PodState(pod_id="local", url=url, token="t" * 24, gpu="none", ref="dev").save(ws_dir)
+    rc = main(["run", str(video), str(other), "--to", "vi", "--fake", "--remote",
+               "--workspace", str(ws_dir)])  # fmt: skip
+    assert rc == 0
+    assert (video.parent / "interview.dub" / "interview.vi.mp4").exists()
+    assert (video.parent / "second.dub" / "second.vi.mp4").exists()
+    assert len(srv.jobs.jobs) == 2 and all(j["status"] == "done" for j in srv.jobs.jobs.values())
+
+
+def test_one_analysis_at_a_time_and_released_on_failure(cfg, tmp_path, monkeypatch):
+    import time
+
+    from dub.pod import server as server_mod
+
+    ws = Workspace.open(tmp_path / "pod-ws")
+    jobs = server_mod.Jobs(cfg, ws, EnvManager(cfg, tmp_path, ws.root, tmp_path), lambda: None)
+    events: list[str] = []
+
+    async def fake_run_job(cfg, ws, spec, *, overrides=None, log=print, phase_a_done=None):
+        events.append(f"start {spec.source_name}")
+        time.sleep(0.2)
+        events.append(f"analysed {spec.source_name}")
+        phase_a_done()
+        time.sleep(0.2)  # translating / voicing: the next analysis runs meanwhile
+        raise RuntimeError("boom")  # a failed job must not hold the gate
+
+    monkeypatch.setattr(server_mod, "run_job", fake_run_job)
+    ids = [jobs.submit({"audio_key": "a" * 32 + ".m4a", "tgt_lang": "vi", "source_name": n})
+           for n in ("A", "B", "C")]  # fmt: skip
+    deadline = time.time() + 10
+    while time.time() < deadline and any(jobs.jobs[i]["status"] != "error" for i in ids):
+        time.sleep(0.05)
+    assert all(jobs.jobs[i]["status"] == "error" for i in ids)
+    # every analysis started only after the previous one ended
+    order = [e.split()[0] for e in events]
+    assert order == ["start", "analysed"] * 3

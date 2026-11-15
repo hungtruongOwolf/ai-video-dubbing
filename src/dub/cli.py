@@ -5,6 +5,8 @@ dub get URL [URL ...]            download videos from a link (YouTube, TikTok, .
 dub get                          the same from a page: paste links, click Download
 dub run VIDEO --to vi --fake     dub a video with fake models (no GPU, no cost)
 dub run URL --to vi --remote     download the video at the link, then dub it
+dub run A.mp4 B.mp4 --to vi --remote
+                                 several videos at once on one pod (the GPU stays busy)
 dub run VIDEO --to vi --fake --use "mt.*=claude_cli"
                                  same, but translate for real with your Claude plan
 dub up / dub down / dub status   rent, terminate and inspect the GPU pod
@@ -74,8 +76,14 @@ def _cookie_args(p: argparse.ArgumentParser) -> None:
     )
 
 
-def _video_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("video", type=_video_or_url, help="a video file, or a link to one")
+def _video_args(p: argparse.ArgumentParser, many: bool = False) -> None:
+    if many:
+        p.add_argument(
+            "video", type=_video_or_url, nargs="+",
+            help="video files or links; several are dubbed at once on one pod",
+        )  # fmt: skip
+    else:
+        p.add_argument("video", type=_video_or_url, help="a video file, or a link to one")
     p.add_argument(
         "--to", dest="tgt", required=True,
         help="target language, e.g. vi; several for run: vi,es,ja (the analysis runs once)",
@@ -112,8 +120,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--version", action="version", version=f"dub {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    r = sub.add_parser("run", help="dub one video file")
-    _video_args(r)
+    r = sub.add_parser("run", help="dub videos (files or links); several run at once")
+    _video_args(r, many=True)
     r.add_argument(
         "--transcript",
         type=Path,
@@ -121,6 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="words JSON to replay (default: <video>.words.json if present)",
     )
     r.add_argument("--speakers", type=int, default=None, help="number of speakers, if known")
+    r.add_argument("--fresh", action="store_true", help="recompute every step (ignore the cache)")
     r.add_argument("--subs-only", action="store_true", help="subtitles only, no voice")
     r.add_argument(
         "--confirm-cast",
@@ -259,7 +268,8 @@ def _opts(a, **over) -> RunOptions:
         speakers=getattr(a, "speakers", None), subs_only=getattr(a, "subs_only", False),
         confirm_cast=getattr(a, "confirm_cast", False), config_dir=a.config_dir,
         keep_original_audio=getattr(a, "keep_original_audio", False),
-        hardsubs=not getattr(a, "no_hardsubs", False), **over,
+        hardsubs=not getattr(a, "no_hardsubs", False), fresh=getattr(a, "fresh", False),
+        **over,
     )  # fmt: skip
 
 
@@ -348,7 +358,56 @@ def cmd_get(a) -> int:
     return 1 if failed else 0
 
 
+def cmd_run_videos(a) -> int:
+    """Several videos at once on one pod: while one is analysed (separation, ASR: one at a
+    time, dubd gates it), the others are translated (the GPU would wait for the LLM) or voiced."""
+    import copy
+    import threading
+
+    results: dict[str, int] = {}
+    lock = threading.Lock()
+
+    def one(i: int, video) -> None:
+        b = copy.copy(a)
+        b.video = video
+        name = Path(str(video)).stem[:24] if not isinstance(video, str) else f"link {i + 1}"
+
+        def log(msg: str) -> None:
+            with lock:
+                print(f"[{name}] {msg}", flush=True)
+
+        try:
+            if not _resolve_video(b):
+                results[name] = 2
+                return
+            opts = _opts(b)
+            out = run_video(opts, Workspace.open(a.workspace.resolve()), log=log)
+            finish(opts, out, a.out_dir, log=log)
+            results[name] = 0
+        except Exception as e:  # noqa: BLE001 - report per video, keep the others
+            log(f"error: {e}")
+            results[name] = 3
+
+    threads = [threading.Thread(target=one, args=(i, v)) for i, v in enumerate(a.video)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    failed = [n for n, c in results.items() if c]
+    print(f"\n{len(results) - len(failed)} of {len(results)} videos dubbed"
+          + (f"; failed: {', '.join(failed)}" if failed else ""))  # fmt: skip
+    return max(results.values(), default=0)
+
+
 def cmd_run(a) -> int:
+    if isinstance(a.video, list):
+        if len(a.video) > 1:
+            if a.confirm_cast or "," in a.tgt or a.out_dir:
+                print("error: several videos take one target language, without --confirm-cast "
+                      "or --out-dir", file=sys.stderr)  # fmt: skip
+                return 2
+            return cmd_run_videos(a)
+        a.video = a.video[0]
     if not _resolve_video(a):
         return 2
     targets = [t.strip() for t in a.tgt.split(",") if t.strip()]

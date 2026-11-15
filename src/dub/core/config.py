@@ -213,6 +213,8 @@ class ThroughputCfg(Cfg):
     # When take 0 of a line fails QA, voice its other takes (and other wordings) at once
     # instead of one after another: shorter retake chains, more work queued at once.
     parallel_retakes: bool = False  # M10 A/B: slower (more work queued, same choices)
+    # dubd: jobs analysing at once (separation, ASR, speakers); the others translate or voice
+    analyses_at_once: int = 1
 
 
 class TranslateCfg(Cfg):

@@ -205,7 +205,10 @@ async def run_job(
     *,
     overrides: list[tuple[str, list[str]]] | None = None,
     log: Callable[[str], None] = print,
+    phase_a_done: Callable[[], None] | None = None,
 ) -> JobResult:
+    """One job. `phase_a_done` is called when the analysis (separation, ASR, speakers,
+    sentences) is over: dubd lets the next job's analysis start then (several videos at once)."""
     # Every worker call and CPU step holds a thread while it waits (asyncio.to_thread). The
     # default pool (32 threads) was full 29-40% of the voicing time, so fewer lines reached
     # the GPU workers to batch than were in flight.
@@ -363,6 +366,8 @@ async def run_job(
     )
     base_units = seg.units
     if spec.analysis_only:
+        if phase_a_done:
+            phase_a_done()
         n_words, n_sent = len(words.words), len(seg.sentences)
         log(f"      {n_words} words -> {n_sent} sentences -> {len(seg.units)} units")
         return _analysis_result(cx, tracer, ws, job_id, job_dir, spec, seg, src_lang, media)
@@ -445,6 +450,9 @@ async def run_job(
         if freed:
             log(f"      GPU memory freed: {', '.join(freed)}")
     log(f"      {len(words.words)} words -> {len(seg.sentences)} sentences -> {len(units)} units")
+
+    if phase_a_done:
+        phase_a_done()
 
     # ---------------------------------------------------------------- Barrier: context pass
     stage("[4/7] reading the whole script: summary, glossary, cast sheet")
