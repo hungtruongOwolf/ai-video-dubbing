@@ -288,8 +288,8 @@ one-pass run lost two lines and misread a third:
 - OCR fed the whole subtitle band to recognition (no detection, for speed). On a short line
   centred in a wide band it read part of it: 没兴趣 ("not interested") as 兴, 谁说的 as 的.
   Each frame is now cut to the columns that hold letter edges before recognition: 16 of 16
-  test frames read right (before: 9), 20-175 ms a frame (detection + recognition: also 16 of
-  16, but ~1 s a frame). On the 5-minute drama the new reading fixed 三个 -> 三个月, 多钱 ->
+  test frames read right, 20-175 ms a frame (the whole band: 5 of the 12 tried that way;
+  detection + recognition: all right, but ~1 s a frame). On the 5-minute drama the new reading fixed 三个 -> 三个月, 多钱 ->
   多少钱, 令日 -> 今日, 寿面不能咳断 -> 咬断 and dropped stray characters (菜, 美, 卖) glued to
   lines; one reading got worse (雇奶娘 -> 庭奶娘). Lone Latin letters (specks read as "S")
   are dropped, and cues that differ only by a comma merge.

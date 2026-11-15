@@ -8,8 +8,8 @@
 3. Recognition only (no detection) on up to 3 frames of each event; the surest reading wins.
    Each frame is first cut to the columns that hold letters (sharp horizontal edges): fed the
    whole band, recognition drops most of a short line ("没兴趣" read as "兴", "谁说的" as
-   "的"); cut to the text it reads 16 of 16 test frames right, at the same speed (detection
-   reads them right too, but takes ~1 s a frame instead of ~50 ms).
+   "的"; 5 of 12 test frames right); cut to the text it reads 16 of 16 right, at the same
+   speed (detection reads them right too, but takes ~1 s a frame instead of ~50 ms).
    Consecutive events with the same text become one cue.
 
 Speed on a laptop CPU: ~10 s for a 5-minute video (full OCR of every frame took 964 s).
