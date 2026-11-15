@@ -25,6 +25,10 @@ if [ -f "$VENV/.dub-stamp" ] && [ "$(cat "$VENV/.dub-stamp")" = "$STAMP" ]; then
   echo "[$NAME] up to date"
   exit 0
 fi
+# Envs are checked at the same time (dubd starts each worker as soon as its env is ready);
+# real installs run one at a time so that they share the uv cache cleanly.
+exec 9>/tmp/dub-install.lock
+flock 9
 echo "[$NAME] installing $(grep -cv '^\s*#' "$REQ" || true) requirement lines"
 # a fresh venv every time: no stale packages, and with symlinks a rebuild is cheap
 rm -rf "$VENV"

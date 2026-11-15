@@ -118,18 +118,22 @@ class EnvManager:
             os.environ["DUB_WORKERS_PENDING"] = json.dumps([n for n in pending if n != name])
 
     def _run_all(self) -> None:
-        waiters: list[threading.Thread] = []
+        # Every env at once: an env that is up to date starts its worker in seconds instead
+        # of after the others' checks (the tts worker, which diarization needs, started last).
+        # setup_env.sh serializes the real installs (flock), which share the uv cache.
+        def one(e: EnvInfo) -> None:
+            try:
+                self._install(e)
+                self._launch(e)
+            except Exception as exc:  # noqa: BLE001 - one broken env must not stop the rest
+                self._set(e, "failed", str(exc)[-500:])
+                return
+            self._wait_ready(e)
+
+        waiters = [threading.Thread(target=one, args=(e,), daemon=True) for e in self.envs.values()]
         try:
-            for e in self.envs.values():  # sequential installs share the uv cache cleanly
-                try:
-                    self._install(e)
-                    self._launch(e)
-                except Exception as exc:  # noqa: BLE001 - one broken env must not stop the rest
-                    self._set(e, "failed", str(exc)[-500:])
-                    continue
-                t = threading.Thread(target=self._wait_ready, args=(e,), daemon=True)
+            for t in waiters:
                 t.start()
-                waiters.append(t)
             for t in waiters:
                 t.join()
         finally:
