@@ -278,3 +278,19 @@ Write-up: [m9-faster-better.md](m9-faster-better.md).
 - [x] Drama: QA passed 0.899 -> 0.989, lines worth a listen 14/86 -> 11/96
 - [ ] Not done: weights on faster storage (cold start ~4 min), who speaks from the picture, listening test
 
+## M10: Expert review (done)
+
+Write-up: [m10-expert-review.md](m10-expert-review.md). Seven read-only reviewers (engineering
+manager, researcher, GPU, CUDA, speech quality, dubbing translator, audio post-production).
+
+- [x] Voicing 87.8 s -> 74.5 s on the same translations (QA at once, cheap calls first, 256 threads,
+  VieNeu batches, back-check and ECAPA in their own workers); parallel retakes and 48 in flight
+  measured and rejected
+- [x] Several videos on one pod (`dub run A B`): two videos 323 s vs 379 s one after another
+- [x] Laughs, cries, screams between lines kept (no words heard in them); stems rebalanced
+- [x] Prompts v2 (blind judges prefer v2 ~55%), variants that neither pad nor clip, VieNeu only in
+  short slots (lines outside 0.7-1.2 fill: 28 -> 15 of 90)
+- [x] Address, risk-list, voice-gate and flaky-test fixes; GPU power and batch histograms per job
+- [ ] Not done: OmniVoice FlashInfer, Qwen3-ASR for zh, emotion-matched references, a back-check
+  that knows the cast's names, envs on container disk, listening page
+

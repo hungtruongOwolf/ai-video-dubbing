@@ -38,6 +38,10 @@ Spread over these runs, the start-up changes did not move the cold time measurab
 the VieNeu fix did. A faster cold start needs the weights on faster storage (baked into
 the image, or on a local disk); that is not done here.
 
+> Correction (M10): the floor is not the weights (Whisper's 3.6 GB load in 9.7 s, M6) but the
+> imports of thousands of small files from the volume and the workers starting one after another;
+> see [m10-expert-review.md](m10-expert-review.md).
+
 ## Quality
 
 ### Who says each line
