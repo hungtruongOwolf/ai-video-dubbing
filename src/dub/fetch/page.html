@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video downloader</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e4e3df;
+    --accent: #2f6fde; --accent-ink: #ffffff; --bad: #c0392b; --ok: #2e7d4f; --track: #eceae5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --panel: #1d1d1b; --ink: #ecebe6; --muted: #9c9b95; --line: #2f2f2c;
+      --accent: #6f9bff; --accent-ink: #0b1020; --bad: #ff7a6b; --ok: #6fcf97; --track: #2a2a27;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 650; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; overflow-wrap: anywhere; }
+  textarea { width: 100%; min-height: 96px; resize: vertical; font: inherit; color: var(--ink);
+             background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+             padding: 10px 12px; }
+  textarea:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent);
+                                                       outline-offset: 1px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0 22px; }
+  .row label { color: var(--muted); font-size: 13px; }
+  select, button { font: inherit; border: 1px solid var(--line); background: var(--panel);
+                   color: var(--ink); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+                   font-weight: 600; padding: 7px 16px; margin-left: auto; }
+  .msg { font-size: 13px; color: var(--bad); min-height: 1em; }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  li { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+       padding: 12px 14px; }
+  .top { display: flex; gap: 10px; align-items: baseline; }
+  .title { font-weight: 600; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .state { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .state.done { color: var(--ok); } .state.error { color: var(--bad); }
+  .url { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; margin-top: 2px; }
+  .bar { height: 6px; background: var(--track); border-radius: 3px; margin-top: 8px;
+         overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent);
+             transition: width .3s; }
+  .meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px;
+          font-size: 13px; color: var(--muted); }
+  .meta .path { overflow-wrap: anywhere; flex: 1; min-width: 0; }
+  .err { margin-top: 8px; font-size: 13px; color: var(--bad); overflow-wrap: anywhere; }
+  .hint { margin-top: 4px; font-size: 13px; color: var(--ink); }
+  .empty { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Video downloader</h1>
+  <p class="sub" id="where">Paste links from YouTube, TikTok, Facebook, X, Bilibili and more.</p>
+  <textarea id="urls" placeholder="https://www.tiktok.com/@user/video/...&#10;one link per line"
+            aria-label="Links to download"></textarea>
+  <div class="row">
+    <label for="browser">Cookies from</label>
+    <select id="browser">
+      <option value="">no browser</option>
+      <option value="firefox">Firefox</option>
+      <option value="chrome">Chrome</option>
+      <option value="edge">Edge</option>
+      <option value="brave">Brave</option>
+      <option value="opera">Opera</option>
+    </select>
+    <span class="msg" id="msg"></span>
+    <button class="primary" id="go">Download</button>
+  </div>
+  <ul id="list"><li class="empty">Nothing downloaded yet. Ctrl+Enter downloads.</li></ul>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let primed = false, timer = null;
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : {
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
+  });
+  return [r.status, await r.json()];
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function minutes(s) {
+  if (s == null) return "";
+  s = Math.round(s);
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+}
+
+function render(state) {
+  $("where").textContent = "Saving to " + state.out_dir +
+    (state.cookies_file ? " · cookies file " + state.cookies_file : "");
+  if (!primed) { $("browser").value = state.cookies_from_browser || ""; primed = true; }
+  const list = $("list");
+  list.replaceChildren();
+  if (!state.items.length) {
+    list.append(el("li", "empty", "Nothing downloaded yet. Ctrl+Enter downloads."));
+    return;
+  }
+  for (const it of [...state.items].reverse()) {
+    const li = el("li");
+    const top = el("div", "top");
+    top.append(el("div", "title", it.title || "(waiting for the title)"));
+    const label = {queued: "queued", downloading: it.pct != null ? it.pct.toFixed(0) + "%" :
+                   "downloading", done: "done", error: "failed"}[it.status];
+    top.append(el("span", "state " + it.status, label));
+    li.append(top, el("div", "url", it.url));
+    if (it.status === "downloading" || it.status === "queued") {
+      const bar = el("div", "bar"), fill = el("i");
+      fill.style.width = (it.pct || 0) + "%";
+      bar.append(fill);
+      li.append(bar);
+      if (it.speed || it.eta) {
+        li.append(el("div", "meta", [it.speed, it.eta && "left " + it.eta].filter(Boolean)
+          .join(" · ")));
+      }
+    }
+    if (it.status === "done") {
+      const meta = el("div", "meta");
+      meta.append(el("span", "path", it.path));
+      const facts = [it.site, minutes(it.duration_s), it.size_mb != null && it.size_mb + " MB"]
+        .filter(Boolean).join(" · ");
+      meta.append(el("span", "", facts));
+      const show = el("button", "", "Show in folder");
+      show.onclick = () => api("/api/show", {id: it.id});
+      meta.append(show);
+      li.append(meta);
+    }
+    if (it.status === "error") {
+      li.append(el("div", "err", it.error));
+      if (it.hint) li.append(el("div", "hint", "What to do: " + it.hint));
+    }
+    list.append(li);
+  }
+}
+
+async function poll() {
+  clearTimeout(timer);
+  try {
+    const [, state] = await api("/api/state");
+    render(state);
+    const busy = state.items.some((i) => i.status === "queued" || i.status === "downloading");
+    timer = setTimeout(poll, busy ? 700 : 2500);
+  } catch (e) {
+    $("msg").textContent = "The downloader stopped (run `dub get` again).";
+  }
+}
+
+async function go() {
+  $("msg").textContent = "";
+  const [code, res] = await api("/api/get", {urls: $("urls").value, browser: $("browser").value});
+  if (code !== 200) { $("msg").textContent = res.error; return; }
+  $("urls").value = res.bad.length ? res.bad.join("\n") : "";
+  if (res.bad.length) $("msg").textContent = "Not links (kept above): " + res.bad.length;
+  poll();
+}
+
+$("go").onclick = go;
+$("urls").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); go(); }
+});
+poll();
+</script>
+</body>
+</html>

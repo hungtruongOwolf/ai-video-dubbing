@@ -1,7 +1,10 @@
 """`dub` command line.
 
 dub demo                         build a 1-minute test video in ./demo
+dub get URL [URL ...]            download videos from a link (YouTube, TikTok, ...)
+dub get                          the same from a page: paste links, click Download
 dub run VIDEO --to vi --fake     dub a video with fake models (no GPU, no cost)
+dub run URL --to vi --remote     download the video at the link, then dub it
 dub run VIDEO --to vi --fake --use "mt.*=claude_cli"
                                  same, but translate for real with your Claude plan
 dub up / dub down / dub status   rent, terminate and inspect the GPU pod
@@ -44,8 +47,35 @@ def _common(p: argparse.ArgumentParser) -> None:
     )
 
 
+def _video_or_url(text: str) -> Path | str:
+    """A link stays a string (Path would fold its //); anything else is a file."""
+    from dub.fetch import is_url
+
+    return text.strip() if is_url(text) else Path(text)
+
+
+def _cookie_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--cookies-from-browser",
+        default=None,
+        metavar="BROWSER[:PROFILE]",
+        help="send your browser's cookies for sites that need them (Douyin, Instagram, "
+        "private posts): firefox, chrome, edge, brave, opera, ... (on Windows only Firefox "
+        "can be read; else export a cookies.txt)",
+    )
+    p.add_argument(
+        "--cookies", type=Path, default=None, help="a cookies.txt (Netscape format) to send"
+    )
+    p.add_argument(
+        "--download-dir",
+        type=Path,
+        default=None,
+        help="where downloaded videos go (default: your Downloads folder)",
+    )
+
+
 def _video_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("video", type=Path)
+    p.add_argument("video", type=_video_or_url, help="a video file, or a link to one")
     p.add_argument(
         "--to", dest="tgt", required=True,
         help="target language, e.g. vi; several for run: vi,es,ja (the analysis runs once)",
@@ -109,7 +139,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="also keep the original language as a second audio track (default: the dub only; "
         "many players ignore the default track and play the original)",
     )
+    _cookie_args(r)
     _common(r)
+
+    gt = sub.add_parser(
+        "get",
+        help="download videos from links (YouTube, TikTok, Facebook, X, ...); "
+        "no link opens a page to paste them",
+    )
+    gt.add_argument("urls", nargs="*", help="links to download")
+    gt.add_argument("--port", type=int, default=8766, help="port of the page (no link given)")
+    gt.add_argument("--no-browser", action="store_true", help="do not open the page")
+    _cookie_args(gt)
 
     e = sub.add_parser(
         "edit",
@@ -125,6 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     rv = sub.add_parser("review", help="open the review page: listen, fix lines, re-render")
     _video_args(rv)
+    _cookie_args(rv)
     rv.add_argument("--port", type=int, default=8765)
     rv.add_argument("--no-browser", action="store_true")
     rv.add_argument("--out-dir", type=Path, default=None)
@@ -257,9 +299,57 @@ def cmd_run_many(a, targets: list[str]) -> int:
     return max(results.values(), default=0)
 
 
-def cmd_run(a) -> int:
+def _download(url: str, a) -> Path | None:
+    """Fetch the video at `url` for a command that needs a file; None if it failed."""
+    from dub.fetch import FetchError, fetch
+
+    print(f"[get] downloading {url}", flush=True)
+    try:
+        got = fetch(url, a.download_dir, cookies=a.cookies,
+                    cookies_from_browser=a.cookies_from_browser, quiet=False)  # fmt: skip
+    except FetchError as e:
+        print(f"error: {e}", file=sys.stderr)
+        if e.hint:
+            print(f"  what to do: {e.hint}", file=sys.stderr)
+        return None
+    print(f"[get] saved {got.path}", flush=True)
+    return got.path
+
+
+def _resolve_video(a) -> bool:
+    """Download a linked video in place of `a.video`; False if there is no file to work on."""
+    if isinstance(a.video, str):
+        path = _download(a.video, a)
+        if path is None:
+            return False
+        a.video = path
     if not a.video.exists():
         print(f"error: {a.video} does not exist", file=sys.stderr)
+        return False
+    return True
+
+
+def cmd_get(a) -> int:
+    from dub.fetch import default_out_dir
+
+    out_dir = (a.download_dir or default_out_dir()).expanduser().resolve()
+    if not a.urls:
+        from dub.fetch.server import serve_fetch
+
+        return serve_fetch(
+            out_dir,
+            port=a.port,
+            open_browser=not a.no_browser,
+            cookies=a.cookies,
+            cookies_from_browser=a.cookies_from_browser,
+        )
+    a.download_dir = out_dir
+    failed = sum(_download(u, a) is None for u in a.urls)
+    return 1 if failed else 0
+
+
+def cmd_run(a) -> int:
+    if not _resolve_video(a):
         return 2
     targets = [t.strip() for t in a.tgt.split(",") if t.strip()]
     if len(targets) > 1:
@@ -367,8 +457,7 @@ def cmd_edit(a) -> int:
 def cmd_review(a) -> int:
     from dub.review.server import serve_review
 
-    if not a.video.exists():
-        print(f"error: {a.video} does not exist", file=sys.stderr)
+    if not _resolve_video(a):
         return 2
     ws = Workspace.open(a.workspace.resolve())
     return serve_review(_opts(a, export=False), ws, port=a.port, open_browser=not a.no_browser,
@@ -553,6 +642,7 @@ def main(argv: list[str] | None = None) -> int:
         "down": cmd_down,
         "status": cmd_status,
         "run": cmd_run,
+        "get": cmd_get,
         "edit": cmd_edit,
         "review": cmd_review,
         "demo": cmd_demo,

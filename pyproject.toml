@@ -28,8 +28,15 @@ ocr = [
     "pillow>=10",
 ]
 
+# Laptop side: `dub get` / `dub run URL` download videos from links (dub.fetch). yt-dlp
+# follows the sites closely: when a site stops working, upgrade it
+# (`uv lock --upgrade-package yt-dlp`). curl-cffi lets it look like a browser (TikTok).
+fetch = [
+    "yt-dlp[default,curl-cffi]==2026.10.26",
+]
+
 [tool.uv]
-default-groups = ["dev", "ocr"]
+default-groups = ["dev", "ocr", "fetch"]
 
 [build-system]
 requires = ["hatchling"]
