@@ -203,6 +203,9 @@ class ThroughputCfg(Cfg):
     # After phase A, unload the models only phase A uses (separation, source ASR, sentence
     # boundaries) so the TTS batches have room. "auto": on GPUs under 30 GB (24 GB cards).
     free_phase_a_models: bool | Literal["auto"] = "auto"
+    # When take 0 of a line fails QA, voice its other takes (and other wordings) at once
+    # instead of one after another: shorter retake chains, more work queued at once.
+    parallel_retakes: bool = True
 
 
 class TranslateCfg(Cfg):

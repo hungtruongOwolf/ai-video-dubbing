@@ -929,10 +929,15 @@ async def run_job(
                     # drama's voicing (13 rounds, ~120 s; M10).
                     takes = [await one_take(text, pred, 0)]
                     n = max(1, profile.takes) if inline_qa else 1
-                    if n > 1 and not takes[0][0].passed:
-                        takes += await asyncio.gather(
-                            *(one_take(text, pred, k) for k in range(1, n))
-                        )
+                    for k in range(1, n):
+                        if any(b[0].passed for b in takes):
+                            break
+                        if cfg.dub.throughput.parallel_retakes:
+                            takes += await asyncio.gather(
+                                *(one_take(text, pred, j) for j in range(k, n))
+                            )
+                            break
+                        takes.append(await one_take(text, pred, k))
                     passing = [b for b in takes if b[0] is not None and b[0].passed]
                     best = passing[0] if passing else takes[0]
                     if not passing:
@@ -983,10 +988,14 @@ async def run_job(
                         if alt and alt not in tried:
                             tried.add(alt)
                             alts.append((name, alt))
-                    # every wording voiced at once; then judged in the same order as before
-                    voiced_alts = await asyncio.gather(*(voice(a, predict(a)) for _, a in alts))
-                    for (name, alt), alt_best in zip(alts, voiced_alts, strict=True):
+                    # every wording voiced at once (parallel_retakes), judged in order
+                    if cfg.dub.throughput.parallel_retakes:
+                        voiced_alts = await asyncio.gather(*(voice(a, predict(a)) for _, a in alts))
+                    else:
+                        voiced_alts = [None] * len(alts)
+                    for i, (name, alt) in enumerate(alts):
                         alt_pred = predict(alt)
+                        alt_best = voiced_alts[i] or await voice(alt, alt_pred)
                         alt_fit = fit_of(alt_best, alt, alt_pred)
                         fuller = VARIANT_ORDER[name] > VARIANT_ORDER[variant]
                         if _prefer_take(alt_best[0], alt_fit.rate, best[0], fit.rate,
