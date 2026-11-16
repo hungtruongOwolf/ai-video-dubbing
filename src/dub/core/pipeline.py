@@ -1869,7 +1869,7 @@ async def _retranscribe_refs(
             which = f"clip {k + 1} of {len(cands)}" if len(cands) > 1 else "the clip"
             log(f"      reference of {r.speaker}: {which}, heard as its line within CER "
                 f"{err:.2f}; its transcript is what the ASR heard")  # fmt: skip
-    return RefBank(refs=chosen, alternates=rest if keep_alternates else [])
+    return RefBank(refs=chosen, alternates=rest if keep_alternates else [], styles=refs.styles)
 
 
 async def _clean_styles(cx: Ctx, refs: RefBank, lang: str, joiner: str) -> list[VoiceRef]:
@@ -2061,7 +2061,11 @@ async def _audition_voices(
     used = {r.audio_key for r in new_refs}
     others = [r for r in [*refs.refs, *refs.alternates] if r.audio_key not in used]
     pads = {a.speaker: a.pad_ms for _, a in picked} if exact else {}
-    return RefBank(refs=new_refs, alternates=others), pads, [a for _, a in picked]
+    return (
+        RefBank(refs=new_refs, alternates=others, styles=refs.styles),
+        pads,
+        [a for _, a in picked],
+    )
 
 
 def _voice_spans(

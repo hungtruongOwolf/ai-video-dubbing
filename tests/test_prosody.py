@@ -99,3 +99,23 @@ def test_the_delivery_pool_holds_clean_clips_only(tmp_path):
     assert bank.for_speaker("S1").unit_id in ids
     assert not extract_refs(RefsReq(vocals_key=key, units=units, unit_vectors=vec,
                                     purity=purity), cas).styles  # fmt: skip
+
+
+def test_the_delivery_pool_survives_the_reference_transcripts():
+    import asyncio
+
+    from dub.contracts.v1 import AudioRes, RefBank, VoiceRef, Word, WordTimeline
+    from dub.core.pipeline import _retranscribe_refs
+
+    class Cx:  # what _retranscribe_refs asks of the job context
+        async def local(self, op, fn, req, res_type, subject=None):
+            return AudioRes(audio_key=req.audio_key, dur_ms=1000)
+
+        async def call(self, op, req, subject=None):
+            return WordTimeline(lang="zh", words=[Word(w="a", start_ms=0, end_ms=100)])
+
+    ref = VoiceRef(speaker="S1", audio_key="k1", text="a", seconds=3.0, unit_id="u1")
+    pool = [ref.model_copy(update={"audio_key": "k2", "unit_id": "u2"})]
+    out = asyncio.run(_retranscribe_refs(Cx(), RefBank(refs=[ref], styles=pool), "zh", "",
+                                         lambda m: None))  # fmt: skip
+    assert out.styles == pool  # the first run of M12 lost them here: no line got its delivery
