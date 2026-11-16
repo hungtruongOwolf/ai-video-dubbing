@@ -140,6 +140,62 @@ went from 28 to 15 of 90 (p10 0.60 → 0.70, p90 1.28 → 1.08).
   - several videos wrote `sources.json` at once;
   - the download page replied before reading a POST body.
 
+## Follow-up: where the dub went silent
+
+The user listened to the cartoon: seconds 2 to 3 had no sound where the original sang, and
+some lines ended while the mouth still moved. Measured as 250 ms windows where the dub is at
+least 10 dB under the original (both mixed with the same music bed, so only the voice differs).
+
+**A song squeezed into 300 ms.** The ASR had collapsed a 5 s song into a 300 ms line kept in
+the original audio, and the original was cut at that slot. Lines kept original now cover their
+real sound (`nonverbal.original_extents`): the slot, the subtitle cues that carry its text,
+and the vocal sound overlapping them, at most 800 ms beyond, never into a dubbed line. The
+"late line" at 5.25 s was a separate 250 ms sound, under the 300 ms floor for kept sounds; the
+floor is now 200 ms.
+
+**Lines shorter than their slot.** A take under 75% of its slot now also voices the fuller
+wordings and keeps one when:
+- it does not overrun into the next line;
+- it is heard right;
+- it is no farther from the slot's length than the current take, give or take 150 ms (about
+  what the eye sees of lip sync).
+
+The first version compared fills as ratios. A 100 ms overrun of a 420 ms slot is 1.24, so "Có
+sữa?" lost to "Sữa?". In milliseconds the fuller wording wins where the eye cannot tell them
+apart. `units.json` now lists every wording voiced for a line, with its length, fill, rate,
+QA result and why it was taken or left.
+
+**Two old faults found on the way.**
+- A rewrite (a shorter line for a take too fast for its slot) replaced the take even when the
+  back-check misheard it and had heard the take right. The take that was heard right now stays.
+- Two of the three short lines that failed QA differed only in a final particle: "Nó ăn được à?"
+  was heard as "hả", "Vú nuôi ư?" as "à". The vi langpack lists the particles the back-check
+  swaps (`final_particles`), and QA reads them as the same.
+
+| | Before | After |
+|---|---:|---:|
+| Cartoon: windows under the original | 20 (5.0 s) | 15 (3.75 s) |
+| Drama: in a slot, after its dub ended | 92 (23.0 s) | 67 (16.75 s) |
+| Drama: in a slot, during its dub | 123 | 112 |
+| Drama: lines short of their slot by > 200 ms | 40 | 37 |
+| Drama: mean sync error | 344 ms | 292 ms |
+| Drama: QA passed | 0.956 | 0.966 |
+| Drama: back-check CER p95 | 0.15 | 0.125 |
+
+"Before" is the prompts-v2 run of M10. Its speaker attribution differs a little (89 lines now,
+90 then).
+
+What is left is mostly inside the lines. The level of a dubbed line matches the original's
+(median -1.2 dB). But the TTS pauses where the actor speaks on, at a comma or between two
+sentences of one line. Fixing that means timing the dub phrase by phrase against the source's
+pauses, which is not done.
+
+**Tooling.**
+- `dub run --remote` used a running pod as it was. One round of measurements ran on the commit
+  before the fix being measured. The run now updates a pod on older code first.
+- For a few seconds after that restart, the Runpod proxy answers an empty 404. The laptop
+  tries again, since dubd itself always answers with JSON.
+
 ## Not done
 
 - OmniVoice's FlashInfer path (upstream README: 2.1-2.6x), which needs sm_120 kernels checked
@@ -152,3 +208,5 @@ went from 28 to 15 of 90 (p10 0.60 → 0.70, p90 1.28 → 1.08).
 - A speaker embedding that does not confuse language with identity (ERes2NetV2).
 - Envs on the container disk; splitting `pipeline.py`.
 - A listening page for blind A/B.
+- Phrase-level timing: the dub's pauses placed at the source's pauses inside a line (112
+  windows of the drama where the dub pauses and the actor speaks on).
