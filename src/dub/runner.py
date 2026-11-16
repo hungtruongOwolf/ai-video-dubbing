@@ -171,10 +171,23 @@ def _pod_in_background(opts: RunOptions, ws: Workspace, log) -> Future:
     def get():
         with _POD_LOCK:  # several target languages at once: one pod, not one each
             state = remote.PodState.load(ws.root)
-            if state is not None and remote.Dubd(state.url, state.token).health():
-                return state
-            log("[laptop] no running pod: starting one (dub up) while the video is read")
             cfg_dir = opts.config_dir or default_config_dir()
+            if state is not None and remote.Dubd(state.url, state.token).health():
+                if state.ref == "dev":  # a dubd started by hand runs the checkout it is in
+                    return state
+                # a pod on older code ran a whole round of measurements on it (the fix being
+                # measured was not there): it gets this checkout's commit first
+                try:
+                    ref = remote.git_ref(cfg_dir.parent)
+                except remote.RemoteError as e:
+                    log(f"[laptop] warning: the pod runs code {state.ref[:8]}; {e}")
+                    return state
+                if ref == state.ref:
+                    return state
+                log(f"[laptop] the pod runs code {state.ref[:8]}, this checkout is {ref[:8]}: "
+                    "updating it (dub up)")  # fmt: skip
+            else:
+                log("[laptop] no running pod: starting one (dub up) while the video is read")
             return remote.pod_up(
                 remote.PodConfig.load(cfg_dir), ws.root, cfg_dir.parent, log=log, until="dubd"
             )
