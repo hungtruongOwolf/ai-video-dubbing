@@ -468,6 +468,10 @@ class RefsReq(Model):
     unit_vectors: dict[str, list[float]] = Field(default_factory=dict)  # speaker embeddings
     purity: dict[str, float] = Field(default_factory=dict)  # unit id -> share of own speaker
     candidates: int = 1  # clips per speaker: the best one plus alternates for an audition
+    # M12: up to this many clean clips per speaker, to voice each line in the delivery of the
+    # clip closest to its own (dub.ops.prosody); 0 = one reference per speaker
+    styles: int = 0
+    style_min_ms: int = 2000
 
 
 class VoiceRef(Model):
@@ -478,12 +482,15 @@ class VoiceRef(Model):
     centroid: list[float] = Field(default_factory=list)  # mean embedding of the speaker's lines
     self_sim: float = 0.0  # how close the speaker's own lines are to that centroid (mean cos)
     sim: float = 0.0  # this clip's similarity to the centroid
+    unit_id: str | None = None  # the line the clip was cut from (None: several lines joined)
 
 
 class RefBank(Model):
     refs: list[VoiceRef]
     # more clips per speaker (next most typical first), auditioned before voicing
     alternates: list[VoiceRef] = Field(default_factory=list)
+    # M12: clean clips per speaker in several deliveries (dub.ops.prosody picks one per line)
+    styles: list[VoiceRef] = Field(default_factory=list)
 
     def for_speaker(self, speaker: str) -> VoiceRef | None:
         return next((r for r in self.refs if r.speaker == speaker), None)
@@ -534,6 +541,17 @@ class StretchReq(Model):
 class AudioRes(Model):
     audio_key: str
     dur_ms: int
+
+
+class ProsodyReq(Model):
+    """Prosody features (dub.ops.prosody) of spans of a WAV, or of the whole of it."""
+
+    audio_key: str
+    spans: list[tuple[int, int]] = []
+
+
+class ProsodyRes(Model):
+    features: list[list[float] | None]  # per span: [f0, f0_range, energy, voiced] or None
 
 
 class PhraseReq(Model):

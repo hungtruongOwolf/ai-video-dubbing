@@ -53,6 +53,8 @@ from dub.contracts.v1 import (
     PhraseReq,
     PhraseRes,
     Placement,
+    ProsodyReq,
+    ProsodyRes,
     RebalanceReq,
     RefBank,
     RefsReq,
@@ -103,6 +105,7 @@ from dub.ops import media as media_ops
 from dub.ops import mix as mix_ops
 from dub.ops import nonverbal as nonverbal_ops
 from dub.ops import phrases as phrase_ops
+from dub.ops import prosody as prosody_ops
 from dub.ops import qa as qa_ops
 from dub.ops import refs as refs_ops
 from dub.ops import risk as risk_ops
@@ -422,6 +425,8 @@ async def run_job(
             purity=purity,
             # M8: a few clips per speaker; the one whose words the ASR hears as the line wins
             candidates=1 if spec.subs_only else max(REF_CANDIDATES, cfg.dub.voice.audition),
+            # M12: clean clips in several deliveries, one picked per line (ops/prosody.py)
+            styles=cfg.dub.voice.styles if cfg.dub.voice.emotion_refs and not spec.subs_only else 0,
         ),  # fmt: skip
         RefBank,
     )
@@ -429,6 +434,16 @@ async def run_job(
         refs = await _retranscribe_refs(
             cx, refs, src_lang, src_lp.joiner, log, keep_alternates=cfg.dub.voice.audition > 1
         )
+    # M12: each line's delivery (pitch, range, level, voicing), from the separated vocals
+    line_prosody: dict[str, list[float]] = {}
+    if voiced and not spec.subs_only:  # also measured with emotion_refs off (A/B)
+        pros: ProsodyRes = await cx.local(
+            "audio.prosody", prosody_ops.spans,
+            ProsodyReq(audio_key=vocals16.audio_key,
+                       spans=[(u.start_ms, u.end_ms) for u in voiced]),
+            ProsodyRes,
+        )  # fmt: skip
+        line_prosody = {u.id: f for u, f in zip(voiced, pros.features, strict=True) if f}
     if edits:
         log(f"      {len(edits)} human edits applied")
     # Voice hints for the cast sheet (age, gender): weak evidence, the dialogue outranks it.
@@ -504,6 +519,18 @@ async def run_job(
             )
             + (f", silence pad {a.pad_ms} ms" if a.pad_ms else "")
         )
+    styles = (
+        await _clean_styles(cx, refs, src_lang, src_lp.joiner)
+        if refs.styles and cfg.dub.voice.emotion_refs
+        else []
+    )
+    line_refs = _line_refs(voiced, refs, styles, line_prosody, cfg.dub.voice.style_margin)
+    if styles:
+        n_style = sum(1 for u in voiced if u.id in line_refs)
+        log(
+            f"      voices by delivery: {len(styles)} clean clips, {n_style} of {len(voiced)} "
+            "lines voiced from a clip closer to their own delivery than the usual one"
+        )
 
     # ---------------------------------------------------------------- Phase B: translate
     stage("[5/7] translating")
@@ -549,7 +576,7 @@ async def run_job(
         try:
             take: SynthRes = await cx.call(
                 "tts.synthesize",
-                lambda m: synth_request(u, text, pred, seed, m),
+                lambda m: synth_request(u, text, pred, seed, m, take=1),
                 facts={**facts, fact: True},
                 subject=u.id,
             )
@@ -662,8 +689,12 @@ async def run_job(
         """The unit's facts and the length of the line to voice (routes by line length)."""
         return {**unit_facts(u), "line.units": count_units(text, tgt_lp.speech_unit)}
 
-    def synth_request(u: Unit, text: str, pred: int, seed: int, m: ProviderManifest) -> SynthReq:
-        ref = refs.for_speaker(u.speaker)
+    def synth_request(
+        u: Unit, text: str, pred: int, seed: int, m: ProviderManifest, take: int = 0
+    ) -> SynthReq:
+        # take 0 in the delivery of the line (M12); retakes and other engines in the speaker's
+        # usual voice, the safe one when a take failed the QA gate
+        ref = (line_refs.get(u.id) if take == 0 else None) or refs.for_speaker(u.speaker)
         exact = m.caps.duration_control == "exact"
         return SynthReq(
             unit_id=u.id,
@@ -832,6 +863,7 @@ async def run_job(
     # unit id -> each wording voiced for it: variant, length, fill, rate, QA, the decision
     wordings: dict[str, list[dict[str, Any]]] = {}
     phrased: dict[str, PhraseRes] = {}  # lines re-timed to their actor's pauses
+    prosody_stats: dict[str, Any] = {}
     phrase_reverted: list[str] = []  # ...whose re-timed take the back-check no longer heard
     levels: dict[str, LineLevel] = {}  # unit id -> its level and the original's (mix gains)
     by_id = {u.id: u for u in units}
@@ -942,7 +974,7 @@ async def run_job(
                     def make_req(
                         m: ProviderManifest, text=text, pred=pred, seed=base_seed + 1000 * k
                     ) -> SynthReq:
-                        return synth_request(u, text, pred, seed, m)
+                        return synth_request(u, text, pred, seed, m, take=k)
 
                     take: SynthRes = await cx.call(
                         "tts.synthesize", make_req, facts=line_facts(u, text), subject=u.id
@@ -1206,6 +1238,9 @@ async def run_job(
             )
 
         placements = list(await asyncio.gather(*(dub_and_check(i) for i in range(len(units)))))
+        prosody_stats = await _prosody_agreement(cx, placements, line_prosody)
+        if styles:
+            prosody_stats["style_lines"] = sum(1 for p in placements if p.unit_id in line_refs)
         # voicing ahead of translations that were replaced later: let them finish quietly
         await asyncio.gather(*prefetched.values(), return_exceptions=True)
 
@@ -1351,6 +1386,7 @@ async def run_job(
     metrics.update(level_stats)
     metrics.update(hardsub_stats)
     metrics.update(nonverbal_stats)
+    metrics.update(prosody_stats)
     if phrased:
         metrics["phrase_lines"] = len(phrased)
         metrics["phrase_pauses_matched"] = sum(p.matched for p in phrased.values())
@@ -1834,6 +1870,87 @@ async def _retranscribe_refs(
             log(f"      reference of {r.speaker}: {which}, heard as its line within CER "
                 f"{err:.2f}; its transcript is what the ASR heard")  # fmt: skip
     return RefBank(refs=chosen, alternates=rest if keep_alternates else [])
+
+
+async def _clean_styles(cx: Ctx, refs: RefBank, lang: str, joiner: str) -> list[VoiceRef]:
+    """The clips of the delivery pool whose transcript is what they say (M8's rule for the
+    reference: a clip heard far from its line holds a laugh or another voice, and the clone
+    speaks it), with the transcript the ASR heard."""
+
+    async def one(ref: VoiceRef) -> VoiceRef | None:
+        clip16: AudioRes = await cx.local(
+            "audio.to_mono16k", media_ops.to_mono16k, AudioReq(audio_key=ref.audio_key),
+            AudioRes, subject=f"ref-{ref.speaker}",
+        )  # fmt: skip
+        try:
+            heard: WordTimeline = await cx.call(
+                "asr.transcribe", TranscribeReq(audio_key=clip16.audio_key, lang=lang),
+                subject=f"ref-{ref.speaker}",
+            )  # fmt: skip
+        except (RoutingError, ProviderError):
+            return None
+        text = join_words(heard.words, joiner).strip()
+        if not text or cer(ref.text, text) > REF_TEXT_OK:
+            return None
+        return ref.model_copy(update={"text": text})
+
+    kept = await asyncio.gather(*(one(r) for r in refs.styles))
+    return [r for r in kept if r is not None]
+
+
+def _line_refs(
+    units: list[Unit],
+    refs: RefBank,
+    styles: list[VoiceRef],
+    prosody: dict[str, list[float]],
+    margin: float,
+) -> dict[str, VoiceRef]:
+    """Unit id -> the clip to voice it from, for the lines whose delivery a pool clip is
+    closer to than the speaker's usual reference (dub.ops.prosody.pick)."""
+    out: dict[str, VoiceRef] = {}
+    by_speaker: dict[str, list[VoiceRef]] = {}
+    for s in styles:
+        if s.unit_id in prosody:
+            by_speaker.setdefault(s.speaker, []).append(s)
+    for spk, pool in by_speaker.items():
+        default = refs.for_speaker(spk)
+        if default is None:
+            continue
+        own = [prosody[u.id] for u in units if u.speaker == spk and u.id in prosody]
+        if len(own) < 3:
+            continue
+        mean, sd = prosody_ops.norms(own)
+        cands = [(s.audio_key, prosody[s.unit_id]) for s in pool if s.unit_id]
+        if default.unit_id in prosody:
+            cands.append((default.audio_key, prosody[default.unit_id]))
+        by_key = {s.audio_key: s for s in pool}
+        for u in units:
+            if u.speaker != spk:
+                continue
+            key = prosody_ops.pick(prosody.get(u.id), cands, default.audio_key, mean, sd, margin)
+            if key != default.audio_key and key in by_key:
+                out[u.id] = by_key[key]
+    return out
+
+
+async def _prosody_agreement(
+    cx: Ctx, placements: list[Placement], source: dict[str, list[float]]
+) -> dict[str, Any]:
+    """How closely the dubbed lines follow the source's delivery (dub.ops.prosody)."""
+    dubbed = [p for p in placements if p.variant != "original" and p.unit_id in source]
+    if len(dubbed) < 3:
+        return {}
+    res = await asyncio.gather(*(
+        cx.local("audio.prosody", prosody_ops.spans, ProsodyReq(audio_key=p.audio_key),
+                 ProsodyRes, subject=p.unit_id)
+        for p in dubbed
+    ))  # fmt: skip
+    rows = [
+        (p.speaker, source[p.unit_id], r.features[0])
+        for p, r in zip(dubbed, res, strict=True)
+        if r.features and r.features[0]
+    ]
+    return prosody_ops.agreement(rows)
 
 
 @dataclass

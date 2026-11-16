@@ -48,6 +48,12 @@ voice:
   # voice similarity did not move (0.599 -> 0.600): off until a source with uneven clips shows a gain.
   audition: 1
   audition_cer_slack: 0.05
+  # M12: each line voiced from the speaker's clean clip (2-10 s) whose delivery (pitch, pitch
+  # range, level, voicing) is closest to the line's own (ops/prosody.py); retakes use the usual
+  # reference. A pool clip only when it is closer than the usual one by style_margin (z units).
+  emotion_refs: true
+  styles: 12
+  style_margin: 0.5
 
 # Who says each line: the LLM reads the script this many times (concurrently) and each line
 # goes to the character most readings give it; lines the readings disagree on are flagged.

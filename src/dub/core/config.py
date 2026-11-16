@@ -244,6 +244,12 @@ class VoiceCfg(Cfg):
     # the speaker (embedding similarity), among the intelligible ones, is kept.
     audition: int = 1  # off by default: no gain measured (M7, docs/m7-quality-pass.md)
     audition_cer_slack: float = 0.05  # intelligible: back-check CER within this of the best
+    # M12: each line voiced from the speaker's clean clip whose delivery (pitch, range, level,
+    # voicing) is closest to the line's own, out of up to `styles` clips (ops/prosody.py); a
+    # pool clip only when closer than the usual reference by `style_margin` (z units)
+    emotion_refs: bool = True
+    styles: int = 12
+    style_margin: float = 0.5
 
 
 class SpeakersCfg(Cfg):

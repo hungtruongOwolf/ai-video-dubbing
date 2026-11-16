@@ -17,6 +17,10 @@ language in the dub. So:
   outward and 100 ms inward), never inside the speech;
 - the pipeline transcribes the cut clip again (pipeline._retranscribe_refs), so the text is
   what the clip says, not what the unit said.
+With `styles` > 0 (M12), each speaker also gets up to that many clean clips of 2-10 s, the
+most typical first: same purity and neighbour rules, same edges. The pipeline voices each line
+from the one whose delivery is closest to the line's own (dub.ops.prosody).
+
 A speaker with no 3-10 s unit (a minor character in a drama) gets several of their own clean
 lines of at least 0.8 s joined with 20 ms of silence, up to 6 s, instead of one short clip.
 
@@ -167,6 +171,7 @@ def extract_refs(req: RefsReq, cas: CAS) -> RefBank:
     crowded = _crowded(req.units)
     refs: list[VoiceRef] = []
     alternates: list[VoiceRef] = []
+    styles: list[VoiceRef] = []
     stats: dict[str, tuple[list[float], dict[str, float], float | None]] = {}
     for speaker, units in sorted(by_speaker.items()):
         vecs = {u.id: _unit_vec(req.unit_vectors[u.id]) for u in units if u.id in req.unit_vectors}
@@ -191,6 +196,15 @@ def extract_refs(req: RefsReq, cas: CAS) -> RefBank:
             "self_sim": round(self_sim, 4),
         }
         ranked = _rank(units, req.min_ms, req.max_ms, sims, req.purity, crowded)
+        if req.styles > 0:
+            vocals = cas.path(req.vocals_key)
+            clean = [u for u in _rank(units, req.style_min_ms, req.max_ms, sims, req.purity,
+                                      crowded)
+                     if u.id not in crowded and req.purity.get(u.id, 1.0) >= 0.95]  # fmt: skip
+            for u in clean[: req.styles]:
+                ref = _write(cas, _clip(vocals, u.start_ms, u.end_ms, req.max_ms), speaker, u.text)
+                styles.append(ref.model_copy(update={
+                    **extra, "sim": round(sims.get(u.id, 0.0), 4), "unit_id": u.id}))  # fmt: skip
         if not ranked:
             key = lambda u, s=sims: (u.id in crowded, req.purity.get(u.id, 1.0) < 0.95,  # noqa: E731
                                      -round(s.get(u.id, 0.0), 2), -u.slot_ms)  # fmt: skip
@@ -199,6 +213,8 @@ def extract_refs(req: RefsReq, cas: CAS) -> RefBank:
         vocals = cas.path(req.vocals_key)
         for i, u in enumerate(ranked[: max(1, req.candidates)]):
             ref = _write(cas, _clip(vocals, u.start_ms, u.end_ms, req.max_ms), speaker, u.text)
-            ref = ref.model_copy(update={**extra, "sim": round(sims.get(u.id, 0.0), 4)})
+            ref = ref.model_copy(
+                update={**extra, "sim": round(sims.get(u.id, 0.0), 4), "unit_id": u.id}
+            )
             (refs if i == 0 else alternates).append(ref)
-    return RefBank(refs=refs, alternates=alternates)
+    return RefBank(refs=refs, alternates=alternates, styles=styles)
