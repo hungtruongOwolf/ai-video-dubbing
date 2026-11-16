@@ -283,6 +283,33 @@ class FakeTTS(_Base):
         )
 
 
+class FakeEmotion(_Base):
+    """Emotion 'embeddings' from level and zero crossings (no model on the laptop)."""
+
+    LABELS = ["angry", "disgusted", "fearful", "happy", "neutral", "other", "sad", "surprised",
+              "unknown"]  # fmt: skip
+
+    def op_audio_emotion(self, req, ctx: RunCtx):
+        from dub.contracts.v1 import Emotions
+
+        vectors, scores = [], []
+        for key, s, e in req.items:
+            audio, sr = read_wav(ctx.cas.path(key))
+            mono = audio.mean(axis=1)
+            x = mono[s * sr // 1000 : (e * sr // 1000 if e else len(mono))]
+            if len(x) < sr // 4:
+                vectors.append([])
+                scores.append([])
+                continue
+            rms = float(np.sqrt(np.mean(x**2)))
+            zcr = float(np.mean(np.abs(np.diff(np.sign(x))) > 0))
+            vectors.append([round(rms * 10, 4), round(zcr * 10, 4), 1.0])
+            p = [0.05] * 9
+            p[4 if rms < 0.1 else 0] = 0.6
+            scores.append(p)
+        return Emotions(vectors=vectors, scores=scores, labels=self.LABELS)
+
+
 class FakeVoiceProfile(_Base):
     def op_audio_voice_profile(self, req, ctx: RunCtx):
         from dub.contracts.v1 import SpeakerVoice, VoiceProfiles

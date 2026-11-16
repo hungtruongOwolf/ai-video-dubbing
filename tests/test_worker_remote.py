@@ -573,8 +573,9 @@ def test_providers_with_their_own_worker_keep_the_old_ports(tmp_path):
     cfg = load_config(None)
     ports = worker_ports(cfg)
     assert {w: p for w, (_, p) in ports.items() if w == ports[w][0]} == {
-        "asr": 7101, "sep": 7102, "tts": 7103, "tts2": 7104}  # fmt: skip
+        "asr": 7101, "sep": 7102, "tts": 7103, "tts2": 7104, "emo": 7107}  # fmt: skip
     assert ports["backcheck"] == ("asr", 7105) and ports["speaker"] == ("tts", 7106)
+    assert ports["emo"] == ("emo", 7107)  # M13: a new worker takes the next port
     envs = EnvManager(cfg, tmp_path, tmp_path, tmp_path).envs
     assert envs["speaker"].providers == ["ecapa_cluster"] and envs["speaker"].venv == "tts"
     assert "ecapa_cluster" not in envs["tts"].providers

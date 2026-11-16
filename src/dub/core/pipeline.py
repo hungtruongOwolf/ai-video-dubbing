@@ -43,6 +43,8 @@ from dub.contracts.v1 import (
     Edit,
     Embeddings,
     EmbedReq,
+    EmotionReq,
+    Emotions,
     HardsubCue,
     HardsubFix,
     HardsubReq,
@@ -99,6 +101,7 @@ from dub.core.trace import Tracer
 from dub.ops import address as address_ops
 from dub.ops import diarize as diar_ops
 from dub.ops import edits as edits_ops
+from dub.ops import emotion as emotion_ops
 from dub.ops import hardsubs as hardsub_ops
 from dub.ops import level as level_ops
 from dub.ops import media as media_ops
@@ -444,6 +447,20 @@ async def run_job(
             ProsodyRes,
         )  # fmt: skip
         line_prosody = {u.id: f for u, f in zip(voiced, pros.features, strict=True) if f}
+    # M13: each line's emotion (emotion2vec), also measured with emotion_refs off (A/B)
+    line_emotion: dict[str, tuple[list[float], list[float]]] = {}
+    emotion_labels: list[str] = []
+    if voiced and not spec.subs_only:
+        try:
+            emo: Emotions = await cx.call(
+                "audio.emotion",
+                EmotionReq(items=[(vocals16.audio_key, u.start_ms, u.end_ms) for u in voiced]),
+            )
+            line_emotion = {u.id: (v, s) for u, v, s in
+                            zip(voiced, emo.vectors, emo.scores, strict=True) if v}  # fmt: skip
+            emotion_labels = emo.labels
+        except (RoutingError, ProviderError) as e:
+            log(f"      emotion of the lines skipped: {str(e)[:160]}")
     if edits:
         log(f"      {len(edits)} human edits applied")
     # Voice hints for the cast sheet (age, gender): weak evidence, the dialogue outranks it.
@@ -524,12 +541,19 @@ async def run_job(
         if refs.styles and cfg.dub.voice.emotion_refs
         else []
     )
-    line_refs = _line_refs(voiced, refs, styles, line_prosody, cfg.dub.voice.style_margin)
+    vc = cfg.dub.voice
+    style_by = vc.style_by if line_emotion or vc.style_by == "prosody" else "prosody"
+    line_refs = _line_refs(
+        voiced, refs, styles, line_prosody,
+        emotion_ops.centred({k: v for k, (v, _) in line_emotion.items()},
+                            {u.id: u.speaker for u in voiced}),
+        style_by, vc.style_margin, vc.style_margin_rel,
+    )  # fmt: skip
     if styles:
         n_style = sum(1 for u in voiced if u.id in line_refs)
         log(
-            f"      voices by delivery: {len(styles)} clean clips, {n_style} of {len(voiced)} "
-            "lines voiced from a clip closer to their own delivery than the usual one"
+            f"      voices by delivery ({style_by}): {len(styles)} clean clips, {n_style} of "
+            f"{len(voiced)} lines voiced from a clip closer to their delivery than the usual one"
         )
 
     # ---------------------------------------------------------------- Phase B: translate
@@ -1239,8 +1263,12 @@ async def run_job(
 
         placements = list(await asyncio.gather(*(dub_and_check(i) for i in range(len(units)))))
         prosody_stats = await _prosody_agreement(cx, placements, line_prosody)
+        prosody_stats.update(
+            await _emotion_agreement(cx, placements, line_emotion, emotion_labels, log)
+        )
         if styles:
             prosody_stats["style_lines"] = sum(1 for p in placements if p.unit_id in line_refs)
+            prosody_stats["style_by"] = style_by
         # voicing ahead of translations that were replaced later: let them finish quietly
         await asyncio.gather(*prefetched.values(), return_exceptions=True)
 
@@ -1904,14 +1932,27 @@ def _line_refs(
     refs: RefBank,
     styles: list[VoiceRef],
     prosody: dict[str, list[float]],
+    emotion: dict[str, list[float]],
+    style_by: str,
     margin: float,
+    margin_rel: float,
 ) -> dict[str, VoiceRef]:
     """Unit id -> the clip to voice it from, for the lines whose delivery a pool clip is
-    closer to than the speaker's usual reference (dub.ops.prosody.pick)."""
+    closer to than the speaker's usual reference.
+
+    `style_by`:
+    - "prosody": pitch, range, level and voicing in z units (dub.ops.prosody.pick, margin);
+    - "emotion": cosine distance of the centred emotion2vec embeddings (M13);
+    - "both": the mean of the two, each divided by its median over the speaker's
+      (line, clip) pairs.
+    In "emotion" and "both" a clip replaces the usual reference when it scores lower by
+    `margin_rel` (median units)."""
     out: dict[str, VoiceRef] = {}
+    need_p = style_by in ("prosody", "both")
+    need_e = style_by in ("emotion", "both")
     by_speaker: dict[str, list[VoiceRef]] = {}
     for s in styles:
-        if s.unit_id in prosody:
+        if (not need_p or s.unit_id in prosody) and (not need_e or s.unit_id in emotion):
             by_speaker.setdefault(s.speaker, []).append(s)
     for spk, pool in by_speaker.items():
         default = refs.for_speaker(spk)
@@ -1921,17 +1962,75 @@ def _line_refs(
         if len(own) < 3:
             continue
         mean, sd = prosody_ops.norms(own)
-        cands = [(s.audio_key, prosody[s.unit_id]) for s in pool if s.unit_id]
-        if default.unit_id in prosody:
-            cands.append((default.audio_key, prosody[default.unit_id]))
+        clips = [(s.audio_key, s.unit_id) for s in pool if s.unit_id]
+        if default.unit_id and default.audio_key not in {k for k, _ in clips}:
+            clips.append((default.audio_key, default.unit_id))
         by_key = {s.audio_key: s for s in pool}
-        for u in units:
-            if u.speaker != spk:
-                continue
-            key = prosody_ops.pick(prosody.get(u.id), cands, default.audio_key, mean, sd, margin)
+        mine = [u for u in units if u.speaker == spk]
+        if style_by == "prosody":
+            cands = [(k, prosody[uid]) for k, uid in clips if uid in prosody]
+            for u in mine:
+                key = prosody_ops.pick(prosody.get(u.id), cands, default.audio_key, mean, sd,
+                                       margin)  # fmt: skip
+                if key != default.audio_key and key in by_key:
+                    out[u.id] = by_key[key]
+            continue
+
+        def d_pros(uid: str, cid: str, sd: list[float] = sd) -> float | None:
+            if uid in prosody and cid in prosody:
+                return prosody_ops.distance(prosody[uid], prosody[cid], sd)
+            return None
+
+        def d_emo(uid: str, cid: str) -> float | None:
+            if uid in emotion and cid in emotion:
+                return 1.0 - emotion_ops.cos(emotion[uid], emotion[cid])
+            return None
+
+        def median(vals: list[float]) -> float:
+            vals = sorted(v for v in vals if v > 0)
+            return vals[len(vals) // 2] if vals else 1.0
+
+        pairs = [(u.id, cid) for u in mine for _, cid in clips]
+        med_p = median([d for a, b in pairs if (d := d_pros(a, b)) is not None])
+        med_e = median([d for a, b in pairs if (d := d_emo(a, b)) is not None])
+        for u in mine:
+            scores: dict[str, float] = {}
+            for key, cid in clips:
+                e = d_emo(u.id, cid)
+                p = d_pros(u.id, cid)
+                if e is None or (style_by == "both" and p is None):
+                    continue
+                scores[key] = e / med_e if style_by == "emotion" else (e / med_e + p / med_p) / 2
+            key = emotion_ops.choose(scores, default.audio_key, margin_rel)
             if key != default.audio_key and key in by_key:
                 out[u.id] = by_key[key]
     return out
+
+
+async def _emotion_agreement(
+    cx: Ctx,
+    placements: list[Placement],
+    source: dict[str, tuple[list[float], list[float]]],
+    labels: list[str],
+    log: Callable[[str], None],
+) -> dict[str, Any]:
+    """Does the dub's emotion follow the source's, line by line (dub.ops.emotion)?"""
+    dubbed = [p for p in placements if p.variant != "original" and p.unit_id in source]
+    if len(dubbed) < 3:
+        return {}
+    try:
+        res: Emotions = await cx.call(
+            "audio.emotion", EmotionReq(items=[(p.audio_key, 0, 0) for p in dubbed])
+        )
+    except (RoutingError, ProviderError) as e:
+        log(f"      emotion of the dub not measured: {str(e)[:160]}")
+        return {}
+    rows = [
+        (p.unit_id, p.speaker, source[p.unit_id][0], v, source[p.unit_id][1], sc)
+        for p, v, sc in zip(dubbed, res.vectors, res.scores, strict=True)
+        if v
+    ]
+    return emotion_ops.agreement(rows, labels or res.labels)
 
 
 async def _prosody_agreement(

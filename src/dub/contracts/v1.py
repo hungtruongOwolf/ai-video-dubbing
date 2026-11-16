@@ -220,6 +220,19 @@ class Embeddings(Model):
     vectors: list[list[float]]  # one unit vector per span
 
 
+class EmotionReq(Model):
+    """Emotion embeddings (M13) of clips: (audio key, start_ms, end_ms), end_ms 0 = to the
+    end of the file. 16, 24 or 48 kHz WAVs."""
+
+    items: list[tuple[str, int, int]]
+
+
+class Emotions(Model):
+    vectors: list[list[float]]  # per item; empty when the clip is too short
+    scores: list[list[float]]  # per item: class probabilities, in the order of `labels`
+    labels: list[str] = Field(default_factory=list)  # angry, disgusted, ... neutral, sad ...
+
+
 class VoiceProfileReq(Model):
     """Age and gender from the voice: clean spans of each speaker (one speaker per span)."""
 
@@ -802,6 +815,7 @@ OPS: dict[str, tuple[type[BaseModel], type[BaseModel]]] = {
     "audio.diarize": (DiarizeReq, Diarization),
     "audio.embed": (EmbedReq, Embeddings),
     "audio.voice_profile": (VoiceProfileReq, VoiceProfiles),
+    "audio.emotion": (EmotionReq, Emotions),
     "mt.context": (ContextReq, ContextSheet),
     "mt.translate": (TranslateReq, TranslationBatch),
     "mt.rewrite": (RewriteReq, RewriteRes),

@@ -7,6 +7,7 @@ process, so their models share one Python environment and one GPU lock:
     sep  audio-separator (Mel-Band RoFormer)                  pod/envs/sep.txt
     tts  OmniVoice + SaT (sentences) + ECAPA (speakers)       pod/envs/tts.txt
     tts2 VieNeu-TTS (its transformers pin differs)            pod/envs/tts2.txt
+    emo  emotion2vec+ through FunASR (M13)                    pod/envs/emo.txt
 
 Installing is `pod/setup_env.sh <env>`: a uv venv under /workspace/dub/envs/<env> whose files are
 symlinks into the shared uv cache on the volume (one copy of torch for every env), skipped when
@@ -38,16 +39,22 @@ RESTART_WINDOW_S = 15 * 60
 WATCH_EVERY_S = 5.0
 
 
+# Workers in the order they were added: each keeps its port when another one is added (asr
+# 7101, sep 7102, tts 7103, tts2 7104, backcheck 7105, speaker 7106, emo 7107). Workers not
+# listed come after, sorted.
+PORT_ORDER = ["asr", "sep", "tts", "tts2", "backcheck", "speaker", "emo"]
+
+
 def worker_ports(cfg: Config) -> dict[str, tuple[str, int]]:
-    """Each worker process -> (its venv, its port). The envs' own workers keep the ports they
-    always had (asr 7101, sep 7102, tts 7103, tts2 7104); extra workers come after."""
+    """Each worker process -> (its venv, its port), ports in PORT_ORDER."""
     venv: dict[str, str] = {}
     for m in cfg.providers.values():
         if m.runtime == "http" and m.env:
             venv[worker_of(m)] = m.env
-    own = sorted(w for w, v in venv.items() if w == v)
-    extra = sorted(w for w, v in venv.items() if w != v)
-    return {w: (venv[w], BASE_PORT + i) for i, w in enumerate(own + extra)}
+    rank = {w: i for i, w in enumerate(PORT_ORDER)}
+    order = sorted(venv, key=lambda w: (rank.get(w, len(PORT_ORDER)), w))
+    return {w: (venv[w], BASE_PORT + rank.get(w, len(PORT_ORDER) + i)) for i, w in
+            enumerate(order)}  # fmt: skip
 
 
 @dataclass

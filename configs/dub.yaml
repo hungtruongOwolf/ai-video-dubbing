@@ -83,6 +83,7 @@ defaults:
   audio.diarize:  [ecapa_cluster, single_speaker]
   audio.embed:    [ecapa_cluster]
   audio.voice_profile: [voice_agender]
+  audio.emotion:  [emotion2vec_plus]   # M13: emotion embeddings (voices by delivery, agreement)
   mt.context:     [claude_cli, llm_api]
   mt.translate:   [claude_cli, llm_api]
   mt.rewrite:     [claude_cli, llm_api]

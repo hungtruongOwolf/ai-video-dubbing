@@ -1,0 +1,17 @@
+# Emotion embeddings and 9 emotion classes per clip (M13): which reference clip voices a line,
+# and whether the dub's emotion follows the source's.
+id: emotion2vec_plus
+op: [audio.emotion]
+runtime: http
+env: emo                       # FunASR and its dependencies, away from OmniVoice's and VieNeu's pins
+impl: dub.providers.emotion2vec:Emotion2Vec
+impl_version: "1"
+libs: [funasr, torch]
+weights: {hf: emotion2vec/emotion2vec_plus_large, revision: 6c303ba987b86b93193de93e34bb2b077a6bedc4}
+preload: true
+params:
+  model: emotion2vec/emotion2vec_plus_large
+  revision: 6c303ba987b86b93193de93e34bb2b077a6bedc4
+limits: {max_concurrency: 1}
+license: FunASR Model Open Source License 1.1 (use, modify, share with attribution; "for reference and learning purposes")
+description: emotion2vec+ large (~300M, 16 kHz), utterance embeddings and angry/disgusted/fearful/happy/neutral/other/sad/surprised/unknown probabilities.

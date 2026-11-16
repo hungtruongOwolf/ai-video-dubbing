@@ -1,0 +1,6 @@
+id: fake_emotion
+op: [audio.emotion]
+impl: dub.providers.fake:FakeEmotion
+impl_version: auto
+fake: true
+description: Emotion "embeddings" from level and zero crossings (no model on the laptop).

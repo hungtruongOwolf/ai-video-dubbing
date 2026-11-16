@@ -250,6 +250,11 @@ class VoiceCfg(Cfg):
     emotion_refs: bool = True
     styles: int = 12
     style_margin: float = 0.5
+    # M13: what "closest delivery" means: prosody (pitch, range, level, voicing), emotion
+    # (emotion2vec embeddings) or both; in the last two a clip must beat the usual reference
+    # by style_margin_rel (median units)
+    style_by: str = "prosody"
+    style_margin_rel: float = 0.25
 
 
 class SpeakersCfg(Cfg):

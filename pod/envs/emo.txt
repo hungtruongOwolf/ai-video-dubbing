@@ -1,0 +1,8 @@
+# emotion2vec+ (M13) through FunASR. Its own env: FunASR's dependencies (librosa, numba,
+# hydra...) stay away from OmniVoice's and VieNeu's pins. torch comes from the shared uv cache,
+# not a second copy on the volume.
+funasr==1.4.26
+torch==2.8.0
+torchaudio==2.8.0
+soundfile
+huggingface_hub
