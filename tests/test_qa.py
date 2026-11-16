@@ -195,3 +195,25 @@ def test_risk_of_kept_originals_failed_takes_and_short_fills():
     s, why = score(u, place(end=1100), None)  # 1.1 s of voice in a 3.6 s slot
     assert s > 1.5 and any("fills 31%" in w for w in why)
     assert score(u, place(), None)[0] == 0.0
+
+
+def test_a_final_particle_swapped_by_the_back_check_is_heard_right():
+    from dub.core.config import load_config
+    from dub.ops.qa import fold_particles
+
+    groups = load_config(None).langpack("vi").final_particles
+    assert fold_particles("Nó ăn được à?", "nó ăn được hả.", groups) == "nó ăn được à?"
+    assert fold_particles("Vú nuôi ư?", "vú nuôi à.", groups) == "vú nuôi ư?"
+    # not across groups, not "ạ" (politeness), not inside the line
+    assert fold_particles("Vâng ạ.", "vâng à.", groups) == "vâng à."
+    assert fold_particles("Đi nhé.", "đi hả.", groups) == "đi hả."
+    assert fold_particles("Hả, đi đâu?", "à đi đâu", groups) == "à đi đâu"
+    words = [
+        Word(w="nó", start_ms=0, end_ms=100),
+        Word(w="ăn", start_ms=100, end_ms=200),
+        Word(w="được", start_ms=200, end_ms=300),
+        Word(w="hả.", start_ms=300, end_ms=400),
+    ]
+    assert not judge("Nó ăn được à?", words, " ", None, None, None, QaLimits()).passed
+    assert judge("Nó ăn được à?", words, " ", None, None, None, QaLimits(),
+                 particles=groups).passed  # fmt: skip

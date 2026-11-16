@@ -28,3 +28,8 @@ calibration:
 # Laughter, cries and fillers (haha, ôi, á): such a line keeps its original audio.
 # Not ừ/vâng/dạ (yes): words to translate.
 interjections: '(?:ha+|hi+|hì+|he+|hê+|há+|ô+|ồ+|ố+|ôi+|ối+|a+|à+|á+|ơ+|ờ+|ớ+|ui+|úi+|chà+|ủa+)+'
+# Final particles the back-check swaps with no change of meaning (dub.ops.qa.fold_particles):
+# question particles, and the softening "nhé" with its southern forms. Not "ạ" (politeness).
+final_particles:
+  - [à, ư, hả, hở, á, hử]
+  - [nhé, nha, nhá]

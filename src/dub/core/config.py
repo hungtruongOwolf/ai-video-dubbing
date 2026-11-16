@@ -129,6 +129,10 @@ class Langpack(Cfg):
     # original audio: dubbed, "Ha" sounds fake and rarely fits a 20 ms slot. A regex matched
     # against the whole line, lower-cased, without spaces and punctuation; "" = none.
     interjections: str = ""
+    # Sentence-final particles the back-check ASR swaps for one another with no change of
+    # meaning or of mouth shape ("Nó ăn được à?" heard as "nó ăn được hả"): a line ending in
+    # one that is heard ending in another of its group is not misheard (dub.ops.qa).
+    final_particles: list[list[str]] = Field(default_factory=list)
 
     def is_interjection(self, text: str) -> bool:
         if not self.interjections:

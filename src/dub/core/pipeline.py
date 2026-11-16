@@ -633,6 +633,7 @@ async def run_job(
             speaker=u.speaker,
             centroids={r.speaker: r.centroid for r in refs.refs if r.centroid},
             dur_ms=clip16.dur_ms,
+            particles=tgt_lp.final_particles,
         )
         if lid is not None and base_lang(lid.lang) == base_lang(src_lang):
             res.mark_foreign(lid.lang)
@@ -825,6 +826,8 @@ async def run_job(
     checks: dict[str, WordTimeline] = {}  # unit id -> back-check words (relative to the clip)
     qas: dict[str, qa_ops.QaResult] = {}
     trims: dict[str, TrimRes] = {}
+    # unit id -> each wording voiced for it: variant, length, fill, rate, QA, the decision
+    wordings: dict[str, list[dict[str, Any]]] = {}
     levels: dict[str, LineLevel] = {}  # unit id -> its level and the original's (mix gains)
     by_id = {u.id: u for u in units}
     backchecks: list[asyncio.Task] = []
@@ -1003,6 +1006,17 @@ async def run_job(
                         rate_ref_ms=linear(text) if synth.exact else None,
                     )
 
+                def note(name: str, text: str, best, fit: Fit, decision: str) -> None:
+                    qa = best[0]
+                    wordings.setdefault(u.id, []).append({
+                        "variant": name, "text": text, "ms": fit.end_ms - fit.start_ms,
+                        "fill": round((fit.end_ms - fit.start_ms) / max(1, u.slot_ms), 2),
+                        "rate": round(fit.rate, 3), "flags": list(fit.flags),
+                        "qa": None if qa is None else qa.passed,
+                        "cer": None if qa is None else round(qa.cer, 3),
+                        "decision": decision,
+                    })  # fmt: skip
+
                 async def measured_variant(text: str, variant: str, pred: int, best, fit):
                     """Variants voiced and measured, not only predicted: (1) an engine without
                     duration control (VieNeu) got the short variant on a prediction, and the
@@ -1020,6 +1034,7 @@ async def run_job(
                     if inline_qa and best[0] is not None and not best[0].passed:
                         cands += [("target", tr_u.target), ("short", tr_u.short),
                                   ("long", tr_u.long)]  # fmt: skip
+                    note(variant, text, best, fit, "first")
                     tried = {text}
                     alts: list[tuple[str, str]] = []
                     for name, alt in cands:
@@ -1049,7 +1064,16 @@ async def run_job(
                             overruns = True
                         if not overruns and _prefer_take(alt_best[0], alt_fit.rate, best[0],
                                                          fit.rate, t.rate_p95, fuller):  # fmt: skip
+                            note(name, alt, alt_best, alt_fit, "taken")
                             text, variant, pred, best, fit = alt, name, alt_pred, alt_best, alt_fit
+                        else:
+                            why = (
+                                "overruns the slot" if "overflow" in alt_fit.flags
+                                else "farther from the slot's length" if overruns
+                                else "too fast" if alt_fit.rate > max(t.rate_p95, fit.rate)
+                                else "not better"
+                            )  # fmt: skip
+                            note(name, alt, alt_best, alt_fit, f"left: {why}")
                         if best[0] is None or best[0].passed:
                             break
                     return text, variant, pred, best, fit
@@ -1062,6 +1086,7 @@ async def run_job(
                         # a shorter wording that the back-check no longer hears right does not
                         # replace a take that was only fast ("Vú nuôi vất vả à?" failed QA
                         # where the short line it replaced had passed)
+                        note("rewrite", text, best, fit, "left: misheard")
                         text, variant, pred, best, fit = before_rewrite
                         qa, synth, trimmed, check_words = best
                         natural = pred if synth.exact else trimmed.dur_ms
@@ -1255,7 +1280,13 @@ async def run_job(
     # ---------------------------------------------------------------- outputs for review
     backcheck_text = {uid: join_words(c.words, tgt_lp.joiner) for uid, c in checks.items()}
     backcheck_cer = {
-        p.unit_id: round(cer(p.text, backcheck_text[p.unit_id]), 3)
+        p.unit_id: round(
+            cer(
+                p.text,
+                qa_ops.fold_particles(p.text, backcheck_text[p.unit_id], tgt_lp.final_particles),
+            ),
+            3,
+        )  # fmt: skip
         for p in placements
         if p.unit_id in backcheck_text
     }
@@ -1326,6 +1357,7 @@ async def run_job(
         purity,
         addr,
         _unsure_units(units, speaker_stats.get("unsure_spans", [])),
+        wordings,
     )
     log(f"      {summary}")
     # the voice references used (clip key, transcript): review, experiments, re-voicing
@@ -2007,6 +2039,7 @@ def _write_outputs(
     purity,
     addr,
     speaker_unsure: set[str] | None = None,
+    wordings: dict[str, list[dict[str, Any]]] | None = None,
 ) -> str:
     tracer.save(job_dir / "trace.json")
     with open(job_dir / "routes.jsonl", "w", encoding="utf-8") as f:
@@ -2039,6 +2072,7 @@ def _write_outputs(
                 "qa": qa_rows.get(u.id),
                 "purity": purity.get(u.id),
                 "address_issue": addr.get(u.id),
+                "wordings": (wordings or {}).get(u.id),
             }
         )
     (job_dir / "tiles.json").write_text(

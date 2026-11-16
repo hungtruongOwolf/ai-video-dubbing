@@ -18,6 +18,7 @@ passes, the best one is kept and the line is flagged for review.
 from __future__ import annotations
 
 import difflib
+import unicodedata
 from dataclasses import dataclass, field
 
 from dub.contracts.v1 import Word, join_words
@@ -66,6 +67,27 @@ class QaResult:
             "reasons": self.reasons,
             "closest": self.closest,
         }
+
+
+def _bare(word: str) -> str:
+    return unicodedata.normalize("NFC", "".join(ch for ch in word if ch.isalnum())).casefold()
+
+
+def fold_particles(text: str, heard: str, groups: list[list[str]] | None) -> str:
+    """`heard` with its last word replaced by the line's last word when both are final
+    particles of one group (langpack `final_particles`): "nó ăn được hả" for "Nó ăn được à?"
+    is the line heard right. Two of the drama's three short lines that failed QA differed only
+    there (à/hả, ư/à); a 4-syllable line has no room for one wrong letter (CER limit 0.15)."""
+    if not groups:
+        return heard
+    tw, hw = text.split(), heard.split()
+    if not tw or not hw:
+        return heard
+    a, b = _bare(tw[-1]), _bare(hw[-1])
+    sets = [{_bare(p) for p in g} for g in groups]
+    if a != b and any(a in g and b in g for g in sets):
+        return " ".join([*hw[:-1], tw[-1]])
+    return heard
 
 
 def tail_heard(text: str, heard: str, share: float = 0.25) -> float:
@@ -132,8 +154,9 @@ def judge(
     speaker: str | None = None,
     centroids: dict[str, list[float]] | None = None,
     dur_ms: int | None = None,
+    particles: list[list[str]] | None = None,
 ) -> QaResult:
-    heard = join_words(words, joiner)
+    heard = fold_particles(text, join_words(words, joiner), particles)
     c = cer(text, heard)
     tail = tail_heard(text, heard)
     ratio = None
