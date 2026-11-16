@@ -209,4 +209,5 @@ pauses, which is not done.
 - Envs on the container disk; splitting `pipeline.py`.
 - A listening page for blind A/B.
 - Phrase-level timing: the dub's pauses placed at the source's pauses inside a line (112
-  windows of the drama where the dub pauses and the actor speaks on).
+  windows of the drama where the dub pauses and the actor speaks on). Done in M11
+  ([m11-phrase-timing.md](m11-phrase-timing.md)).

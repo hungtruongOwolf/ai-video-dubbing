@@ -27,6 +27,7 @@ Any language pair, in any direction.
 | **M8** One pass | A video in, the final dub out, no manual fixes: who says each line read from the script (speaker changes that change voice 22% → 90% on a zh drama), burned-in subtitles read by OCR to correct the transcript, songs left original, clean voice references, short lines and accented takes voiced by VieNeu (short lines understood 35% → 64%, lines heard as Chinese 22% → 3.7%); on the drama QA 0.84 → 0.90, CER p95 0.30 → 0.14 | **done** |
 | **M9** Faster runs, better lines | VieNeu loaded with the pod and workers serving while they load (cartoon job 175 s -> 71 s, drama voicing 227 s -> 95 s); speakers read 3 times and voted, on Fable (B-cubed F1 0.71 -> 0.78); laughs and cries keep the original; wordings measured, not predicted; drama QA passed 0.90 -> 0.99 | **done** |
 | **M10** Expert review | Seven reviewers read the code: voicing 87.8 s -> 74.5 s on the same lines, several videos on one pod, laughs/cries/screams between lines kept without leaking the source language, stems that add up, prompts v2 (preferred ~55% by blind judges), short lines that fill their slots | **done** |
+| **M11** Phrase timing | The dub pauses where the actor pauses: each take cut at its silences and re-timed to the actor's phrases, heard again before it is kept (drama: dub silent while the actor speaks 112 -> 63 windows; cartoon 15 -> 10) | **done** |
 
 Details: [docs/roadmap.md](docs/roadmap.md).
 

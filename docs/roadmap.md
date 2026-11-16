@@ -294,3 +294,16 @@ manager, researcher, GPU, CUDA, speech quality, dubbing translator, audio post-p
 - [ ] Not done: OmniVoice FlashInfer, Qwen3-ASR for zh, emotion-matched references, a back-check
   that knows the cast's names, envs on container disk, listening page
 
+## M11: Phrase timing (done)
+
+Write-up: [m11-phrase-timing.md](m11-phrase-timing.md).
+
+- [x] A take cut at its own silences and re-timed so it pauses where its actor pauses (signal
+  only, no new translation or take): drama windows with the dub silent while the actor speaks
+  112 -> 63, cartoon windows under the original 15 -> 10
+- [x] Re-timed takes heard again; the take as it was stays if the back-check misses it
+- [x] Before it, M10 follow-up: kept originals cover their real sound (a song squeezed into
+  300 ms), underfilled lines try fuller wordings judged by sync error in ms, final particles
+  read as the same by QA, a misheard rewrite never replaces a good take, `dub run` updates a
+  pod on older code
+- [ ] Not done: cut points between words, phrase-aware translation

@@ -169,6 +169,10 @@ Measured in [m3-segmentation-timing.md](m3-segmentation-timing.md) (experiment E
    - pitch-preserving time stretch (ffmpeg `atempo` in M0; rubberband on the pod);
    - total speed-up target ≤ 1.10, hard cap 1.20;
    - beyond the cap the unit is flagged `overflow`.
+6. **Phrases** (M11, `src/dub/ops/phrases.py`): the placed take is cut at its own silences and
+   re-timed so that it pauses where its actor pauses (matched by share of speech), each piece
+   within 0.87-1.15. Long pauses that the actor speaks through are shortened. The re-timed take
+   is heard again, and the take as it was stays if the back-check misses it.
 
 Every placement records its speed-up `rate` and flags. The report lists the units to review first.
 
