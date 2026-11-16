@@ -35,6 +35,29 @@ from dub.core.config import Config, load_config
 from dub.core.provider_api import ProviderError, RunCtx
 from dub.store.cas import CAS
 
+# One model loads at a time in a worker process. A call for OmniVoice that arrived before the
+# background preload reached it loaded OmniVoice itself, while the preload thread was loading
+# another model of the env: two threads importing transformers at once fail ("cannot import
+# name 'AutoFeatureExtractor'", its lazy module is not thread-safe), and the process stayed
+# broken (every later call: "expected mat1 and mat2 to have the same dtype"; M12 run).
+_LOAD_LOCK = threading.Lock()
+# Names of transformers that the env's models import lazily, resolved once in the main thread
+# before any other thread starts (see _LOAD_LOCK).
+_EAGER = ("AutoConfig", "AutoFeatureExtractor", "AutoModel", "AutoProcessor", "AutoTokenizer",
+          "PreTrainedModel")  # fmt: skip
+
+
+def _eager_imports() -> None:
+    try:
+        import transformers
+    except ImportError:  # an env without transformers
+        return
+    for name in _EAGER:
+        try:
+            getattr(transformers, name)
+        except (ImportError, AttributeError):  # an older transformers: not every name exists
+            pass
+
 
 class _Task:
     __slots__ = ("pid", "op", "params", "pkey", "req", "done", "result", "error")
@@ -208,11 +231,12 @@ class WorkerState:
 
     def _create(self, pid: str) -> Any:
         m = self.cfg.providers[pid]
-        module_name, _, cls_name = (m.impl or "").partition(":")
-        cls = getattr(importlib.import_module(module_name), cls_name)
-        inst = cls(m)
-        if hasattr(inst, "load"):
-            inst.load(self.ctx(pid, dict(m.params)))
+        with _LOAD_LOCK:  # one load at a time in this process (see _LOAD_LOCK)
+            module_name, _, cls_name = (m.impl or "").partition(":")
+            cls = getattr(importlib.import_module(module_name), cls_name)
+            inst = cls(m)
+            if hasattr(inst, "load"):
+                inst.load(self.ctx(pid, dict(m.params)))
         return inst
 
     def preload(self, pid: str) -> None:
@@ -372,6 +396,7 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
 
     cfg = load_config(a.config_dir)
+    _eager_imports()  # before the server and preload threads start (see _LOAD_LOCK)
     state = WorkerState(
         a.env, [p for p in a.providers.split(",") if p], cfg, CAS(Path(a.workspace) / "cas")
     )

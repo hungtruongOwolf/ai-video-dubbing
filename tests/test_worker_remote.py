@@ -628,3 +628,34 @@ def test_one_analysis_at_a_time_and_released_on_failure(cfg, tmp_path, monkeypat
     # every analysis started only after the previous one ended
     order = [e.split()[0] for e in events]
     assert order == ["start", "analysed"] * 3
+
+
+def test_two_threads_never_load_models_at_once(monkeypatch):
+    import threading
+    import time as _time
+
+    from dub.worker import server as ws
+
+    active, peak = [0], [0]
+
+    class Slow:
+        def __init__(self, m):
+            pass
+
+        def load(self, ctx):
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+            _time.sleep(0.05)
+            active[0] -= 1
+
+    monkeypatch.setattr(ws.importlib, "import_module", lambda name: type("M", (), {"C": Slow}))
+    state = ws.WorkerState.__new__(ws.WorkerState)
+    manifest = type("Man", (), {"impl": "x:C", "params": {}})()
+    state.cfg = type("Cfg", (), {"providers": {"a": manifest}})()
+    monkeypatch.setattr(ws.WorkerState, "ctx", lambda self, pid, params: None)
+    threads = [threading.Thread(target=state._create, args=("a",)) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert peak[0] == 1
