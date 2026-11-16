@@ -832,6 +832,7 @@ async def run_job(
     # unit id -> each wording voiced for it: variant, length, fill, rate, QA, the decision
     wordings: dict[str, list[dict[str, Any]]] = {}
     phrased: dict[str, PhraseRes] = {}  # lines re-timed to their actor's pauses
+    phrase_reverted: list[str] = []  # ...whose re-timed take the back-check no longer heard
     levels: dict[str, LineLevel] = {}  # unit id -> its level and the original's (mix gains)
     by_id = {u.id: u for u in units}
     backchecks: list[asyncio.Task] = []
@@ -1128,6 +1129,7 @@ async def run_job(
                 )
                 trims[u.id] = trimmed
                 pieces: list[tuple[int, int, int, int]] = []
+                heard_again: list[Word] | None = None
                 if t.phrase_align and not ue.is_protected(u.id):
                     # the take pauses where its actor pauses (dub.ops.phrases)
                     actor = [
@@ -1144,6 +1146,15 @@ async def run_job(
                                   engine=engine),
                         PhraseRes, subject=u.id,
                     )  # fmt: skip
+                    if ph.pieces and qa is not None and qa.passed:
+                        # heard again as re-timed: a take heard right stays heard right, or
+                        # the line keeps its take as it was
+                        qa2, heard_again = await qa_take(u, ph.audio_key, text)
+                        if not qa2.passed:
+                            phrase_reverted.append(u.id)
+                            ph = PhraseRes(audio_key=stretched.audio_key, dur_ms=stretched.dur_ms)
+                        else:
+                            qa = qa2
                     if ph.pieces:
                         phrased[u.id] = ph
                         pieces = ph.pieces
@@ -1151,7 +1162,9 @@ async def run_job(
                 if qa is not None:
                     qas[u.id] = qa
                     words = _scale(check_words, 1 / max(fit.stretch, 1e-6))
-                    if pieces:
+                    if pieces and heard_again is not None:
+                        words = heard_again
+                    elif pieces:
                         words = [w.model_copy(update={
                             "start_ms": round(phrase_ops.warp(pieces, w.start_ms)),
                             "end_ms": round(phrase_ops.warp(pieces, w.end_ms)),
@@ -1342,6 +1355,8 @@ async def run_job(
         metrics["phrase_lines"] = len(phrased)
         metrics["phrase_pauses_matched"] = sum(p.matched for p in phrased.values())
         metrics["phrase_pauses_shortened"] = sum(p.shortened for p in phrased.values())
+    if phrase_reverted:
+        metrics["phrase_reverted"] = len(phrase_reverted)
     metrics.update({f"speakers_{k}": v for k, v in speaker_stats.items()
                     if k not in ("names", "kinds", "auto_original", "unsure_spans")})  # fmt: skip
     if "auto_original" in speaker_stats:
