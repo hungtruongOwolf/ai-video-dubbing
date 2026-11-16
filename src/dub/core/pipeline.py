@@ -1054,12 +1054,13 @@ async def run_job(
                         # never trade a take that fits its slot for one that overruns it (a
                         # fuller wording for an underfilled line overran on 5 drama lines)
                         overruns = "overflow" in alt_fit.flags and "overflow" not in fit.flags
-                        # a take heard right is replaced only by one closer to its slot's
-                        # length: fuller wordings for underfilled lines ran past the slot on
-                        # 14 drama lines (fill > 1.2, against 5)
-                        alt_fill = (alt_fit.end_ms - alt_fit.start_ms) / max(1, u.slot_ms)
-                        cur_fill = (fit.end_ms - fit.start_ms) / max(1, u.slot_ms)
-                        farther = abs(alt_fill - 1) > abs(cur_fill - 1) + FILL_TOL
+                        # a take heard right is replaced only by one about as close to its
+                        # slot's length (fuller wordings for underfilled lines ran past the
+                        # slot on 14 drama lines, against 5). In milliseconds, as the eye
+                        # sees it: in ratios, "Có sữa?" 100 ms past a 420 ms slot (1.24) had
+                        # lost to "Sữa?" 70 ms short of it
+                        farther = _farther(alt_fit.end_ms - alt_fit.start_ms,
+                                           fit.end_ms - fit.start_ms, u.slot_ms)  # fmt: skip
                         if best[0] is not None and best[0].passed and farther:
                             overruns = True
                         if not overruns and _prefer_take(alt_best[0], alt_fit.rate, best[0],
@@ -1480,7 +1481,13 @@ REF_CANDIDATES = 3  # reference clips tried per speaker (M8)
 NO_REWRITE_UNITS = 3  # lines this short are never shortened by the LLM (M8)
 REF_TEXT_OK = 0.15  # a clip heard within this CER of its line's text is clean
 VARIANT_ORDER = {"short": 0, "target": 1, "long": 2}  # the translator's wordings, by length
-FILL_TOL = 0.05  # a wording replaces a good take only when its fill is this much closer to 1
+SYNC_TOL_MS = 150  # lip sync off by less than this goes unseen (the usual 100-200 ms)
+
+
+def _farther(new_ms: int, cur_ms: int, slot_ms: int) -> bool:
+    """Is a take of `new_ms` farther from its slot's length than one of `cur_ms`, by more than
+    the eye sees? Then a fuller wording does not replace a take heard right."""
+    return abs(new_ms - slot_ms) > abs(cur_ms - slot_ms) + SYNC_TOL_MS
 
 
 def _worse_rewrite(before: qa_ops.QaResult | None, after: qa_ops.QaResult | None) -> bool:

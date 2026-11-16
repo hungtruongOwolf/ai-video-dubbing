@@ -217,3 +217,12 @@ def test_a_final_particle_swapped_by_the_back_check_is_heard_right():
     assert not judge("Nó ăn được à?", words, " ", None, None, None, QaLimits()).passed
     assert judge("Nó ăn được à?", words, " ", None, None, None, QaLimits(),
                  particles=groups).passed  # fmt: skip
+
+
+def test_a_fuller_wording_is_judged_by_its_sync_error_in_milliseconds():
+    from dub.core.pipeline import _farther
+
+    assert not _farther(520, 350, 420)  # "Có sữa?" 100 ms over vs "Sữa?" 70 ms short
+    assert not _farther(1160, 860, 960)  # 200 ms over vs 100 ms short
+    assert _farther(1160, 670, 830)  # "Sữa tôi đặc, nhiều." 330 ms over vs 160 ms short
+    assert _farther(1410, 620, 840)  # "Tiền đâu ra thế?" 570 ms over
