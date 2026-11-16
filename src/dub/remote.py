@@ -185,6 +185,9 @@ class Runpod:
         return {str(s.get("name")) for s in items or [] if isinstance(s, dict)}
 
 
+PROXY_RETRY_S = (2, 4, 8, 16, 30, None)  # waits between tries; None: the last try
+
+
 class Dubd:
     """Client for dubd on the pod."""
 
@@ -210,9 +213,16 @@ class Dubd:
         if body is not None:
             headers["Content-Type"] = "application/json"
             data = json.dumps(body).encode("utf-8")
-        code, raw = _request(
-            method, f"{self.url}{path}", headers=headers, data=data, timeout=timeout
-        )
+        for wait in PROXY_RETRY_S:
+            code, raw = _request(
+                method, f"{self.url}{path}", headers=headers, data=data, timeout=timeout
+            )
+            # dubd answers every request with JSON; an empty 404 is the Runpod proxy, which
+            # has no route to the container for a few seconds after a restart (a job submitted
+            # just after `dub up` updated the code failed so): the request never reached dubd
+            if not (code == 404 and not raw.strip()) or wait is None:
+                break
+            time.sleep(wait)
         if code >= 400:
             raise RemoteError(f"dubd {method} {path} -> HTTP {code}: {raw[:300]!r}")
         return json.loads(raw)

@@ -43,3 +43,14 @@ def test_a_pod_on_this_code_is_used_as_it_is(pod, tmp_path):
     _state(tmp_path, "dev")  # a dubd started by hand
     assert runner._pod_in_background(opts, ws, lambda m: None).result().ref == "dev"
     assert calls == []
+
+
+def test_an_empty_404_from_the_proxy_is_tried_again(monkeypatch):
+    answers = [(404, b""), (404, b""), (200, b'{"job_id": "j"}')]
+    monkeypatch.setattr(remote, "_request", lambda *a, **k: answers.pop(0))
+    monkeypatch.setattr(remote.time, "sleep", lambda s: None)
+    assert remote.Dubd("http://x", "t")._json("POST", "/jobs", {}) == {"job_id": "j"}
+    # dubd's own 404 (with a JSON body) is an answer, not a proxy hiccup
+    answers[:] = [(404, b'{"error": "no route /x"}'), (200, b"{}")]
+    with pytest.raises(remote.RemoteError):
+        remote.Dubd("http://x", "t")._json("POST", "/x", {})
