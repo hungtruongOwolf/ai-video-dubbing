@@ -30,7 +30,7 @@ ffmpeg -c:v copy: mux into the original video
 
 | Phase | Steps | Notes |
 |---|---|---|
-| A: analysis | decode → separate ∥ ASR → diarize (ECAPA) → (several speakers: ASR again, turn by turn) → VAD on the vocals → boundary probabilities (SaT) → segment → speaker embedding + purity per unit → reference voice per speaker | whole file; GPU-bound |
+| A: analysis | decode → separate ∥ ASR → diarize (ECAPA) → (several speakers: ASR again, turn by turn) → VAD on the vocals → boundary probabilities (SaT) → segment → speaker embedding + purity per unit → reference voice per speaker, a pool of clean clips per speaker and the delivery (pitch, range, level, voicing) of every line (M12) | whole file; GPU-bound |
 | Barrier | `mt.context`: one LLM pass over the whole transcript, then the user's cast corrections | summary, glossary, **cast sheet**; `--confirm-cast` stops here |
 | B: per unit | translate windows → forms-of-address check (re-translate flagged windows) → TTS takes → trim → QA gate (back-check ASR + voice) → timing fit → stretch | units run concurrently |
 | Tail | 30 s mix tiles → subtitles timed on the dub; on export: concat → loudness → AAC → (laptop) mux | tiles are cached one by one |

@@ -28,6 +28,7 @@ Any language pair, in any direction.
 | **M9** Faster runs, better lines | VieNeu loaded with the pod and workers serving while they load (cartoon job 175 s -> 71 s, drama voicing 227 s -> 95 s); speakers read 3 times and voted, on Fable (B-cubed F1 0.71 -> 0.78); laughs and cries keep the original; wordings measured, not predicted; drama QA passed 0.90 -> 0.99 | **done** |
 | **M10** Expert review | Seven reviewers read the code: voicing 87.8 s -> 74.5 s on the same lines, several videos on one pod, laughs/cries/screams between lines kept without leaking the source language, stems that add up, prompts v2 (preferred ~55% by blind judges), short lines that fill their slots | **done** |
 | **M11** Phrase timing | The dub pauses where the actor pauses: each take cut at its silences and re-timed to the actor's phrases, heard again before it is kept (drama: dub silent while the actor speaks 112 -> 63 windows; cartoon 15 -> 10) | **done** |
+| **M12** Voices by delivery | Each line cloned from the speaker's clean clip closest to its own delivery (pitch, range, level, voicing): on the drama the dub's pitch follows the source (correlation -0.10 -> 0.46, spread 0.26 -> 0.81 of the source's), QA passed 0.966 -> 0.978 | **done** |
 
 Details: [docs/roadmap.md](docs/roadmap.md).
 

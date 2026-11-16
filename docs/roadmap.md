@@ -307,3 +307,14 @@ Write-up: [m11-phrase-timing.md](m11-phrase-timing.md).
   read as the same by QA, a misheard rewrite never replaces a good take, `dub run` updates a
   pod on older code
 - [ ] Not done: cut points between words, phrase-aware translation
+
+## M12: Voices by delivery (done)
+
+Write-up: [m12-emotion-refs.md](m12-emotion-refs.md).
+
+- [x] A pool of clean clips per speaker; each line voiced from the clip closest to its own
+  delivery (pitch, range, level, voicing): drama pitch correlation with the source -0.10 ->
+  0.46, pitch spread 0.26 -> 0.81 of the source's, QA passed 0.966 -> 0.978
+- [x] Prosody agreement measured in every job (`prosody_*` in metrics.json)
+- [x] Worker processes load one model at a time (a thread race broke OmniVoice)
+- [ ] Not done: a learned emotion embedding, pitch range and level that follow the source

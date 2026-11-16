@@ -1445,6 +1445,7 @@ async def run_job(
         addr,
         _unsure_units(units, speaker_stats.get("unsure_spans", [])),
         wordings,
+        {uid: r.unit_id or r.audio_key for uid, r in line_refs.items()},
     )
     log(f"      {summary}")
     # the voice references used (clip key, transcript): review, experiments, re-voicing
@@ -2218,6 +2219,7 @@ def _write_outputs(
     addr,
     speaker_unsure: set[str] | None = None,
     wordings: dict[str, list[dict[str, Any]]] | None = None,
+    voice_refs: dict[str, str] | None = None,
 ) -> str:
     tracer.save(job_dir / "trace.json")
     with open(job_dir / "routes.jsonl", "w", encoding="utf-8") as f:
@@ -2251,6 +2253,8 @@ def _write_outputs(
                 "purity": purity.get(u.id),
                 "address_issue": addr.get(u.id),
                 "wordings": (wordings or {}).get(u.id),
+                # M12: the line whose delivery take 0 was cloned from (None: the usual voice)
+                "voice_ref": (voice_refs or {}).get(u.id),
             }
         )
     (job_dir / "tiles.json").write_text(

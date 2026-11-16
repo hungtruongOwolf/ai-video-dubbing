@@ -204,7 +204,7 @@ pauses, which is not done.
   benchmarks).
 - Reference clips chosen per line by emotion: every line is cloned from one clip, and in the
   drama that clip was a grieving line. Line-to-line pitch spread in the dub is 1/3 to 1/6 of
-  the source's.
+  the source's. Done in M12 ([m12-emotion-refs.md](m12-emotion-refs.md)).
 - A speaker embedding that does not confuse language with identity (ERes2NetV2).
 - Envs on the container disk; splitting `pipeline.py`.
 - A listening page for blind A/B.
