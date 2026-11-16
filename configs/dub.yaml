@@ -20,6 +20,9 @@ timing:
   min_pause_ms: 120
   tail_guard_ms: 150
   strict: false
+  phrase_align: true           # M11: the take pauses where its actor pauses (ops/phrases.py)
+  phrase_pause_ms: 250         # the actor's pauses shorter than this are not pauses
+  phrase_rate: [0.87, 1.15]    # how much a piece of the take may be slowed down / sped up
 
 # QA gate for every dubbed take (see src/dub/ops/qa.py). Final renders try up to `takes` seeds.
 qa:

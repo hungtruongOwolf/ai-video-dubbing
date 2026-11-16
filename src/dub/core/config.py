@@ -175,6 +175,11 @@ class TimingCfg(Cfg):
     min_pause_ms: int = 120  # minimum pause kept between two lines
     tail_guard_ms: int = 150  # space kept before the next line
     strict: bool = False  # tightly synced content: halve the borrowing limits
+    # M11: a take pauses where its actor pauses (dub.ops.phrases): pieces of the take cut at
+    # its silences, each sped up or slowed down within phrase_rate
+    phrase_align: bool = True
+    phrase_pause_ms: int = 250  # the actor's pauses shorter than this are not pauses
+    phrase_rate: tuple[float, float] = (0.87, 1.15)
 
 
 class QaCfg(Cfg):

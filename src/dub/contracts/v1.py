@@ -536,6 +536,28 @@ class AudioRes(Model):
     dur_ms: int
 
 
+class PhraseReq(Model):
+    """Re-time a placed take to its actor's phrases (dub.ops.phrases). Times in ms from the
+    start of the take as placed."""
+
+    audio_key: str
+    actor: list[tuple[int, int]]  # the actor's speech regions inside the slot
+    end_max_ms: int  # the take never ends later than this
+    pause_ms: int = 250  # actor pauses shorter than this are not pauses
+    cut_ms: int = 80  # silences of the take shorter than this are not cut points
+    rate_lo: float = 0.87
+    rate_hi: float = 1.15
+    engine: str = "atempo"  # atempo | rubberband
+
+
+class PhraseRes(Model):
+    audio_key: str  # the same key when nothing changed
+    dur_ms: int
+    matched: int = 0  # actor pauses the take now pauses at
+    shortened: int = 0  # pauses of the take the actor speaks through, shortened
+    pieces: list[tuple[int, int, int, int]] = []  # (take from, take to, plays from, plays to)
+
+
 class AudioReq(Model):
     audio_key: str
 

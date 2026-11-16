@@ -50,6 +50,8 @@ from dub.contracts.v1 import (
     LineLevelReq,
     MasterReq,
     MediaInfo,
+    PhraseReq,
+    PhraseRes,
     Placement,
     RebalanceReq,
     RefBank,
@@ -100,6 +102,7 @@ from dub.ops import level as level_ops
 from dub.ops import media as media_ops
 from dub.ops import mix as mix_ops
 from dub.ops import nonverbal as nonverbal_ops
+from dub.ops import phrases as phrase_ops
 from dub.ops import qa as qa_ops
 from dub.ops import refs as refs_ops
 from dub.ops import risk as risk_ops
@@ -828,6 +831,7 @@ async def run_job(
     trims: dict[str, TrimRes] = {}
     # unit id -> each wording voiced for it: variant, length, fill, rate, QA, the decision
     wordings: dict[str, list[dict[str, Any]]] = {}
+    phrased: dict[str, PhraseRes] = {}  # lines re-timed to their actor's pauses
     levels: dict[str, LineLevel] = {}  # unit id -> its level and the original's (mix gains)
     by_id = {u.id: u for u in units}
     backchecks: list[asyncio.Task] = []
@@ -1123,11 +1127,36 @@ async def run_job(
                     subject=u.id,
                 )
                 trims[u.id] = trimmed
+                pieces: list[tuple[int, int, int, int]] = []
+                if t.phrase_align and not ue.is_protected(u.id):
+                    # the take pauses where its actor pauses (dub.ops.phrases)
+                    actor = [
+                        (max(a, u.start_ms) - fit.start_ms, min(b, u.end_ms) - fit.start_ms)
+                        for a, b in speech.regions
+                        if a < u.end_ms and b > u.start_ms
+                    ]
+                    end_max = max(fit.start_ms + stretched.dur_ms, u.end_ms) - fit.start_ms
+                    ph: PhraseRes = await cx.local(
+                        "audio.phrases", phrase_ops.align,
+                        PhraseReq(audio_key=stretched.audio_key, actor=actor,
+                                  end_max_ms=end_max, pause_ms=t.phrase_pause_ms,
+                                  rate_lo=t.phrase_rate[0], rate_hi=t.phrase_rate[1],
+                                  engine=engine),
+                        PhraseRes, subject=u.id,
+                    )  # fmt: skip
+                    if ph.pieces:
+                        phrased[u.id] = ph
+                        pieces = ph.pieces
+                        stretched = AudioRes(audio_key=ph.audio_key, dur_ms=ph.dur_ms)
                 if qa is not None:
                     qas[u.id] = qa
-                    checks[u.id] = WordTimeline(
-                        lang=spec.tgt_lang, words=_scale(check_words, 1 / max(fit.stretch, 1e-6))
-                    )
+                    words = _scale(check_words, 1 / max(fit.stretch, 1e-6))
+                    if pieces:
+                        words = [w.model_copy(update={
+                            "start_ms": round(phrase_ops.warp(pieces, w.start_ms)),
+                            "end_ms": round(phrase_ops.warp(pieces, w.end_ms)),
+                        }) for w in words]  # fmt: skip
+                    checks[u.id] = WordTimeline(lang=spec.tgt_lang, words=words)
             if cfg.dub.mix.match_level:  # its level and the original's (gains at the end)
                 levels[u.id] = await cx.local(
                     "audio.line_level",
@@ -1144,6 +1173,8 @@ async def run_job(
                 flags.append("address")
             if qa is not None and not qa.passed:
                 flags.append("qa_failed")
+            if u.id in phrased:
+                flags.append("phrases")
             return Placement(
                 unit_id=u.id,
                 speaker=u.speaker,
@@ -1307,6 +1338,10 @@ async def run_job(
     metrics.update(level_stats)
     metrics.update(hardsub_stats)
     metrics.update(nonverbal_stats)
+    if phrased:
+        metrics["phrase_lines"] = len(phrased)
+        metrics["phrase_pauses_matched"] = sum(p.matched for p in phrased.values())
+        metrics["phrase_pauses_shortened"] = sum(p.shortened for p in phrased.values())
     metrics.update({f"speakers_{k}": v for k, v in speaker_stats.items()
                     if k not in ("names", "kinds", "auto_original", "unsure_spans")})  # fmt: skip
     if "auto_original" in speaker_stats:
