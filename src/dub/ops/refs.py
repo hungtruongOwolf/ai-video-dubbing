@@ -18,7 +18,8 @@ language in the dub. So:
 - the pipeline transcribes the cut clip again (pipeline._retranscribe_refs), so the text is
   what the clip says, not what the unit said.
 With `styles` > 0 (M12), each speaker also gets up to that many clean clips of 2-10 s, the
-most typical first: same purity and neighbour rules, same edges. The pipeline voices each line
+most typical first: same purity rule; a line next to another speaker's is cut inside its own
+edges instead of being left out. The pipeline voices each line
 from the one whose delivery is closest to the line's own (dub.ops.prosody).
 
 A speaker with no 3-10 s unit (a minor character in a drama) gets several of their own clean
@@ -110,8 +111,9 @@ def _quiet_edge(power: np.ndarray, lo: int, hi: int, prefer: int) -> int:
     return int(best[np.argmin(np.abs(best - prefer))])
 
 
-def _clip(vocals, start_ms: int, end_ms: int, max_ms: int) -> np.ndarray:
-    """The unit's audio (mono, 48 kHz) with both edges moved to quiet frames."""
+def _clip(vocals, start_ms: int, end_ms: int, max_ms: int, out_ms: int = EDGE_OUT_MS) -> np.ndarray:
+    """The unit's audio (mono, 48 kHz) with both edges moved to quiet frames, looking up to
+    `out_ms` outside the unit (0: never past its edges, where a neighbour's voice may be)."""
     a = max(0, start_ms - EDGE_OUT_MS)
     audio, sr = read_wav_range(
         vocals, int(a * SR_IN / 1000), int((end_ms + EDGE_OUT_MS - a) * SR_IN / 1000)
@@ -125,9 +127,9 @@ def _clip(vocals, start_ms: int, end_ms: int, max_ms: int) -> np.ndarray:
         return mono
     power = (mono[: k * n].astype(np.float64).reshape(k, n) ** 2).mean(axis=1)
     f = lambda ms: (ms - a) // FRAME_MS  # noqa: E731 - frame index of a time
-    s = _quiet_edge(power, f(start_ms - EDGE_OUT_MS), f(start_ms + EDGE_IN_MS), f(start_ms))
+    s = _quiet_edge(power, f(start_ms - out_ms), f(start_ms + EDGE_IN_MS), f(start_ms))
     e_ms = min(end_ms, start_ms + max_ms)
-    e = _quiet_edge(power, f(e_ms - EDGE_IN_MS), f(e_ms + EDGE_OUT_MS) + 1, f(e_ms)) + 1
+    e = _quiet_edge(power, f(e_ms - EDGE_IN_MS), f(e_ms + out_ms) + 1, f(e_ms)) + 1
     return mono[s * n : max(e, s + 1) * n]
 
 
@@ -198,11 +200,15 @@ def extract_refs(req: RefsReq, cas: CAS) -> RefBank:
         ranked = _rank(units, req.min_ms, req.max_ms, sims, req.purity, crowded)
         if req.styles > 0:
             vocals = cas.path(req.vocals_key)
+            # a line next to another speaker's is cut inside its own edges (in a dialogue nearly
+            # every line is: the drama's pool held 3 clips out of 41); the pipeline drops any
+            # clip whose transcript is not its line's (another voice in it)
             clean = [u for u in _rank(units, req.style_min_ms, req.max_ms, sims, req.purity,
-                                      crowded)
-                     if u.id not in crowded and req.purity.get(u.id, 1.0) >= 0.95]  # fmt: skip
+                                      crowded) if req.purity.get(u.id, 1.0) >= 0.95]  # fmt: skip
             for u in clean[: req.styles]:
-                ref = _write(cas, _clip(vocals, u.start_ms, u.end_ms, req.max_ms), speaker, u.text)
+                out = 0 if u.id in crowded else EDGE_OUT_MS
+                ref = _write(cas, _clip(vocals, u.start_ms, u.end_ms, req.max_ms, out), speaker,
+                             u.text)  # fmt: skip
                 styles.append(ref.model_copy(update={
                     **extra, "sim": round(sims.get(u.id, 0.0), 4), "unit_id": u.id}))  # fmt: skip
         if not ranked:

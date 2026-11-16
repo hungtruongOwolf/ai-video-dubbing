@@ -119,3 +119,28 @@ def test_the_delivery_pool_survives_the_reference_transcripts():
     out = asyncio.run(_retranscribe_refs(Cx(), RefBank(refs=[ref], styles=pool), "zh", "",
                                          lambda m: None))  # fmt: skip
     assert out.styles == pool  # the first run of M12 lost them here: no line got its delivery
+
+
+def test_a_line_next_to_another_speakers_is_cut_inside_its_edges(tmp_path):
+    from dub.ops.refs import extract_refs
+
+    cas = CAS(tmp_path / "cas")
+    sr = 48000
+    x = np.zeros(sr * 12, dtype=np.float32)
+    x[int(3.9 * sr) : int(4.0 * sr)] = 0.5  # the other speaker, 100 ms before u1
+    wav = tmp_path / "v.wav"
+    write_wav(wav, x, sr)
+    key = cas.put_file(wav)
+    units = [
+        Unit(id="u0", speaker="S2", sentence_ids=[], start_ms=3800, end_ms=3990, text="x",
+             n_words=1, asr_conf=0.9),
+        Unit(id="u1", speaker="S1", sentence_ids=[], start_ms=4100, end_ms=7100, text="a b c",
+             n_words=3, asr_conf=0.9),
+    ]  # fmt: skip
+    bank = extract_refs(RefsReq(vocals_key=key, units=units, styles=12), cas)
+    s1 = [r for r in bank.styles if r.speaker == "S1"]
+    assert len(s1) == 1  # kept in the pool
+    from dub.ops.audio_io import read_wav
+
+    clip, _ = read_wav(cas.path(s1[0].audio_key))
+    assert np.abs(clip).max() < 0.01  # and nothing of S2's voice, 100 ms before it, in it
