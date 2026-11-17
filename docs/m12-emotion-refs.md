@@ -80,7 +80,8 @@ What it costs:
 ## Not done
 
 - **A learned emotion embedding** (emotion2vec and the like) instead of four prosodic
-  features. It would see anger vs joy at the same pitch.
+  features. It would see anger vs joy at the same pitch. Done in M13
+  ([m13-emotion2vec.md](m13-emotion2vec.md)).
 - **The pool from more than the speaker's clean lines.** A minor character with no 2-10 s
   line keeps one voice.
 - **Pitch range and level** still do not follow the source. The clip sets the mood; the

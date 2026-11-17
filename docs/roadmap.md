@@ -318,3 +318,14 @@ Write-up: [m12-emotion-refs.md](m12-emotion-refs.md).
 - [x] Prosody agreement measured in every job (`prosody_*` in metrics.json)
 - [x] Worker processes load one model at a time (a thread race broke OmniVoice)
 - [ ] Not done: a learned emotion embedding, pitch range and level that follow the source
+
+## M13: Emotion from emotion2vec (done)
+
+Write-up: [m13-emotion2vec.md](m13-emotion2vec.md).
+
+- [x] `audio.emotion`: emotion2vec+ large through FunASR, in its own env and worker
+- [x] Each line's clip picked by prosody, emotion or both (`voice.style_by`, default both):
+  on the drama emotion agreement 0.17 -> 0.24 at the same pitch agreement (0.45) and no new
+  QA failure; emotion alone failed 3 more lines
+- [x] Emotion agreement measured in every job (`emotion_cos`, `emotion_label_match`)
+- [ ] Not done: a blind listening test of the modes, emotion in the QA gate

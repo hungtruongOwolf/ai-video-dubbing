@@ -253,7 +253,7 @@ class VoiceCfg(Cfg):
     # M13: what "closest delivery" means: prosody (pitch, range, level, voicing), emotion
     # (emotion2vec embeddings) or both; in the last two a clip must beat the usual reference
     # by style_margin_rel (median units)
-    style_by: str = "prosody"
+    style_by: str = "both"  # M13 A/B: see docs/m13-emotion2vec.md
     style_margin_rel: float = 0.25
 
 

@@ -54,6 +54,11 @@ voice:
   emotion_refs: true
   styles: 12
   style_margin: 0.5
+  # M13: "closest delivery" by prosody, emotion (emotion2vec+ embeddings) or both. A/B on the
+  # drama: both keeps prosody's pitch agreement (0.45 vs 0.46) and adds emotion agreement
+  # (0.17 -> 0.24) without a new QA failure; emotion alone failed 3 more lines.
+  style_by: both
+  style_margin_rel: 0.25       # emotion / both: a clip must beat the usual one by this (median units)
 
 # Who says each line: the LLM reads the script this many times (concurrently) and each line
 # goes to the character most readings give it; lines the readings disagree on are flagged.
